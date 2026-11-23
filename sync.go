@@ -1,0 +1,563 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"regexp"
+	"slices"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+	"golang.org/x/crypto/bcrypt"
+)
+
+type data struct {
+	Lines                                                                                                                                    []position        `json:",omitempty"`
+	Allocations                                                                                                                              map[string]int64  `json:",omitempty"`
+	Fields                                                                                                                                   map[string]string `json:",omitempty"`
+	Label, Date, Bar, Wallet, Account, To, Contact, Method, Category, Reference, Note, Phase, Address, Unit, Variant, Status, Filename, File string
+	Amount                                                                                                                                   *int64
+	Pieces                                                                                                                                   map[string]int64
+	Number                                                                                                                                   int64
+	PDF, DOCX                                                                                                                                string
+}
+type op struct {
+	ID, Target, Kind string
+	Seq, Base        int64
+	Data             data
+}
+type row struct {
+	ID, Kind, Device string
+	Revision         int64
+	Data             data
+}
+type clash struct {
+	ID, Target, Kind string
+	Data             data
+}
+type request struct {
+	Prints                          []printLog
+	Ops                             []op
+	Resolve, Choice, Reason, Action string
+	Last                            int64
+}
+
+var key = regexp.MustCompile("^[a-zA-Z0-9_.:-]{1,160}$")
+var idPattern = regexp.MustCompile("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+var kinds = strings.Fields("income expense transfer outlay reimbursement card fee payout donation sponsorship payment presale price contact bar wallet shift count plan supply skim return opening actual period template attachment original organization handover import-source account paper reserve")
+var money = strings.Fields("income expense transfer outlay reimbursement card fee payout donation sponsorship payment presale price supply skim return opening actual")
+var denoms = map[string]int64{"20000": 20000, "10000": 10000, "5000": 5000, "2000": 2000, "1000": 1000, "500": 500, "200": 200, "100": 100, "50": 50, "20": 20, "10": 10, "5": 5, "2": 2, "1": 1}
+
+func validate(o op, accounts bool) error {
+	v := o.Data
+	if len(v.Lines) > 0 {
+		amount, err := amountPositions(v.Lines)
+		if err != nil {
+			return err
+		}
+		if o.Kind != "sponsorship" || v.Amount == nil || amount != *v.Amount {
+			return fail("Positionssumme stimmt nicht.")
+		}
+	}
+	if len(v.Allocations) > 100 || len(v.Allocations) > 0 && o.Kind != "reimbursement" {
+		return fail("Ungültige Erstattungszuordnung.")
+	}
+	if len(v.Fields) > 35 {
+		return fail("Zu viele Zusatzfelder.")
+	}
+	for k, value := range v.Fields {
+		if !key.MatchString(k) || len(value) > 8000 {
+			return fail("Ungültiges Zusatzfeld.")
+		}
+	}
+	if o.Kind == "price" && v.Status != "" && v.Status != "Entwurf" && v.Status != "Freigegeben" {
+		return fail("Preisstatus ungültig.")
+	}
+	if o.Kind == "price" && v.Status == "Freigegeben" && (strings.TrimSpace(v.Unit) == "" || v.Category == "") {
+		return fail("Einheit und Sortiment vor Freigabe klären.")
+	}
+	if o.Kind == "organization" && o.Target != "organization" {
+		return fail("Organisationsprofil ungültig.")
+	}
+	if !key.MatchString(o.Target) || !idPattern.MatchString(o.ID) || o.Seq < 1 || o.Base < 0 || !slices.Contains(kinds, o.Kind) || len(strings.TrimSpace(v.Label)) == 0 || len(v.Label) > 200 || !date(v.Date) {
+		return fail("Vorgangsart, Bezeichnung, Datum oder Kennung ungültig.")
+	}
+	if slices.Contains(money, o.Kind) && (v.Amount == nil || *v.Amount < 0 || *v.Amount > 999999999999) {
+		return fail("Gültigen Centbetrag angeben.")
+	}
+	if o.Base > 0 && len(strings.TrimSpace(v.Note)) < 3 {
+		return fail("Änderung begründen.")
+	}
+	if accounts && slices.Contains(strings.Fields("income expense reimbursement fee card payout donation payment presale"), o.Kind) && v.Account == "" {
+		return fail("Kontozuordnung fehlt.")
+	}
+	if slices.Contains([]string{"transfer", "payout", "skim", "supply", "return"}, o.Kind) && (v.Account == "" || v.To == "" || v.To == v.Account) {
+		return fail("Verschiedene Quell- und Zielkonten angeben.")
+	}
+	if o.Kind == "count" || o.Kind == "plan" || o.Kind == "reserve" {
+		if o.Kind == "reserve" && (o.Target != "coinreserve" || v.Wallet != "" || v.Bar != "") {
+			return fail("Wechselgeldbestand wird zentral erfasst.")
+		}
+		if (o.Kind != "reserve" && (v.Wallet == "" || !slices.Contains([]string{"Anfang", "Zwischenstand", "Ende"}, v.Phase))) || v.Pieces == nil {
+			return fail("Geldtasche, Zählphase und Stückelung angeben.")
+		}
+		var total int64
+		for k, n := range v.Pieces {
+			c, ok := denoms[k]
+			if !ok || n < 0 || n > 1000000 {
+				return fail("Ungültige Stückelung.")
+			}
+			total += c * n
+		}
+		if v.Amount == nil || *v.Amount != total {
+			return fail("Zählsumme stimmt nicht.")
+		}
+		phase := v.Phase
+		if observation := v.Fields["observation"]; observation != "" {
+			if o.Kind != "count" || phase != "Zwischenstand" || !idPattern.MatchString(observation) {
+				return fail("Ungültige Zwischenbeobachtung.")
+			}
+			phase += "|" + observation
+		}
+		if o.Kind != "reserve" && o.Target != countKey(o.Kind, v.Wallet, phase) {
+			return fail("Kennung der Zählung ungültig.")
+		}
+	}
+	if o.Kind == "period" && (!date(v.To) || v.To < v.Date) {
+		return fail("Periodenende prüfen.")
+	}
+	if o.Kind == "original" && (v.Reference == "" || v.Number <= 0 || !strings.HasPrefix(v.PDF, "JVBER") || !strings.HasPrefix(v.DOCX, "UEsD") || o.Base != 0 || o.Target != "original:"+archiveKey(v)) {
+		return fail("Originaldateien oder Belegbezug ungültig.")
+	}
+	if o.Kind == "import-source" {
+		b, err := base64.StdEncoding.DecodeString(v.File)
+		if err != nil || len(b) == 0 || len(b) > 4<<20 || fmt.Sprintf("%x", hash(string(b))) != v.Reference || o.Target != "source:"+v.Reference || o.Base != 0 || v.Status == "D8" {
+			return fail("Importquelle oder Herkunft ungültig.")
+		}
+	}
+	if o.Kind == "organization" && v.File != "" {
+		b, err := base64.StdEncoding.DecodeString(v.File)
+		if err != nil || len(b) > 300000 || !bytes.HasPrefix(b, []byte{137, 80, 78, 71, 13, 10, 26, 10}) {
+			return fail("Organisationslogo ungültig.")
+		}
+	}
+	if o.Kind == "attachment" {
+		b, e := base64.StdEncoding.DecodeString(v.File)
+		if e != nil || len(b) > 4<<20 || !(bytes.HasPrefix(b, []byte("%PDF-")) || bytes.HasPrefix(b, []byte{0xff, 0xd8, 0xff}) || bytes.HasPrefix(b, []byte{137, 80, 78, 71, 13, 10, 26, 10})) {
+			return fail("Beleg muss PDF, JPEG oder PNG bis 4 MiB sein.")
+		}
+	}
+	return nil
+}
+func countKey(kind, wallet, phase string) string {
+	return fmt.Sprintf("%s:%x", kind, hash(wallet + "|" + phase)[:16])
+}
+func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
+	if o.Kind == "contact" {
+		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", o.Target); err != nil {
+			return "", err
+		}
+		if !d.Donor {
+			if o.Data.Fields["birth"] != "" {
+				return "", problem{403, "Freigabe für Meldedaten fehlt."}
+			}
+			var kept *string
+			err := tx.QueryRow(ctx, "SELECT data->'Fields'->>'birth' FROM directory WHERE id=$1", o.Target).Scan(&kept)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return "", err
+			}
+			if kept != nil {
+				if o.Data.Fields == nil {
+					o.Data.Fields = map[string]string{}
+				}
+				o.Data.Fields["birth"] = *kept
+			}
+		}
+		tag, err := tx.Exec(ctx, "INSERT INTO directory(id,revision,data,device) SELECT $1,1,$2,$3 WHERE $4::bigint=0 OR EXISTS(SELECT 1 FROM directory WHERE id=$1) ON CONFLICT(id) DO UPDATE SET revision=directory.revision+1,data=excluded.data WHERE directory.revision=$4", o.Target, o.Data, d.ID, o.Base)
+		if err != nil {
+			return "", err
+		}
+		if tag.RowsAffected() == 0 {
+			return "Konflikt", nil
+		}
+		return "Übernommen", nil
+	}
+	frozen, err := protectedPeriod(ctx, tx, d, o)
+	if err != nil {
+		return "", err
+	}
+	if frozen {
+		return "Konflikt", nil
+	}
+	var rev int64
+	var kind string
+	err = tx.QueryRow(ctx, "SELECT revision,kind FROM entries WHERE event=$1 AND id=$2", d.Event, o.Target).Scan(&rev, &kind)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	if rev != o.Base || rev > 0 && kind != o.Kind {
+		return "Konflikt", nil
+	}
+	ok, err := preconditions(ctx, tx, d, o)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "Konflikt", nil
+	}
+	if o.Kind == "original" {
+		v := o.Data
+		var owner string
+		err = tx.QueryRow(ctx, "SELECT device::text FROM entries WHERE event=$1 AND id=$2 AND kind IN ('sponsorship','payment','donation')", d.Event, v.Reference).Scan(&owner)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "Konflikt", nil
+		}
+		if err != nil || owner != d.ID || v.Number < d.Block*1000 || v.Number > d.Block*1000+999 {
+			return "", fail("Keine Ausstellungszuständigkeit oder Nummernreserve.")
+		}
+		pdf, doc, archiveErr := checkArchive(d, v)
+		if archiveErr != nil {
+			return "", archiveErr
+		}
+		previous, match, err := predecessor(ctx, tx, d, v)
+		if err != nil {
+			return "", err
+		}
+		if !match {
+			return "Konflikt", nil
+		}
+		_, err = tx.Exec(ctx, "INSERT INTO originals(event,subject,number,device,pdf,docx,snapshot,previous_number) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", d.Event, archiveKey(v), v.Number, d.ID, pdf, doc, v.Note, previous)
+		if err != nil {
+			return "", fail("Beleg oder Nummer bereits vergeben.")
+		}
+	}
+	allowed, err := checkReimbursements(ctx, tx, d, o)
+	if err != nil {
+		return "", err
+	}
+	if !allowed {
+		return "Konflikt", nil
+	}
+	if o.Kind == "payment" {
+		parent := "sponsorship"
+		var limit, paid int64
+		err = tx.QueryRow(ctx, "SELECT (data->>'Amount')::bigint FROM entries WHERE event=$1 AND id=$2 AND kind=$3", d.Event, o.Data.Reference, parent).Scan(&limit)
+		if err != nil {
+			return "Konflikt", nil
+		}
+		err = tx.QueryRow(ctx, "SELECT coalesce(sum((data->>'Amount')::bigint),0)::bigint FROM entries WHERE event=$1 AND kind=$2 AND data->>'Reference'=$3 AND id<>$4", d.Event, o.Kind, o.Data.Reference, o.Target).Scan(&paid)
+		if err != nil {
+			return "", err
+		}
+		if paid+*o.Data.Amount > limit {
+			return "Konflikt", nil
+		}
+	}
+	available, err := walletAuthority(ctx, tx, d, o)
+	if err != nil {
+		return "", err
+	}
+	if !available {
+		return "Konflikt", nil
+	}
+	if o.Kind == "wallet" {
+		owner := d.ID
+		if rev > 0 {
+			if err = tx.QueryRow(ctx, "SELECT coalesce(nullif(data->'Fields'->>'owner',''),device::text) FROM entries WHERE event=$1 AND id=$2", d.Event, o.Target).Scan(&owner); err != nil {
+				return "", err
+			}
+		}
+		if o.Data.Fields == nil {
+			o.Data.Fields = map[string]string{}
+		}
+		o.Data.Fields["owner"] = owner
+	}
+	if err = retainPrior(ctx, tx, d, o); err != nil {
+		return "", err
+	}
+	_, err = tx.Exec(ctx, "INSERT INTO entries(event,id,revision,device,kind,data) VALUES($1,$2,1,$3,$4,$5) ON CONFLICT(event,id) DO UPDATE SET revision=entries.revision+1,data=excluded.data", d.Event, o.Target, d.ID, o.Kind, o.Data)
+	return "Übernommen", err
+}
+func accept(ctx context.Context, tx pgx.Tx, d *device, o op) error {
+	raw, _ := json.Marshal(o)
+	digest := hash(string(raw))
+	var old []byte
+	var owner string
+	if !idPattern.MatchString(o.ID) {
+		return fail("Ungültige Vorgangs-ID.")
+	}
+	err := tx.QueryRow(ctx, "SELECT digest,device::text FROM operations WHERE id=$1", o.ID).Scan(&old, &owner)
+	if err == nil {
+		if owner != d.ID || subtle.ConstantTimeCompare(old, digest) != 1 {
+			return fail("Vorgangs-ID mit abweichendem Inhalt.")
+		}
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if d.Closed || d.Sealed || d.Role == "Prüfung" {
+		return problem{403, "Erfassung gesperrt."}
+	}
+	if o.Seq != d.Last+1 {
+		return fail("Gerätefolge unvollständig.")
+	}
+	if err = validate(o, d.Accounts); err != nil {
+		return err
+	}
+	if slices.Contains([]string{"opening", "period", "template", "organization", "import-source"}, o.Kind) && d.Role != "Leitung" {
+		return problem{403, "Leitungsrecht erforderlich."}
+	}
+	outcome, err := inspect(ctx, tx, *d, o)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, "INSERT INTO operations(id,event,device,seq,digest,target,base,kind,data,outcome) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", o.ID, d.Event, d.ID, o.Seq, digest, o.Target, o.Base, o.Kind, o.Data, outcome)
+	if err != nil {
+		return err
+	}
+	d.Last = o.Seq
+	return audit(ctx, tx, d.Event, d.User, outcome, o.ID)
+}
+func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
+	var q request
+	if err := read(r, &q); err != nil {
+		return nil, err
+	}
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	d, err := lock(ctx, tx, r)
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range q.Ops {
+		if err = accept(ctx, tx, &d, o); err != nil {
+			return nil, err
+		}
+	}
+	if err = acceptPrintLog(ctx, tx, d, q.Prints); err != nil {
+		return nil, err
+	}
+	if q.Resolve != "" {
+		if d.Role != "Leitung" || d.Closed || len(strings.TrimSpace(q.Reason)) < 3 {
+			return nil, fail("Klärung durch Leitung mit Begründung erforderlich.")
+		}
+		var o op
+		origin := d
+		err = tx.QueryRow(ctx, "SELECT o.id::text,o.target,o.kind,o.data,x.id::text,x.username,u.role,x.donor_access FROM operations o JOIN devices x ON x.id=o.device JOIN users u ON u.name=x.username WHERE o.id=$1 AND o.event=$2 AND o.outcome='Konflikt'", q.Resolve, d.Event).Scan(&o.ID, &o.Target, &o.Kind, &o.Data, &origin.ID, &origin.User, &origin.Role, &origin.Donor)
+		if err != nil {
+			return nil, fail("Konflikt bereits geklärt oder unbekannt.")
+		}
+		if q.Choice == "übernehmen" {
+			if o.Kind == "original" {
+				return nil, fail("Ein ausgestelltes Original bleibt unverändert.")
+			}
+			var current int64
+			if err = tx.QueryRow(ctx, "SELECT coalesce(max(revision),0) FROM entries WHERE event=$1 AND id=$2", d.Event, o.Target).Scan(&current); err != nil {
+				return nil, err
+			}
+			if o.Kind == "contact" {
+				if err = tx.QueryRow(ctx, "SELECT coalesce(max(revision),0) FROM directory WHERE id=$1", o.Target).Scan(&current); err != nil {
+					return nil, err
+				}
+			}
+			if current != q.Last {
+				return nil, fail("Stand inzwischen geändert. Erneut prüfen.")
+			}
+			o.Base = current
+			outcome, err := inspect(ctx, tx, origin, o)
+			if err != nil {
+				return nil, err
+			}
+			if outcome == "Konflikt" {
+				return nil, fail("Fachlicher Konflikt besteht weiter.")
+			}
+		} else if q.Choice != "beibehalten" {
+			return nil, fail("Klärentscheidung fehlt.")
+		}
+		_, err = tx.Exec(ctx, "UPDATE operations SET outcome='Geklärt' WHERE id=$1", q.Resolve)
+		if err != nil {
+			return nil, err
+		}
+		if err = audit(ctx, tx, d.Event, d.User, q.Choice+": "+q.Reason, q.Resolve); err != nil {
+			return nil, err
+		}
+	}
+	if q.Action == "Ende" {
+		if q.Last != d.Last {
+			return nil, fail("Letzten Stand zuerst synchronisieren.")
+		}
+		d.Sealed = true
+		if err = audit(ctx, tx, d.Event, d.User, "Erfassungsende", d.ID); err != nil {
+			return nil, err
+		}
+	}
+	if _, err = tx.Exec(ctx, "UPDATE devices SET last_seq=$1,sealed=$2,last_seen=now() WHERE id=$3", d.Last, d.Sealed, d.ID); err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event=$1 AND kind<>'contact' UNION ALL SELECT id,'contact',device::text,revision,data FROM directory c WHERE $2='Leitung' OR EXISTS(SELECT 1 FROM devices d WHERE d.id=c.device AND d.event=$1) OR EXISTS(SELECT 1 FROM entries j WHERE j.event=$1 AND j.data->>'Contact'=c.id) ORDER BY id", d.Event, d.Role)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := pgx.CollectRows(rows, pgx.RowToStructByPos[row])
+	if err != nil {
+		return nil, err
+	}
+	rows, err = tx.Query(ctx, "SELECT id::text,target,kind,data FROM operations WHERE event=$1 AND outcome='Konflikt' ORDER BY recorded_at", d.Event)
+	if err != nil {
+		return nil, err
+	}
+	conflicts, err := pgx.CollectRows(rows, pgx.RowToStructByPos[clash])
+	if err != nil {
+		return nil, err
+	}
+	for i := range entries {
+		projectData(&entries[i].Data, entries[i].Kind, d.Donor)
+	}
+	for i := range conflicts {
+		projectData(&conflicts[i].Data, conflicts[i].Kind, d.Donor)
+	}
+	deviceRows, err := tx.Query(ctx, "SELECT id::text,name,sealed FROM devices WHERE event=$1 ORDER BY name,id", d.Event)
+	if err != nil {
+		return nil, err
+	}
+	devices, err := pgx.CollectRows(deviceRows, pgx.RowToStructByPos[deviceInfo])
+	if err != nil {
+		return nil, err
+	}
+	var pending int
+	if err = tx.QueryRow(ctx, "SELECT count(*) FROM devices WHERE event=$1 AND NOT sealed", d.Event).Scan(&pending); err != nil {
+		return nil, err
+	}
+	if q.Action == "Abschluss" {
+		if d.Role != "Prüfung" || pending != 0 || len(conflicts) > 0 || d.Closed {
+			return nil, fail("Prüfrolle, vollständige Gerätesiegel und geklärter Stand erforderlich.")
+		}
+		if err = validateSettlement(entries); err != nil {
+			return nil, fail(err.Error())
+		}
+		if err = checkBalance(entries, d.Accounts); err != nil {
+			return nil, err
+		}
+		_, err = tx.Exec(ctx, "INSERT INTO event_closures(event,version,snapshot,reviewer) SELECT $1,coalesce(max(version),0)+1,$2,$3 FROM event_closures WHERE event=$1", d.Event, entries, d.User)
+		if err != nil {
+			return nil, err
+		}
+		_, err = tx.Exec(ctx, "UPDATE events SET closed=true WHERE id=$1", d.Event)
+		if err != nil {
+			return nil, err
+		}
+		d.Closed = true
+		if err = audit(ctx, tx, d.Event, d.User, "Veranstaltungsabschluss", d.Event); err != nil {
+			return nil, err
+		}
+	}
+	return map[string]any{"entries": entries, "conflicts": conflicts, "sealed": d.Sealed, "pending": pending, "devices": devices, "accounts": d.Accounts, "closed": d.Closed, "last": d.Last}, tx.Commit(ctx)
+}
+func checkBalance(entries []row, accounts bool) error {
+	balances := map[string]int64{}
+	actual := map[string]int64{}
+	opened := false
+	for _, r := range entries {
+		if accounts && (r.Kind == "account" || r.Kind == "wallet") {
+			if _, exists := balances[r.ID]; !exists {
+				balances[r.ID] = 0
+			}
+		}
+		v := r.Data
+		if v.Amount == nil {
+			continue
+		}
+		account := v.Account
+		if !accounts {
+			account = "Gesamt"
+		}
+		n := *v.Amount
+		switch r.Kind {
+		case "actual":
+			if _, ok := actual[account]; ok {
+				return fail("Mehrere Istwerte für denselben Bestand.")
+			}
+			actual[account] = n
+		case "opening":
+			opened = true
+			balances[account] += n
+		case "income", "payment", "donation", "presale", "card":
+			balances[account] += n
+		case "expense", "reimbursement", "fee":
+			balances[account] -= n
+		case "transfer", "return", "skim", "supply", "payout":
+			if accounts {
+				balances[account] -= n
+				balances[v.To] += n
+			}
+		}
+	}
+	if !opened || len(balances) != len(actual) {
+		return fail("Eröffnung und vollständiger Istbestand erforderlich.")
+	}
+	for k, n := range balances {
+		v, ok := actual[k]
+		if !ok || v != n || k == "" {
+			return fail("Bestandsdifferenz oder fehlende Zuordnung.")
+		}
+	}
+	return nil
+}
+func (a *app) user(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
+	admin, role, err := a.auth(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	if role != "Leitung" {
+		return nil, problem{403, "Leitung erforderlich."}
+	}
+	var v struct{ Name, Password, Role, Event string }
+	if err = read(r, &v); err != nil {
+		return nil, err
+	}
+	if !key.MatchString(v.Name) || len(v.Password) < 14 || len(v.Password) > 72 || !slices.Contains([]string{"Kassa", "Prüfung"}, v.Role) {
+		return nil, fail("Name, Rolle oder Passwort ungültig.")
+	}
+	digest, err := bcrypt.GenerateFromPassword([]byte(v.Password), 12)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, "INSERT INTO users VALUES($1,$2,$3,true)", v.Name, string(digest), v.Role)
+	if err != nil {
+		return nil, fail("Benutzer bereits vorhanden.")
+	}
+	_, err = tx.Exec(ctx, "INSERT INTO grants_event VALUES($1,$2)", v.Name, v.Event)
+	if err != nil {
+		return nil, err
+	}
+	if err = audit(ctx, tx, v.Event, admin, "Benutzer zugewiesen", v.Name); err != nil {
+		return nil, err
+	}
+	return true, tx.Commit(ctx)
+}
+func (a *app) metrics(w http.ResponseWriter, r *http.Request) {
+	var dbBytes, backupAt, stale int64
+	var open, clashes int
+	err := a.db.QueryRow(r.Context(), "SELECT (SELECT count(*) FROM devices WHERE NOT sealed),(SELECT count(*) FROM operations WHERE outcome='Konflikt'),pg_database_size(current_database()),(SELECT coalesce(extract(epoch FROM max(completed_at)),0)::bigint FROM backup_history),(SELECT count(*) FROM devices WHERE NOT sealed AND last_seen<now()-interval '24 hours')").Scan(&open, &clashes, &dbBytes, &backupAt, &stale)
+	if err != nil {
+		http.Error(w, "unavailable", 503)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain")
+	fmt.Fprintf(w, "bonfire_devices_unsealed %d\nbonfire_conflicts_open %d\nbonfire_database_bytes %d\nbonfire_last_backup_timestamp_seconds %d\nbonfire_devices_stale %d\nbonfire_sync_errors_total %d\nbonfire_request_errors_total %d\n", open, clashes, dbBytes, backupAt, stale, rejectedSync.Load(), failedRequests.Load())
+}

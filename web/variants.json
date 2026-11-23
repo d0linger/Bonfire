@@ -1,0 +1,473 @@
+{
+  "T8": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Zusätzliche Modusvalidierung des flachen Exportkontexts; allgemeine required_variables bleiben anzuwenden.",
+    "type": "object",
+    "required": [
+      "render_mode",
+      "cash_count.lines"
+    ],
+    "properties": {
+      "render_mode": {
+        "enum": [
+          "blank",
+          "plan",
+          "unconfirmed",
+          "confirmed"
+        ]
+      },
+      "cash_count.lines": {
+        "type": "array"
+      },
+      "cash_count.confirmed_at": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "format": "date-time"
+      },
+      "collector.display_name": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "render_mode": {
+              "const": "confirmed"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "cash_count.confirmed_at",
+            "collector.display_name"
+          ],
+          "properties": {
+            "cash_count.confirmed_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "collector.display_name": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "cash_count.confirmed_at": {
+              "type": "null"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "render_mode": {
+              "const": "blank"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "cash_count.lines": {
+              "maxItems": 0
+            }
+          }
+        }
+      }
+    ]
+  },
+  "T9": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Zusätzliche Modusvalidierung des flachen Exportkontexts; allgemeine required_variables bleiben anzuwenden.",
+    "type": "object",
+    "required": [
+      "render_mode"
+    ],
+    "properties": {
+      "render_mode": {
+        "enum": [
+          "bar",
+          "event"
+        ]
+      },
+      "bar.id": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "format": "uuid"
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "render_mode": {
+              "const": "bar"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "bar.id"
+          ],
+          "properties": {
+            "bar.id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "bar.id": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "T10": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Zusätzliche Validierung fehlender Ist-Werte im Exportkontext. Arithmetik, vollständige Bestandsmenge, Rechte und Gerätegrenzen bleiben zusätzlich nach Hauptkonzept zu prüfen.",
+    "type": "object",
+    "required": [
+      "report.closing",
+      "report.review",
+      "report.export_set"
+    ],
+    "properties": {
+      "report.closing": {
+        "type": "object",
+        "required": [
+          "actual_status",
+          "actual_closing_cents",
+          "difference_cents",
+          "actual_as_of",
+          "account_allocation_enabled",
+          "account_allocation_complete",
+          "account_lines"
+        ],
+        "properties": {
+          "actual_status": {
+            "enum": [
+              "missing",
+              "partial",
+              "confirmed"
+            ]
+          },
+          "actual_closing_cents": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "difference_cents": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "actual_as_of": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "account_allocation_enabled": {
+            "type": "boolean"
+          },
+          "account_allocation_complete": {
+            "type": "boolean"
+          },
+          "account_lines": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "required": [
+                "account_id",
+                "label",
+                "actual_status",
+                "theoretical_cents",
+                "actual_cents",
+                "difference_cents"
+              ],
+              "properties": {
+                "account_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "actual_status": {
+                  "enum": [
+                    "missing",
+                    "confirmed"
+                  ]
+                },
+                "theoretical_cents": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "actual_cents": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "difference_cents": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "actual_status": {
+                        "const": "confirmed"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "actual_cents": {
+                        "type": "integer"
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "actual_cents": {
+                        "type": "null"
+                      },
+                      "difference_cents": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "actual_status": {
+                  "const": "confirmed"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "actual_closing_cents": {
+                  "type": "integer"
+                },
+                "difference_cents": {
+                  "type": "integer"
+                },
+                "actual_as_of": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "account_lines": {
+                  "items": {
+                    "properties": {
+                      "actual_status": {
+                        "const": "confirmed"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "actual_closing_cents": {
+                  "type": "null"
+                },
+                "difference_cents": {
+                  "type": "null"
+                },
+                "actual_as_of": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "actual_status": {
+                  "const": "missing"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "account_lines": {
+                  "items": {
+                    "properties": {
+                      "actual_status": {
+                        "const": "missing"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "account_allocation_enabled": {
+                  "const": true
+                },
+                "account_allocation_complete": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "account_lines": {
+                  "items": {
+                    "properties": {
+                      "theoretical_cents": {
+                        "type": "integer"
+                      }
+                    },
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "actual_status": {
+                              "const": "confirmed"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "difference_cents": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "account_lines": {
+                  "items": {
+                    "properties": {
+                      "theoretical_cents": {
+                        "type": "null"
+                      },
+                      "difference_cents": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "report.review": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "enum": [
+              "preparation",
+              "in_review",
+              "reviewed",
+              "approved"
+            ]
+          }
+        }
+      },
+      "report.export_set": {
+        "type": "object",
+        "required": [
+          "completeness_status"
+        ],
+        "properties": {
+          "completeness_status": {
+            "enum": [
+              "complete",
+              "incomplete"
+            ]
+          }
+        }
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "report.closing": {
+              "properties": {
+                "actual_status": {
+                  "enum": [
+                    "missing",
+                    "partial"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "report.review": {
+              "properties": {
+                "status": {
+                  "enum": [
+                    "preparation",
+                    "in_review"
+                  ]
+                }
+              }
+            },
+            "report.export_set": {
+              "properties": {
+                "completeness_status": {
+                  "const": "incomplete"
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,211 @@
+package main
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha1"
+	"crypto/subtle"
+	"encoding/base32"
+	"encoding/binary"
+	"fmt"
+	"github.com/jackc/pgx/v5"
+	"net/http"
+	"strings"
+	"time"
+)
+
+func otpMatch(secret, code string, at time.Time) (int64, bool) {
+	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
+	if err != nil || len(key) < 20 || len(code) != 6 {
+		return 0, false
+	}
+	for step := at.Unix()/30 - 1; step <= at.Unix()/30+1; step++ {
+		var msg [8]byte
+		binary.BigEndian.PutUint64(msg[:], uint64(step))
+		h := hmac.New(sha1.New, key)
+		h.Write(msg[:])
+		b := h.Sum(nil)
+		off := b[len(b)-1] & 15
+		n := binary.BigEndian.Uint32(b[off:off+4]) & 0x7fffffff
+		if subtle.ConstantTimeCompare([]byte(fmt.Sprintf("%06d", n%1000000)), []byte(code)) == 1 {
+			return step, true
+		}
+	}
+	return 0, false
+}
+func (a *app) logout(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
+	if c, err := r.Cookie("bonfire_session"); err == nil {
+		_, err = a.db.Exec(ctx, "DELETE FROM sessions WHERE token=$1", hash(c.Value))
+		if err != nil {
+			return nil, err
+		}
+	}
+	http.SetCookie(w, &http.Cookie{Name: "bonfire_session", Path: "/api", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	return true, nil
+}
+func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
+	name, role, err := a.auth(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	token := secret()
+	_, err = a.db.Exec(ctx, "INSERT INTO sessions VALUES($1,$2,now()+interval '30 minutes')", hash(token), name)
+	if err != nil {
+		return nil, err
+	}
+	http.SetCookie(w, &http.Cookie{Name: "bonfire_session", Value: token, Path: "/api", MaxAge: 1800, HttpOnly: true, Secure: r.TLS != nil || strings.HasPrefix(r.Header.Get("Origin"), "https://"), SameSite: http.SameSiteStrictMode})
+	return role, nil
+}
+func (a *app) mfa(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
+	name, _, err := a.auth(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	var q struct{ Secret, Code string }
+	if err = read(r, &q); err != nil {
+		return nil, err
+	}
+	if q.Secret == "" {
+		var b [20]byte
+		rand.Read(b[:])
+		return map[string]string{"secret": base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b[:])}, nil
+	}
+	step, ok := otpMatch(q.Secret, q.Code, time.Now())
+	if !ok {
+		return nil, fail("Bestätigungscode ungültig.")
+	}
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, "UPDATE users SET otp_secret=$1,otp_last=$2 WHERE name=$3 AND otp_secret IS NULL", q.Secret, step, name)
+	if err != nil || tag.RowsAffected() != 1 {
+		return nil, fail("Zweiter Faktor bereits eingerichtet.")
+	}
+	codes := []string{}
+	for range 8 {
+		code := secret()[:16]
+		if _, err = tx.Exec(ctx, "INSERT INTO recovery_codes VALUES($1,$2)", name, hash(code)); err != nil {
+			return nil, err
+		}
+		codes = append(codes, code)
+	}
+	return codes, tx.Commit(ctx)
+}
+func (a *app) factor(ctx context.Context, name, code string) error {
+	var secret *string
+	if err := a.db.QueryRow(ctx, "SELECT otp_secret FROM users WHERE name=$1", name).Scan(&secret); err != nil {
+		return err
+	}
+	if secret == nil {
+		return nil
+	}
+	if step, ok := otpMatch(*secret, code, time.Now()); ok {
+		tag, err := a.db.Exec(ctx, "UPDATE users SET otp_last=$1 WHERE name=$2 AND otp_last<$1", step, name)
+		if err == nil && tag.RowsAffected() == 1 {
+			return nil
+		}
+	}
+	tag, err := a.db.Exec(ctx, "DELETE FROM recovery_codes WHERE username=$1 AND digest=$2", name, hash(code))
+	if err == nil && tag.RowsAffected() == 1 {
+		return nil
+	}
+	return problem{401, "Zweiter Faktor ungültig oder bereits verwendet."}
+}
+func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(751025)"); err != nil {
+		return nil, err
+	}
+	d, err := lock(ctx, tx, r)
+	if err != nil {
+		return nil, err
+	}
+	var q struct {
+		Action, Target, Reason string
+		Accounts               bool
+	}
+	if err = read(r, &q); err != nil {
+		return nil, err
+	}
+	switch q.Action {
+	case "period-close", "period-open":
+		return periodAction(ctx, tx, d, q.Action, q.Target, q.Reason)
+	case "prior":
+		if d.Role != "Leitung" {
+			return nil, problem{403, "Leitungsrecht erforderlich."}
+		}
+		return prior(ctx, tx, q.Target)
+	case "numbers":
+		return numberReport(ctx, tx, d)
+	case "incident":
+		if d.Role != "Leitung" || len(strings.TrimSpace(q.Reason)) < 5 {
+			return nil, fail("Leitung und Verlustvermerk erforderlich.")
+		}
+		tag, err := tx.Exec(ctx, "UPDATE devices SET incident=$1 WHERE id=$2 AND event=$3 AND NOT sealed", q.Reason, q.Target, d.Event)
+		if err != nil || tag.RowsAffected() != 1 {
+			return nil, fail("Offenes Gerät nicht gefunden.")
+		}
+		if err = audit(ctx, tx, d.Event, d.User, "Gerätevorfall: "+q.Reason, q.Target); err != nil {
+			return nil, err
+		}
+		return true, tx.Commit(ctx)
+	case "period":
+		return a.globalPeriod(ctx, tx, d, q.Target, q.Reason)
+	case "copy":
+		id, err := a.copyEvent(ctx, tx, d, q.Target)
+		if err != nil {
+			return nil, err
+		}
+		return id, tx.Commit(ctx)
+	case "journal":
+		if d.Role == "Kassa" {
+			return nil, problem{403, "Prüfrecht erforderlich."}
+		}
+		rows, err := tx.Query(ctx, "SELECT recorded_at::text AS at,actor AS username,concat(CASE direction WHEN -1 THEN 'Storno' ELSE 'Buchung' END,' · ',data->>'Label',' · ',(data->>'Amount'),' Cent') AS action FROM journal_history WHERE event=$1 ORDER BY id", d.Event)
+		if err != nil {
+			return nil, err
+		}
+		return pgx.CollectRows(rows, pgx.RowToMap)
+	case "audit":
+		if d.Role == "Kassa" {
+			return nil, problem{403, "Prüfrecht erforderlich."}
+		}
+		rows, err := tx.Query(ctx, "SELECT at::text,username,action,subject FROM audit WHERE event=$1 ORDER BY id", d.Event)
+		if err != nil {
+			return nil, err
+		}
+		return pgx.CollectRows(rows, pgx.RowToMap)
+	case "accounts":
+		if d.Role != "Leitung" || d.Closed {
+			return nil, problem{403, "Nur Leitung bei offener Veranstaltung."}
+		}
+		_, err = tx.Exec(ctx, "UPDATE events SET accounts=$1 WHERE id=$2", q.Accounts, d.Event)
+	case "reopen":
+		if d.Role != "Leitung" || !d.Closed || len(strings.TrimSpace(q.Reason)) < 5 {
+			return nil, fail("Leitung und Wiederöffnungsgrund erforderlich.")
+		}
+		_, err = tx.Exec(ctx, "UPDATE events SET closed=false WHERE id=$1", d.Event)
+	case "reprint":
+		var exists bool
+		err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM originals WHERE event=$1 AND subject=$2)", d.Event, q.Target).Scan(&exists)
+		if err == nil && !exists {
+			return nil, fail("Original nicht vorhanden.")
+		}
+	default:
+		return nil, fail("Unbekannte Aktion.")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err = audit(ctx, tx, d.Event, d.User, q.Action+" "+q.Reason, q.Target); err != nil {
+		return nil, err
+	}
+	return true, tx.Commit(ctx)
+}

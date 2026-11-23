@@ -1,0 +1,31 @@
+name: Prüfung
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: go test ./... && go vet ./...
+      - run: npm ci && npm test && npm run build
+      - shell: bash
+        run: |
+          printf 'BONFIRE_ADMIN_PASSWORD=%s\nBONFIRE_DB_PASSWORD=%s\n' "$(openssl rand -hex 24)" "$(openssl rand -hex 24)" > .env
+          printf 'BONFIRE_RUNTIME_PASSWORD=%s\n' "$(openssl rand -hex 24)" >> .env
+          docker compose up -d --build --wait
+          node tests/api.mjs
+          node tests/accounts.mjs
+          node tests/security.mjs
+          npx playwright install --with-deps chromium
+          node tests/offline.mjs
+          node tests/documents.mjs
+          node tests/storage.mjs
+          node tests/word-layout.mjs

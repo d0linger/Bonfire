@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: bonfire
+      POSTGRES_USER: bonfire
+      POSTGRES_PASSWORD: ${BONFIRE_DB_PASSWORD:?Lokales Datenbankpasswort setzen}
+    volumes:
+      - data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "bonfire", "-d", "bonfire"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  migrate:
+    image: bonfire-app:local
+    build: .
+    command: ["migrate"]
+    environment:
+      DATABASE_URL: postgres://bonfire:${BONFIRE_DB_PASSWORD}@db/bonfire?sslmode=disable
+      BONFIRE_ADMIN_PASSWORD: ${BONFIRE_ADMIN_PASSWORD:?Lokales Startpasswort setzen}
+      BONFIRE_RUNTIME_PASSWORD: ${BONFIRE_RUNTIME_PASSWORD:?Separates Runtime-Kennwort setzen}
+    depends_on:
+      db:
+        condition: service_healthy
+  app:
+    image: bonfire-app:local
+    pull_policy: never
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://bonfire_runtime:${BONFIRE_RUNTIME_PASSWORD}@db/bonfire?sslmode=disable
+    ports:
+      - "127.0.0.1:${BONFIRE_PORT:-8137}:8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+volumes:
+  data:

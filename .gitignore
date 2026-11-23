@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+*.dump
+*.dump.enc
+*.key
+*.part
+*.exe
+test-results/
+profiles/

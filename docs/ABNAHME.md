@@ -1,0 +1,37 @@
+# Entwicklungsabnahme vom 23. November 2026
+
+Geprüft wurde die lokale Entwicklungsinstallation mit erfundenen Veranstaltungs-, Kontakt- und Finanzdaten. Die [Umsetzungsübersicht der 44 Paketpositionen](IMPLEMENTIERUNGSSTATUS.csv) und die [Einzelprüfung der 111 Akzeptanzkriterien](AKZEPTANZ.csv) führen Prüfnachweise und Restarbeiten. Der Testlauf nutzt Go, PostgreSQL 18, Docker Compose, Windows sowie zwei getrennte persistente Chromium-/Edge-Profile. Ein Profil verwendet einen Desktop-Viewport, das andere einen 390 Pixel breiten Viewport.
+
+## Ausgeführte Prüfungen
+
+| Test | Beobachtetes Ergebnis |
+| --- | --- |
+| Compose-Erststart und Neustart | App und Datenbank erreichten den Zustand healthy. Die nächste App-Version übernahm den vorhandenen PostgreSQL-Datenbestand. |
+| Geldregeln | Browser-Rechentests bestätigten Centgenauigkeit, Stückelung, neutrale interne Bewegung und Privatauslage/Erstattung. Aus 300 EUR Anfang, 100 EUR Nachversorgung, 650 EUR Abschöpfung, 50 EUR Barausgabe und 420 EUR Ende ergeben sich 720 EUR. Die Rückgabe bleibt neutral. Nach einer separat gebuchten Spende von 100 EUR bleiben 620 EUR Sammelbareinnahme. |
+| Bestandsprüfung | Go-Tests akzeptierten 700 EUR und 300 EUR nach interner Umbuchung aus 1.000 EUR. Fehlendes Konto und ungleicher Istwert wurden zurückgewiesen. Bestätigter Nullbestand und fehlender Wert hatten unterschiedliche Ergebnisse. |
+| Konkurrenz und Rechte | Zwei gleichzeitige identische Requests desselben Geräts ergaben eine Einnahme. Dieselbe ID mit geändertem Betrag wurde abgelehnt. Die Prüfrolle durfte keine Einnahme schreiben. |
+| Offline und Kaltstart | Zwei Browserprofile erhielten eigene Freigaben und disjunkte Nummernbereiche. Ein lokaler Proxy trennte die Verbindung zum tatsächlichen Server. Beide arbeiteten getrennt. Das erste Profil schloss den Browser, startete bei weiterhin getrennter Verbindung neu, entsperrte seinen Datenbestand und lieferte dieselben PDF-Bytes. |
+| Synchronisation und Konflikt | Zwei Endzählungen derselben Geldtasche mit unterschiedlichen Beträgen erzeugten einen sichtbaren Konflikt. Die Leitung dokumentierte eine Entscheidung. Die unabhängige Einnahme des zweiten Geräts erschien nach dem Pull auch auf dem ersten. |
+| Exportmatrix | Elf Profile erzeugten im getrennten Browser jeweils eine PDF- und eine DOCX-Datei. Der Test öffnete die DOCX-Container und prüfte die Word-Dokumentteile. Die 22 synthetischen Dateien wurden zusätzlich mit pypdf und python-docx geöffnet. Die PDF-Maße entsprachen u. a. A6 quer (T3), Letter (T6) und A4 quer (T11). |
+| Veranstaltungsabschluss | Ein vorzeitiger Abschluss wurde abgewiesen. Nach passenden Beständen und explizitem Ende aller drei beteiligten Profile gab die Prüfrolle frei. Eine spätere Erfassung unter dem gesperrten Gerät wurde zurückgewiesen. Der Abschluss war im Audit abrufbar. |
+| Konten, Erstattungen und Karten | Ein allgemeines Kassenbuch konnte ohne Zuordnung zu einer Veranstaltung arbeiten. Der Integrationstest verteilte eine Zahlung auf zwei Privatauslagen, behielt eine Übererstattung als Konflikt und prüfte Storno und Ersatz. Bei 280 EUR Kartenumsatz und 5 EUR Gebühr war die Auszahlung von 275 EUR neutral. Ein weiterer Cent Auszahlung löste einen Konflikt aus. |
+| Barergebnis und Wechselgeld | Zwei Geldtaschen mit je vier geplanten Fünf-Euro-Scheinen und fünf vorhandenen Scheinen ergaben drei fehlende Scheine. Ein direkter Barüberschuss von 565 EUR blieb nach 200 EUR gemeinsamen Kosten auf Barebene erhalten. Für die Veranstaltung ergaben sich 365 EUR. |
+| Sicherheitsprüfung | TOTP, einmalig verwendbarer Recoverycode, sofortiger Rechteentzug am Server und Geburtsdatum auf ausdrücklich berechtigten Geräten mit synthetischen Daten geprüft. Die App verwendet die eingeschränkte Datenbankrolle. |
+| Übernahme und Austausch | CSV und XLSX lieferten denselben Centbetrag, dasselbe Datum und dieselbe Bezeichnung. Die eingelesenen Daten wurden als mögliche Dublette angezeigt. Historisches Quellenjahr, Formel mit abweichendem Cachewert und D8-Sperre im Browser geprüft. Die berechtigte Übernahme historischer Originaldaten bedarf noch einer fachlichen Abnahme. |
+| Belege und Geräte | Ein nacherfasster Papierbeleg verwies auf die vorhandene Barzahlung. Der zweite Bezug blieb ein Klärfall. Eine begründete digitale Korrektur erhielt eine eigene Nummer und beide Fassungen waren nach dem Abgleich auf dem zweiten Gerät abrufbar. |
+| Word-Layout | Ein erfundener A4-Dankesbrief mit Tabelle, Bild, Kopf-/Fußzeile und über zwei Textläufe verteiltem Feld wurde als lokaler Entwurf importiert. Bei getrennter Verbindung wurden PDF und DOCX erzeugt. Im DOCX blieben Tabelle, Bildteile, Kopf und Fuß erhalten. Der separate Layouttest verwendete die Sicherheitsrichtlinien der laufenden App. |
+| Offline-Speicher | Zwei Tabs bearbeiteten denselben verschlüsselten Gerätespeicher. Die veraltete Revision wurde zurückgewiesen. Ein im Browser erzwungener Abbruch der IndexedDB-Schreibtransaktion erhielt die beiden vorherigen Outbox-Einträge. Die Gerätesicherung wies ein falsches Passwort ab und enthielt nach dem Wiederöffnen im Lesemodus keine Ausstellungsbefugnis. Reale Betriebssystem-Speicherbereinigung ist offen. |
+| Monitoring | Prometheus erfasste das App-Ziel über das Compose-Netz. Die fünf Regeln zu Verfügbarkeit, Sicherungsalter, Konflikten, veralteten Geräten und Syncfehlern wurden mit Zustand `ok` ausgewertet. |
+| Wiederherstellung | Custom-Dump in einer neu benannten Datenbank wiederhergestellt. Eine zweite App wurde ausschließlich über einen zufälligen Loopback-Port mit diesem Testklon verbunden. Im Lauf mit verschlüsseltem Archiv und Belegkorrektur wurden 262 Fachdatensätze, 324 Operationen, 605 Auditzeilen und 15 Originalfassungen restauriert. Sämtliche PDF-/DOCX-Hashes stimmten überein. Ein bereits quittierter und ein noch ausstehender Vorgang wurden zweimal gesendet und ergaben genau zwei Datensätze im betroffenen Bereich. |
+
+Ein Fehler im ersten Kaltstarttest betraf die vom Dateiserver umgeleitete URL für index.html. Im Offlinepaket wird seit der Korrektur die kanonische Startseite gespeichert. Der bestandene Test startet einen neuen Browserprozess bei unterbrochener Serververbindung.
+
+## Aussagegrenzen
+
+Die strukturelle Dateiprüfung belegt lesbare Formate und Seitenmaße. Fachlich vollständige Datenverträge, Druckertreiber, Falzung, Schnittpositionen, alle langen Texte und Übereinstimmung sämtlicher Seiten mit D2–D7 benötigen separate Abnahme. Für T3 ist ein freigegebener Formularhintergrund vorgesehen. Im Browserprüflauf wurde ausschließlich eine fiktive Arbeitsfassung ausgegeben.
+
+Die echten iOS-, Android- und Desktop-Zielgeräte, geschlossene installierte PWA auf diesen Geräten, WLAN ohne WAN, Speicherbereinigung des Betriebssystems und physische Ausdrucke sind ausständig. Ein freigegebener Produktivbetrieb setzt außerdem ein Betriebskonzept für Schlüssel, Wiederherstellungsrechte, Aufbewahrung, Serverautorität und Gerätetausch voraus.
+
+## Nachweise erneut ausführen
+
+Die genauen Befehle stehen in der [Start- und Betriebsanleitung](../README.md). Browserprofile sind voneinander isoliert. Der Test entfernt seine temporären Browserprofile nach dem Lauf. Synthetische Exporte, vertrauliche Wegwerf-Gerätetokens für den Restoretest und Dumps liegen git-ignoriert unter `test-results/`. Ein Backup des Servers erfasst erfolgreiche Synchronisationen. Noch getrennte Geräte benötigen ihre eigene Sicherung.
