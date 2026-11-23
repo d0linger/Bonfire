@@ -40,6 +40,7 @@ type row struct {
 type clash struct {
 	ID, Target, Kind string
 	Data             data
+	Base             int64
 }
 type request struct {
 	Prints                          []printLog
@@ -412,7 +413,7 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		return nil, err
 	}
-	rows, err = tx.Query(ctx, "SELECT id::text,target,kind,data FROM operations WHERE event=$1 AND outcome='Konflikt' ORDER BY recorded_at", d.Event)
+	rows, err = tx.Query(ctx, "SELECT id::text,target,kind,data,base FROM operations WHERE event=$1 AND outcome='Konflikt' ORDER BY recorded_at", d.Event)
 	if err != nil {
 		return nil, err
 	}

@@ -99,6 +99,14 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 		if !ok || p.ID != v.Fields["previous"] || v.Amount == nil || n != *v.Amount {
 			return false, nil
 		}
+		if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", "opening:"+p.ID+":"+v.Account); err != nil {
+			return false, err
+		}
+		var used bool
+		err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM entries WHERE kind='opening' AND data->'Fields'->>'previous'=$1 AND data->>'Account'=$2 AND (event<>$3 OR id<>$4))", p.ID, v.Account, d.Event, o.Target).Scan(&used)
+		if err != nil || used {
+			return false, err
+		}
 	}
 	if matter := v.Fields["matter"]; matter != "" {
 		var duplicate bool
@@ -205,12 +213,15 @@ func validateSettlement(rows []row) error {
 	return nil
 }
 
-func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name string) (string, error) {
+func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name, start, end string) (string, error) {
 	if d.Role != "Leitung" || len(name) == 0 || len(name) > 160 {
 		return "", fail("Name und Leitungsrecht erforderlich.")
 	}
+	if (start != "" || end != "") && (!date(start) || !date(end) || end < start) {
+		return "", fail("Gültigen Zielzeitraum angeben.")
+	}
 	id := uuid()
-	_, err := tx.Exec(ctx, "INSERT INTO events(id,name,starts,ends,accounts) SELECT $1,$2,starts,ends,accounts FROM events WHERE id=$3", id, name, d.Event)
+	err := tx.QueryRow(ctx, "INSERT INTO events(id,name,starts,ends,accounts) SELECT $1,$2,coalesce(nullif($4,'')::date,starts),coalesce(nullif($5,'')::date,ends),accounts FROM events WHERE id=$3 RETURNING starts::text", id, name, d.Event, start, end).Scan(&start)
 	if err != nil {
 		return "", err
 	}
@@ -228,6 +239,19 @@ func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name string) (
 	}
 	for _, r := range source {
 		v := r.Data
+		v.Date = start
+		if r.Kind == "wallet" {
+			v.Fields = map[string]string{"owner": "unassigned"}
+		}
+		if r.Kind == "shift" {
+			v.Fields = nil
+			v.To = ""
+			v.Status = "Geplant"
+			v.Note = ""
+		}
+		if r.Kind == "template" {
+			ids[r.ID] = "template:" + v.Reference
+		}
 		v.Bar = ids[v.Bar]
 		v.Wallet = ids[v.Wallet]
 		v.Contact = ""

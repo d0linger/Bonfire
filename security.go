@@ -128,8 +128,8 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return nil, err
 	}
 	var q struct {
-		Action, Target, Reason string
-		Accounts               bool
+		Action, Target, Reason, Start, End string
+		Accounts                           bool
 	}
 	if err = read(r, &q); err != nil {
 		return nil, err
@@ -159,7 +159,7 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 	case "period":
 		return a.globalPeriod(ctx, tx, d, q.Target, q.Reason)
 	case "copy":
-		id, err := a.copyEvent(ctx, tx, d, q.Target)
+		id, err := a.copyEvent(ctx, tx, d, q.Target, q.Start, q.End)
 		if err != nil {
 			return nil, err
 		}

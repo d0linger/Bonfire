@@ -122,6 +122,57 @@ const closed = await api("manage", auth(r), {
   Target: p.Target,
 });
 assert.match(closed, /^[0-9a-f-]{36}$/);
+const nextDay = year + "-03-18";
+const previous = await api("manage", auth(a), {
+  Action: "prior",
+  Target: nextDay,
+});
+assert.equal(previous.ID, closed);
+assert.equal(previous.Actuals[""], 4000);
+const following = await api("events", admin, {
+  Name: "Folgeperiode " + randomUUID().slice(0, 8),
+  General: true,
+  Starts: nextDay,
+  Ends: nextDay,
+});
+const nextDevice = await api("prepare", admin, {
+  Event: following.ID,
+  Name: "Folgeperiode",
+});
+const carried = rec(nextDevice, "opening", "Bestätigter Übertrag", {
+  Date: nextDay,
+  Amount: 4000,
+  Account: "",
+  Fields: { previous: previous.ID },
+});
+const carriedState = await send(nextDevice, carried);
+assert.equal(
+  carriedState.entries.find((x) => x.ID === carried.Target).Data.Fields
+    .previous,
+  closed,
+);
+const invalidCarry = rec(nextDevice, "opening", "Falscher Übertrag", {
+  Date: nextDay,
+  Amount: 3999,
+  Account: "",
+  Fields: { previous: previous.ID },
+});
+assert.ok(
+  (await send(nextDevice, invalidCarry)).conflicts.some(
+    (x) => x.ID === invalidCarry.ID,
+  ),
+);
+const duplicateCarry = rec(nextDevice, "opening", "Doppelter Übertrag", {
+  Date: nextDay,
+  Amount: 4000,
+  Account: "",
+  Fields: { previous: previous.ID },
+});
+assert.ok(
+  (await send(nextDevice, duplicateCarry)).conflicts.some(
+    (x) => x.ID === duplicateCarry.ID,
+  ),
+);
 const c = await prepare("Nachtrag");
 const late = rec(c, "income", "Verspätete Meldung", { Amount: 55 });
 out = await send(c, late);
@@ -192,6 +243,75 @@ const over = rec(c, "payout", "Überhöhte zweite Auszahlung", {
 });
 out = await send(c, over);
 assert.ok(out.conflicts.some((x) => x.ID === over.ID));
+const srcBar = rec(c, "bar", "Garten");
+const srcPrice = rec(c, "price", "Saft", {
+  Status: "Freigegeben",
+  Unit: "Glas",
+  Category: "Getränk",
+  Amount: 290,
+  Bar: srcBar.Target,
+});
+await send(c, srcBar, srcPrice);
+const copied = await api("manage", auth(c), {
+  Action: "copy",
+  Target: "Neue Übung",
+  Start: nextDay,
+  End: nextDay,
+});
+const fresh = await api("prepare", admin, {
+  Event: copied,
+  Name: "Neue Leitung",
+});
+assert.equal(fresh.event.Starts, nextDay);
+const snapshot = await send(fresh);
+const purse = snapshot.entries.find((x) => x.Kind === "wallet");
+assert.equal(purse.Data.Fields.owner, fresh.device);
+assert.equal(
+  snapshot.entries.find((x) => x.Kind === "price").Data.Status,
+  "Entwurf",
+);
+assert.ok(
+  !snapshot.entries.some((x) =>
+    ["income", "expense", "handover", "actual", "period", "original"].includes(
+      x.Kind,
+    ),
+  ),
+);
+const initialExpense = rec(c, "expense", "Konkurrenz", { Amount: 5000 });
+await send(c, initialExpense);
+const other = await prepare("Weitere Person");
+const high = rec(
+  c,
+  "expense",
+  "Auf 70",
+  { Amount: 7000, Note: "Belegprüfung West" },
+  initialExpense.Target,
+  1,
+);
+const low = rec(
+  other,
+  "expense",
+  "Auf 60",
+  { Amount: 6000, Note: "Belegprüfung Ost" },
+  initialExpense.Target,
+  1,
+);
+await send(c, high);
+let compete = await send(other, low);
+assert.equal(compete.conflicts.find((x) => x.ID === low.ID).Base, 1);
+compete = await api("sync", auth(c), {
+  Resolve: low.ID,
+  Choice: "übernehmen",
+  Reason: "Originalbetrag geprüft",
+  Last: 2,
+});
+assert.equal(
+  compete.entries.find((x) => x.ID === initialExpense.Target).Data.Amount,
+  6000,
+);
+console.log(
+  "PASS: approved prior snapshot, structure-only copy with new authority and draft prices, 50/70/60 financial conflict",
+);
 console.log(
   "PASS: general ledger, linked paper register and duplicate review, gross 280 / fee 5 / neutral payout 275",
 );

@@ -62,11 +62,11 @@ test("Barergebnis ohne Gemeinkostenumlage und tatsächliche Gesamtkosten", () =>
   });
   assert.match(spec.blocks[0].rows.at(-1)[3], /565,00/);
   assert.equal(summary(rows).result, 36500);
-  const bar=rows.filter(r=>r.Data.Bar==="nord");
-  assert.equal(summary(bar).ear,64500);
-  const after=[...bar,row("reimbursement",{Amount:8000,Bar:"nord"})];
-  assert.equal(summary(after).ear,56500);
-  assert.equal(summary(after).result,56500);
+  const bar = rows.filter((r) => r.Data.Bar === "nord");
+  assert.equal(summary(bar).ear, 64500);
+  const after = [...bar, row("reimbursement", { Amount: 8000, Bar: "nord" })];
+  assert.equal(summary(after).ear, 56500);
+  assert.equal(summary(after).result, 56500);
 });
 test("Abschlussvertrag unterscheidet fehlendes Ist, bestätigte Null und Periodenfreigabe", () => {
   const rows = [row("opening", { Amount: 0, Date: "2026-06-01" })];

@@ -306,7 +306,11 @@ function devicePage() {
       const cur = s.entries.find((r) => r.ID === c.Target);
       return panel(
         "Konflikt · " + c.Data.Label,
-        "<p>Gespeichert: " +
+        "<p>Ausgangsrevision " +
+          esc(c.Base) +
+          " · gespeicherte Revision " +
+          esc(cur?.Revision ?? 0) +
+          "</p><p>Gespeichert: " +
           esc(cur?.Data.Label || "Fehlt") +
           " · " +
           eur(cur?.Data.Amount) +
@@ -404,7 +408,9 @@ function devicePage() {
           "Veranstaltung verwalten",
           form(
             "copy",
-            field("name", "Name der neuen Veranstaltung", "text", true),
+            field("name", "Name der neuen Veranstaltung", "text", true) +
+              field("start", "Neuer Beginn", "date", true, s.event.Starts) +
+              field("end", "Neues Ende", "date", true, s.event.Ends),
             "Struktur und Preisentwürfe kopieren",
           ) +
             esc(syncDetail) +
@@ -967,9 +973,9 @@ function exchange() {
                     r.sheet ? r.sheet + "!" + r.cell : r.row,
                     r.date || "Offen",
                     r.yearOrigin || "Quelldatum",
-                    r.raw ?? (r.amount==null?"Offen":String(r.amount)),
+                    r.raw ?? (r.amount == null ? "Offen" : String(r.amount)),
                     r.label,
-                    types[r.kind]||"Zuordnung offen",
+                    types[r.kind] || "Zuordnung offen",
                     eur(r.amount),
                     r.status,
                   ]
@@ -1579,7 +1585,11 @@ async function submit(f) {
     );
   }
   if (id === "copy") {
-    await api("manage", { Action: "copy", Target: vals.name }, bearer());
+    await api(
+      "manage",
+      { Action: "copy", Target: vals.name, Start: vals.start, End: vals.end },
+      bearer(),
+    );
     syncDetail = "Veranstaltungskopie angelegt.";
   }
   if (id === "reopen") {

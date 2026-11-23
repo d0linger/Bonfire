@@ -44,6 +44,21 @@ addEventListener(
           backgroundColor: "#ffffff",
           logging: false,
         });
+        const context = image.getContext("2d");
+        for (const picture of page.querySelectorAll("img")) {
+          const b = picture.getBoundingClientRect();
+          if (!picture.naturalWidth || b.width <= 0 || b.height <= 0)
+            throw Error("Eingebettetes Bild ist nicht darstellbar.");
+          const sx = image.width / rect.width,
+            sy = image.height / rect.height;
+          context.drawImage(
+            picture,
+            (b.left - rect.left) * sx,
+            (b.top - rect.top) * sy,
+            b.width * sx,
+            b.height * sy,
+          );
+        }
         if (i) pdf.addPage();
         pdf.addImage(image.toDataURL("image/png"), "PNG", 0, 0, 210, 297);
       }

@@ -17,3 +17,11 @@ for index in range(1, 12):
     else:
         assert any(p.text.strip() for p in word.paragraphs)
     print(f"T{index}: PDF {len(pdf.pages)} Seite(n), {expected}, DOCX geoeffnet")
+
+# The synthetic imported letter contains the original colored flame in a Word image run.
+letter = PdfReader(root / "Brief-Layout.pdf")
+raster = letter.pages[0].images[0].image.convert("RGB")
+colors = raster.getcolors(raster.width * raster.height)
+brand_pixels = sum(count for count, (r, g, b) in colors if r - g > 30 and r - b > 30)
+assert brand_pixels > 20, "Eingebettetes Bild fehlt im PDF der Word-Vorlage"
+print(f"Brief-Layout: {brand_pixels} farbige Markenpixel im PDF")

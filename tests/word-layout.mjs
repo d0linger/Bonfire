@@ -10,8 +10,9 @@ import {
   TableCell,
   Header,
   Footer,
+  ImageRun,
 } from "docx";
-import { writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir, readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 const browser = await chromium.launch({
   headless: true,
@@ -53,6 +54,15 @@ try {
             default: new Footer({ children: [new Paragraph("Übungsfuß")] }),
           },
           children: [
+            new Paragraph({
+              children: [
+                new ImageRun({
+                  type: "png",
+                  data: await readFile("dist/icon-32.png"),
+                  transformation: { width: 32, height: 32 },
+                }),
+              ],
+            }),
             new Paragraph({
               children: [new TextRun("{{organization."), new TextRun("name}}")],
             }),

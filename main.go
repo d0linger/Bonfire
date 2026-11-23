@@ -197,6 +197,17 @@ func (a *app) prepare(ctx context.Context, w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		return nil, err
 	}
+	if role == "Leitung" {
+		tag, err := tx.Exec(ctx, "UPDATE entries SET revision=revision+1,data=jsonb_set(data,'{Fields,owner}',to_jsonb($2::text)) WHERE event=$1 AND kind='wallet' AND data->'Fields'->>'owner'='unassigned'", e.ID, id)
+		if err != nil {
+			return nil, err
+		}
+		if tag.RowsAffected() > 0 {
+			if err = audit(ctx, tx, e.ID, name, "Neue Geldtaschen aus Strukturkopie übernommen", id); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if err = audit(ctx, tx, e.ID, name, "Gerät vorbereitet", id); err != nil {
 		return nil, err
 	}
