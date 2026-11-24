@@ -462,9 +462,9 @@ try {
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     buffer: await Packer.toBuffer(template),
   });
-  await press(a.p, "Word-Layout als lokalen Briefentwurf übernehmen");
+  await press(a.p, "Word-Layout als Briefentwurf übernehmen");
   await a.p
-    .getByText("Word-Layout lokal gespeichert", { exact: true })
+    .getByText("Word-Layout im Entwurf verfügbar", { exact: true })
     .waitFor();
   const layoutPDF = await artifact(a.p, 6, "Testspende", "PDF", "draft");
   const layoutDOCX = await artifact(a.p, 6, "Testspende", "DOCX", "draft");

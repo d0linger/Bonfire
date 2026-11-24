@@ -28,16 +28,20 @@ function profileState(state, readOnly = false) {
     preparedOrigin: state.preparedOrigin || location.origin,
   };
 }
-const db = await new Promise((ok, no) => {
-  const r = indexedDB.open("bonfire-v1", 1);
-  r.onupgradeneeded = () => r.result.createObjectStore("vault");
-  r.onsuccess = () => ok(r.result);
-  r.onerror = () => no(r.error);
-});
+let connection;
+function openVault() {
+  return (connection ??= new Promise((ok, no) => {
+    const r = indexedDB.open("bonfire-v1", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("vault");
+    r.onsuccess = () => ok(r.result);
+    r.onerror = () => no(r.error);
+  }));
+}
 const requested = new URLSearchParams(location.search).get("profil");
 const slot =
   requested && /^[a-f0-9-]{36}$/.test(requested) ? requested : "prepared";
 export async function slots() {
+  const db = await openVault();
   return new Promise((ok, no) => {
     const r = db.transaction("vault").objectStore("vault").getAllKeys();
     r.onsuccess = () => ok(r.result);
@@ -66,6 +70,7 @@ export async function recoverReadOnly(file, pass) {
   return state;
 }
 export async function readVault() {
+  const db = await openVault();
   return new Promise((ok, no) => {
     const r = db.transaction("vault").objectStore("vault").get(slot);
     r.onsuccess = () => ok(r.result);
@@ -116,6 +121,7 @@ export async function unlock(pass) {
   return profileState(JSON.parse(new TextDecoder().decode(plain)));
 }
 export async function save(state) {
+  const db = await openVault();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const bytes = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },

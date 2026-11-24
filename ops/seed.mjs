@@ -26,13 +26,25 @@ if ((await api("events")).some((e) => e.Name === name)) {
   console.log("Übungsbereich bereits vorhanden.");
   process.exit(0);
 }
+const response = await fetch(base + "/api/login", { method: "POST", headers });
+if (!response.ok) throw Error("Anmeldung für Übungsdaten fehlgeschlagen.");
+headers.Cookie = response.headers.get("set-cookie").split(";")[0];
+delete headers.Authorization;
+const years = await api("years");
+const year =
+  years.find((y) => y.Starts <= "2026-06-01" && y.Ends >= "2026-06-30") ||
+  (await api("years", {
+    Name: "Übung 2026",
+    Starts: "2026-01-01",
+    Ends: "2026-12-31",
+  }));
 const e = await api("events", {
+  Year: year.ID,
   Name: name,
   Starts: "2026-06-01",
   Ends: "2026-06-30",
 });
-const d = await api("prepare", { Event: e.ID, Name: "Übungsdaten" });
-headers.Authorization = "Bearer " + d.device + "." + d.token;
+
 const ops = [];
 function row(Kind, Label, Data = {}, Target = randomUUID()) {
   ops.push({
@@ -83,7 +95,7 @@ row("price", "Gemüseweckerl", {
 });
 row("period", "Übungsperiode Juni", { To: "2026-06-30" });
 row("opening", "Eröffnung Übungskassa", { Amount: 30000 });
-await api("sync", { Ops: ops, Action: "Ende", Last: ops.length });
+await api("online?event=" + encodeURIComponent(e.ID), { Ops: ops });
 console.log(
   "Übungsbereich mit Geldtasche, Preisen, Kontakt und Forderung angelegt.",
 );

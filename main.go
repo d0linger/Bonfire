@@ -132,6 +132,7 @@ func (a *app) auth(ctx context.Context, r *http.Request) (string, string, error)
 type event struct {
 	ID, Name, Starts, Ends    string
 	Closed, Accounts, General bool
+	Year                      string
 }
 
 func (a *app) events(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
@@ -147,14 +148,19 @@ func (a *app) events(ctx context.Context, w http.ResponseWriter, r *http.Request
 		if err = read(r, &e); err != nil {
 			return nil, err
 		}
-		if strings.TrimSpace(e.Name) == "" || len(e.Name) > 160 || !date(e.Starts) || !date(e.Ends) || e.Ends < e.Starts {
+		e.Name = strings.TrimSpace(e.Name)
+		if e.Name == "" || len(e.Name) > 160 || !date(e.Starts) || !date(e.Ends) || e.Ends < e.Starts {
 			return nil, fail("Name und Zeitraum prüfen.")
 		}
-		e.ID = uuid()
-		_, err = a.db.Exec(ctx, "INSERT INTO events(id,name,starts,ends,accounts,general_ledger) VALUES($1,$2,$3,$4,$5,$6)", e.ID, e.Name, e.Starts, e.Ends, e.Accounts, e.General)
-		return e, err
+		return a.createEvent(ctx, name, e)
 	}
-	rows, err := a.db.Query(ctx, "SELECT id::text,name,starts::text,ends::text,closed,accounts,general_ledger FROM events WHERE $1='Leitung' OR id IN (SELECT event FROM grants_event WHERE username=$2) ORDER BY starts DESC,name", role, name)
+	year := r.URL.Query().Get("year")
+	if year != "" && !idPattern.MatchString(year) {
+		return nil, fail("Geschäftsjahr ungültig.")
+	}
+	rows, err := a.db.Query(ctx, `SELECT id::text,name,starts::text,ends::text,closed,accounts,general_ledger,coalesce(fiscal_year::text,'')
+	    FROM events WHERE ($1='Leitung' OR id IN (SELECT event FROM grants_event WHERE username=$2))
+	    AND ($3='' OR fiscal_year=nullif($3,'')::uuid) ORDER BY general_ledger DESC,starts DESC,name,id`, role, name, year)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +198,7 @@ func (a *app) prepare(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		return nil, err
 	}
 	var e event
-	err = tx.QueryRow(ctx, "SELECT id::text,name,starts::text,ends::text,closed,accounts,general_ledger FROM events WHERE id=$1 AND ($2='Leitung' OR EXISTS(SELECT 1 FROM grants_event WHERE event=$1 AND username=$3)) FOR UPDATE", in.Event, role, name).Scan(&e.ID, &e.Name, &e.Starts, &e.Ends, &e.Closed, &e.Accounts, &e.General)
+	err = tx.QueryRow(ctx, "SELECT id::text,name,starts::text,ends::text,closed,accounts,general_ledger,coalesce(fiscal_year::text,'') FROM events WHERE id=$1 AND ($2='Leitung' OR EXISTS(SELECT 1 FROM grants_event WHERE event=$1 AND username=$3)) FOR UPDATE", in.Event, role, name).Scan(&e.ID, &e.Name, &e.Starts, &e.Ends, &e.Closed, &e.Accounts, &e.General, &e.Year)
 	if err != nil || e.Closed {
 		return nil, problem{403, "Veranstaltung gesperrt oder nicht zugewiesen."}
 	}
@@ -220,13 +226,19 @@ type device struct {
 	Donor                                bool
 	ID, User, Role, Event, IncidentState string
 	Block, Last, DigitalCount            int64
-	Sealed, Closed, Accounts             bool
+	Sealed, Closed, Accounts, Online     bool
 }
 
 func lock(ctx context.Context, tx pgx.Tx, r *http.Request) (device, error) {
 	var d device
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock_shared(751025)"); err != nil {
 		return d, err
+	}
+	if r.URL.Path == "/api/online" || (r.URL.Path == "/api/manage" || r.URL.Path == "/api/donation-reports") && r.Header.Get("X-Bonfire-Event") != "" {
+		return lockOnline(ctx, tx, r)
+	}
+	if !offlineEnabled() {
+		return d, problem{403, "Offline-Erfassung ist deaktiviert."}
 	}
 	var digest []byte
 	id, token, ok := strings.Cut(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), ".")
@@ -238,7 +250,7 @@ func lock(ctx context.Context, tx pgx.Tx, r *http.Request) (device, error) {
 	if err != nil {
 		return d, problem{403, "Gerät unbekannt."}
 	}
-	err = tx.QueryRow(ctx, "SELECT d.id::text,d.username,u.role,d.block,d.last_seq,d.sealed,e.closed,e.accounts,d.secret,d.donor_access,d.incident_state,d.digital_count FROM devices d JOIN users u ON u.name=d.username JOIN events e ON e.id=d.event WHERE d.id=$1 AND u.active AND d.expires>now() AND (u.role='Leitung' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.username=u.name AND g.event=e.id))", id).Scan(&d.ID, &d.User, &d.Role, &d.Block, &d.Last, &d.Sealed, &d.Closed, &d.Accounts, &digest, &d.Donor, &d.IncidentState, &d.DigitalCount)
+	err = tx.QueryRow(ctx, "SELECT d.id::text,d.username,u.role,d.block,d.last_seq,d.sealed,e.closed,e.accounts,d.secret,d.donor_access,d.incident_state,d.digital_count FROM devices d JOIN users u ON u.name=d.username JOIN events e ON e.id=d.event WHERE d.id=$1 AND NOT d.online_actor AND u.active AND d.expires>now() AND (u.role='Leitung' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.username=u.name AND g.event=e.id))", id).Scan(&d.ID, &d.User, &d.Role, &d.Block, &d.Last, &d.Sealed, &d.Closed, &d.Accounts, &digest, &d.Donor, &d.IncidentState, &d.DigitalCount)
 	if err != nil || subtle.ConstantTimeCompare(digest, hash(token)) != 1 {
 		return d, problem{403, "Gerätefreigabe abgelaufen oder entzogen."}
 	}
@@ -248,7 +260,10 @@ func lock(ctx context.Context, tx pgx.Tx, r *http.Request) (device, error) {
 	_, err = tx.Exec(ctx, "SELECT set_config('bonfire.device',$1,true)", d.ID)
 	return d, err
 }
-func date(s string) bool { _, err := time.Parse("2006-01-02", s); return err == nil }
+func date(s string) bool {
+	_, err := time.Parse("2006-01-02", s)
+	return err == nil && s >= "0001-01-01"
+}
 func initialize(ctx context.Context, db *pgxpool.Pool) error {
 	tx, err := db.Begin(ctx)
 	if err != nil {
@@ -335,6 +350,15 @@ func initialize(ctx context.Context, db *pgxpool.Pool) error {
 	if err = applyUpgrade(ctx, tx, 14, "migrations/014.sql"); err != nil {
 		return err
 	}
+	if err = applyUpgrade(ctx, tx, 15, "migrations/015.sql"); err != nil {
+		return err
+	}
+	if err = applyUpgrade(ctx, tx, 16, "migrations/016.sql"); err != nil {
+		return err
+	}
+	if err = applyUpgrade(ctx, tx, 17, "migrations/017.sql"); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 func main() {
@@ -365,10 +389,11 @@ func main() {
 	mux.HandleFunc("POST /api/manage", route(a.manage))
 	mux.HandleFunc("GET /api/workplace", route(a.workplace))
 	mux.HandleFunc("GET /api/events", route(a.events))
+	mux.HandleFunc("GET /api/years", route(a.years))
+	mux.HandleFunc("POST /api/years", route(a.years))
+	mux.HandleFunc("POST /api/years/assign", route(a.assignYear))
 	mux.HandleFunc("POST /api/events", route(a.events))
-	mux.HandleFunc("POST /api/prepare", route(a.prepare))
-	mux.HandleFunc("POST /api/renew", route(a.renew))
-	mux.HandleFunc("POST /api/sync", route(a.syncEvent))
+	a.registerCapture(mux)
 	mux.HandleFunc("POST /api/access", route(a.access))
 	mux.HandleFunc("POST /api/users", route(a.user))
 	mux.HandleFunc("GET /health", route(func(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {

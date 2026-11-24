@@ -22,6 +22,9 @@ jobs:
         run: |
           printf 'BONFIRE_ADMIN_PASSWORD=%s\nBONFIRE_DB_PASSWORD=%s\n' "$(openssl rand -hex 24)" "$(openssl rand -hex 24)" > .env
           printf 'BONFIRE_RUNTIME_PASSWORD=%s\n' "$(openssl rand -hex 24)" >> .env
+          npx playwright install --with-deps chromium
+          pwsh ./ops/accept-online.ps1
+          export BONFIRE_OFFLINE_ENABLED=true
           docker compose up -d --build --wait
           node tests/api.mjs
           node tests/accounts.mjs
@@ -37,7 +40,6 @@ jobs:
           node tests/carry-forward.mjs
           node tests/attachments.mjs
           node tests/layout-limits.mjs
-          npx playwright install --with-deps chromium
           BONFIRE_URL=http://127.0.0.1:8137 node tests/workplace.mjs
           BONFIRE_URL=http://127.0.0.1:8137 node tests/login.mjs
           node tests/offline.mjs
@@ -47,6 +49,7 @@ jobs:
       - name: Verschlüsselte Wiederherstellung prüfen
         shell: pwsh
         run: |
+          $env:BONFIRE_OFFLINE_ENABLED = 'true'
           $key = Join-Path $env:RUNNER_TEMP 'bonfire-ci.key'
           node ops/crypt.mjs keygen $key
           if ($LASTEXITCODE) { exit $LASTEXITCODE }

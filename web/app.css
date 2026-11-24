@@ -397,6 +397,12 @@ main {
 .workspace-line:has(#state:empty):has(#workspace-picker:empty) {
   display: none;
 }
+#workspace-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
 #workspace-picker label {
   display: flex;
   align-items: center;

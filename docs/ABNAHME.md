@@ -4,7 +4,19 @@ Geprüft wurde die lokale Entwicklungsinstallation mit erfundenen Veranstaltungs
 
 Der [Abgleich mit der Designübergabe](DESIGNABGLEICH.md) ordnet die acht Hauptmodule ihren Bedienwegen und Nachweisen zu. `ops/acceptance.ps1` startet die Fach-, Browser- und Restoreprüfungen auf einem eigenen, temporären Compose-Volume. Bestehende Daten im interaktiven Arbeitsbereich bleiben erhalten.
 
-## Ausgeführte Prüfungen
+## Geschäftsjahre und Onlineerfassung
+
+Die Standardinstallation nutzt die Onlineerfassung. Der frühere Abnahmebericht zur Gerätevorbereitung beschreibt den separat getesteten Offlinebetrieb. `ops/accept-online.ps1` prüft die Standardeinstellung in einem eigenen Compose-Projekt.
+
+| Test | Abgedeckter Ablauf |
+| --- | --- |
+| `tests/years.mjs` | Freie Jahresgrenzen, ein allgemeines Kassenbuch bei Anlage, Jahreszuordnung, Rollen, geschützte Buchungsdaten und bestehende Arbeitsbereiche |
+| `tests/online-api.mjs` | Serverseitig bestätigte parallele Buchungen, Wiederholung, Konflikt mit vollständigem Rollback, Belegnummer, Audit und Abschluss |
+| `tests/year-workplace.mjs` | Mobile Jahresauswahl, Veranstaltungsanlage, direkte Buchung, Verbindungsabbruch, verlorene Bestätigung und Neuladen |
+
+Der Online-Prüflauf hat außerdem eine verschlüsselte Sicherung in einer isolierten Datenbank wiederhergestellt und die Geschäftsjahre, Arbeitsbereichszuordnungen und Originaldateien verglichen. Der mobile Browsertest lief mit einem 390 Pixel breiten Chromium-Viewport. Ein Test auf den tatsächlichen Handys der Kassiere steht aus.
+
+## Frühere Prüfungen
 
 | Test | Beobachtetes Ergebnis |
 | --- | --- |

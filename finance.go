@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"slices"
@@ -232,8 +233,21 @@ func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name, start, e
 		return "", fail("Gültigen Zielzeitraum angeben.")
 	}
 	id := uuid()
-	err := tx.QueryRow(ctx, "INSERT INTO events(id,name,starts,ends,accounts) SELECT $1,$2,coalesce(nullif($4,'')::date,starts),coalesce(nullif($5,'')::date,ends),accounts FROM events WHERE id=$3 RETURNING starts::text", id, name, d.Event, start, end).Scan(&start)
+	err := tx.QueryRow(ctx, `WITH source AS (
+		SELECT accounts,fiscal_year,coalesce(nullif($4,'')::date,starts) AS starts,
+		coalesce(nullif($5,'')::date,ends) AS ends FROM events WHERE id=$3
+	) INSERT INTO events(id,name,starts,ends,accounts,fiscal_year)
+		SELECT $1,$2,s.starts,s.ends,s.accounts,y.id FROM source s LEFT JOIN fiscal_years y
+		ON y.starts<=s.starts AND y.ends>=s.ends
+		WHERE y.id IS NOT NULL OR (s.fiscal_year IS NULL AND $6)
+		RETURNING starts::text`, id, name, d.Event, start, end, offlineEnabled()).Scan(&start)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", fail("Für den Zielzeitraum zuerst ein passendes Geschäftsjahr anlegen.")
+	}
 	if err != nil {
+		return "", err
+	}
+	if err = checkYearSetup(ctx, tx, id); err != nil {
 		return "", err
 	}
 	rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event=$1 AND kind IN ('bar','wallet','price','template','shift') AND NOT coalesce((data->>'Retired')::boolean,false)", d.Event)
@@ -284,17 +298,26 @@ func (a *app) globalPeriod(ctx context.Context, tx pgx.Tx, d device, start, end 
 	if d.Role == "Kassa" || !date(start) || !date(end) || start > end {
 		return nil, fail("Prüfrecht und gültiger Zeitraum erforderlich.")
 	}
+	var year *string
+	if err := tx.QueryRow(ctx, "SELECT fiscal_year::text FROM events WHERE id=$1", d.Event).Scan(&year); err != nil {
+		return nil, err
+	}
 	if history {
 		rows, err := tx.Query(ctx, `SELECT e.name AS veranstaltung,j.kind AS art,j.data->>'Date' AS datum,j.data->>'Label' AS bezeichnung,j.direction*(j.data->>'Amount')::bigint AS cent,
   CASE j.direction WHEN -1 THEN 'Storno' ELSE 'Buchung' END AS richtung,j.revision,j.actor AS akteur,j.recorded_at::text AS angenommen,o.local_time::text AS geraetezeit,
   o.device::text AS geraet,j.target AS vorgang FROM journal_history j JOIN events e ON e.id=j.event LEFT JOIN operations o ON o.id=j.operation
-  WHERE j.data->>'Date' BETWEEN $1 AND $2 AND ($3='Leitung' OR EXISTS (SELECT 1 FROM grants_event g WHERE g.event=e.id AND g.username=$4)) ORDER BY j.id`, start, end, d.Role, d.User)
+  WHERE j.data->>'Date' BETWEEN $1 AND $2 AND ($3='Leitung' OR EXISTS (SELECT 1 FROM grants_event g WHERE g.event=e.id AND g.username=$4))
+  AND ($5::uuid IS NULL OR e.fiscal_year=$5) ORDER BY j.id`, start, end, d.Role, d.User, year)
 		if err != nil {
 			return nil, err
 		}
 		return pgx.CollectRows(rows, pgx.RowToMap)
 	}
-	rows, err := tx.Query(ctx, "SELECT e.name AS veranstaltung,j.kind AS art,j.data->>'Date' AS datum,j.data->>'Label' AS bezeichnung,(j.data->>'Amount')::bigint AS cent FROM entries j JOIN events e ON e.id=j.event WHERE j.data->>'Date' BETWEEN $1 AND $2 AND j.kind IN ('income','expense','refund','deposit','deposit-return','donation','payment','presale','card','fee','reimbursement','outlay','transfer','payout') AND ($3='Leitung' OR e.id IN (SELECT event FROM grants_event WHERE username=$4)) ORDER BY datum,e.name,j.id", start, end, d.Role, d.User)
+	rows, err := tx.Query(ctx, `SELECT e.name AS veranstaltung,j.kind AS art,j.data->>'Date' AS datum,j.data->>'Label' AS bezeichnung,(j.data->>'Amount')::bigint AS cent
+		FROM entries j JOIN events e ON e.id=j.event WHERE j.data->>'Date' BETWEEN $1 AND $2
+		AND j.kind IN ('income','expense','refund','deposit','deposit-return','donation','payment','presale','card','fee','reimbursement','outlay','transfer','payout','supply','skim','return')
+		AND ($3='Leitung' OR e.id IN (SELECT event FROM grants_event WHERE username=$4))
+		AND ($5::uuid IS NULL OR e.fiscal_year=$5) ORDER BY datum,e.name,j.id`, start, end, d.Role, d.User, year)
 	if err != nil {
 		return nil, err
 	}

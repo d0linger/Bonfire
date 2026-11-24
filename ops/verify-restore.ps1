@@ -1,6 +1,6 @@
 param([Parameter(Mandatory=$true)][string]$Path,[string]$KeyFile,[switch]$VerifyExercise)
 $ErrorActionPreference='Stop'
-if(!(Test-Path -LiteralPath 'test-results/replay.json')){throw 'Zuerst node tests/api.mjs mit fiktiven Daten ausführen.'}
+if($VerifyExercise -and !(Test-Path -LiteralPath 'test-results/replay.json')){throw 'Zuerst node tests/api.mjs mit fiktiven Daten ausführen.'}
 if($KeyFile){
   $tempDump=Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString('N')+'.dump')
   try {
@@ -17,9 +17,14 @@ $restored=($output | Select-String '^Wiederhergestellte isolierte Datenbank: (re
 if($restored -notmatch '^restore_[0-9a-f]{32}$'){throw 'Isolierte Zieldatenbank fehlt.'}
 $query="SELECT number,encode(sha256(pdf),'hex'),encode(sha256(docx),'hex') FROM originals ORDER BY number"
 $before=@(docker compose exec -T db psql -X -At -U bonfire -d bonfire -c $query)
-if($LASTEXITCODE -ne 0 -or !$before.Count){throw 'Vorbedingung: Mindestens ein synchronisierter Übungsbeleg.'}
+if($LASTEXITCODE -ne 0 -or ($VerifyExercise -and !$before.Count)){throw 'Originalregister nicht verfügbar oder Übungsbeleg fehlt.'}
 $after=@(docker compose exec -T db psql -X -At -U bonfire -d $restored -c $query)
 if($LASTEXITCODE -ne 0 -or (Compare-Object $before $after)){throw 'Originaldateien stimmen nicht überein.'}
+$yearQuery="SELECT y.id,y.name,y.starts,y.ends,e.id FROM fiscal_years y LEFT JOIN events e ON e.fiscal_year=y.id ORDER BY y.id,e.id"
+$yearsBefore=@(docker compose exec -T db psql -X -At -v ON_ERROR_STOP=1 -U bonfire -d bonfire -c $yearQuery)
+if($LASTEXITCODE){throw 'Jahreszuordnung nicht verfügbar.'}
+$yearsAfter=@(docker compose exec -T db psql -X -At -v ON_ERROR_STOP=1 -U bonfire -d $restored -c $yearQuery)
+if($LASTEXITCODE -or (Compare-Object $yearsBefore $yearsAfter)){throw 'Wiederhergestellte Geschäftsjahre oder Arbeitsbereiche weichen ab.'}
 $conflictQuery="SELECT id,encode(sha256(decode(data->>'PDF','base64')),'hex'),encode(sha256(decode(data->>'DOCX','base64')),'hex') FROM operations WHERE kind='original' AND outcome IN ('Konflikt','Geklärt') ORDER BY id"
 $conflictSource=@(docker compose exec -T db psql -X -At -v ON_ERROR_STOP=1 -U bonfire -d bonfire -c $conflictQuery)
 if($LASTEXITCODE){throw 'Konfliktfassungen in der Quelle nicht lesbar.'}
@@ -46,9 +51,9 @@ try {
   if($VerifyExercise){
     node tests/restored-exercise.mjs
     if($LASTEXITCODE){throw 'Zusammenhängender Offline-Gesamtfall im wiederhergestellten System unvollständig.'}
+    node tests/api.mjs --replay
+    if($LASTEXITCODE -ne 0){throw 'Sync nach Wiederherstellung fehlgeschlagen.'}
   }
-  node tests/api.mjs --replay
-  if($LASTEXITCODE -ne 0){throw 'Sync nach Wiederherstellung fehlgeschlagen.'}
   Write-Output ("Originale mit übereinstimmenden PDF- und DOCX-Hashes: "+$after.Count)
 } finally {
   docker stop $name | Out-Null

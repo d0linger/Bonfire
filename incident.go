@@ -37,7 +37,7 @@ func incidentAction(ctx context.Context, tx pgx.Tx, d device, action, target, re
 	}
 	var seq int64
 	err := tx.QueryRow(ctx, `UPDATE devices SET incident_state=$1,incident=CASE WHEN $1='missing' THEN $2 ELSE incident END,
- expires=CASE WHEN $1='missing' THEN now() ELSE expires END WHERE id=$3 AND event=$4 AND NOT sealed
+ expires=CASE WHEN $1='missing' THEN now() ELSE expires END WHERE id=$3 AND event=$4 AND NOT online_actor AND NOT sealed
  AND (incident_state=$5 AND $1<>'returning' OR $1='returning' AND incident_state IN ('missing','incomplete'))
  RETURNING last_seq`, state, reason, target, d.Event, previous).Scan(&seq)
 	if err == pgx.ErrNoRows {

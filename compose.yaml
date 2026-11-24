@@ -32,6 +32,7 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
+      BONFIRE_OFFLINE_ENABLED: ${BONFIRE_OFFLINE_ENABLED:-false}
       DATABASE_URL: postgres://bonfire_runtime:${BONFIRE_RUNTIME_PASSWORD}@db/bonfire?sslmode=disable
     ports:
       - "127.0.0.1:${BONFIRE_PORT:-8137}:8080"

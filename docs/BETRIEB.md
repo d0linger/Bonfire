@@ -1,8 +1,12 @@
 # Betrieb und Wiederanlauf
 
+## Aktueller Onlinebetrieb
+
+Die Jahresauswahl, Anlage und Zuordnung vorhandener Arbeitsbereiche beschreibt der [lokale Einstieg](../README.md). Geschäftsjahreswahl und direkter Serverzugriff sind die Standardeinstellung. Die Anleitungen dieses Dokuments zu Geräteprofilen, Gerätesiegeln und Offlineabgleich gelten für den früheren Gerätebetrieb. Für dessen gesonderte Abnahme aktiviert das Prüfskript ausschließlich im Prüfstack `BONFIRE_OFFLINE_ENABLED=true`.
+
 ## Installation und Zuständigkeit
 
-Der ausgelieferte Stack ist eine lokale Entwicklungsinstallation. PostgreSQL speichert synchronisierte Einträge und Originaldateien. Jede vorbereitete PWA hält zusätzlich einen verschlüsselten, gerätebezogenen Bestand. Ein Veranstaltungsserver benötigt einen stabilen HTTPS-Origin im lokalen WLAN, ein auf den Geräten vertrauenswürdiges Zertifikat und genau eine zuständige Schreibinstanz. Der mitgelieferte Stack bindet seinen Webport an Loopback. Ein Zielnetz und eine öffentliche Domäne wurden nicht festgelegt.
+Der ausgelieferte Stack ist eine lokale Entwicklungsinstallation. PostgreSQL speichert synchronisierte Einträge und Originaldateien. Die aktuelle Oberfläche erfasst ausschließlich online. Frühere Geräteprofile können noch verschlüsselte, unübertragene Einträge enthalten. Ein Veranstaltungsserver benötigt einen stabilen HTTPS-Origin im lokalen WLAN, ein auf den Geräten vertrauenswürdiges Zertifikat und genau eine zuständige Schreibinstanz. Der mitgelieferte Stack bindet seinen Webport an Loopback. Ein Zielnetz und eine öffentliche Domäne wurden nicht festgelegt.
 
 Die Leitung richtet Arbeitsbereiche, Benutzer, Kontenoption und Nummern ein. Zur Prüfung erhält eine separate Person die Rolle Prüfung und Freigaben für die betroffenen Arbeitsbereiche. Für Spendenmeldedaten muss die Leitung ein eigenes berechtigtes Gerät vorbereiten. Die Webanwendung verbindet sich als `bonfire_runtime`. Schemaänderungen führt der kurzlebige Compose-Dienst `migrate` mit dem Datenbankeigentümer aus.
 

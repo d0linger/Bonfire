@@ -127,21 +127,99 @@ let s,
   filter = "",
   journalFilters = {},
   busy = false;
-const sw = navigator.serviceWorker
-  ?.register("/sw.js")
-  .then(() => navigator.serviceWorker.ready);
+// The legacy worker can serve a prepared test installation after a cold restart.
+let offlineEnabled = false;
+try {
+  offlineEnabled =
+    (await (await fetch("/api/mode", { cache: "no-store" })).json()).offline ===
+    true;
+  if (offlineEnabled) localStorage.setItem("bonfire-legacy-mode", "1");
+  else localStorage.removeItem("bonfire-legacy-mode");
+} catch {
+  offlineEnabled = localStorage.getItem("bonfire-legacy-mode") === "1";
+}
+const sw = offlineEnabled
+  ? navigator.serviceWorker
+      ?.register("/sw.js")
+      .then(() => navigator.serviceWorker.ready)
+  : undefined;
+if (!offlineEnabled && navigator.serviceWorker)
+  navigator.serviceWorker
+    .getRegistration()
+    .then((registration) => registration?.update())
+    .catch(() => {});
 async function api(path, body, token = auth) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = token;
+  if (!offlineEnabled && s && ["manage", "donation-reports"].includes(path))
+    headers["X-Bonfire-Event"] = s.event.ID;
+  if (
+    !offlineEnabled &&
+    donorAccess &&
+    (path.startsWith("online?") || path === "donation-reports")
+  )
+    headers["X-Bonfire-Donor"] = "true";
   const response = await fetch("/api/" + path, {
     method: body ? "POST" : "GET",
-    headers: { Authorization: token, "Content-Type": "application/json" },
+    headers,
     cache: "no-store",
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!response.ok) throw Error((await response.text()).slice(0, 240));
+  if (!response.ok) {
+    const message = (await response.text()).slice(0, 240);
+    if (!offlineEnabled && response.status === 401 && logged) {
+      s = null;
+      onlineUser = null;
+      logged = false;
+      donorAccess = false;
+      show();
+    }
+    throw Error(message);
+  }
   return response.json();
 }
 import { donationReport } from "./donors.js";
-const bearer = () => "Bearer " + s.device + "." + s.token;
+const bearer = () =>
+  offlineEnabled ? "Bearer " + s.device + "." + s.token : "";
+let donorAccess = false;
+const unconfirmedWrites = new Set();
+function onlineSnapshot(out, previous = {}) {
+  return {
+    ...previous,
+    ...out,
+    entries: out.entries || [],
+    conflicts: out.conflicts || [],
+    ops: [],
+    prints: [],
+    seq: out.last,
+    pinnedTemplates: out.entries.filter((r) => r.Kind === "template"),
+  };
+}
+async function workspaceRequest(id, body) {
+  if (!navigator.onLine)
+    throw Error(
+      "Keine Serververbindung. Speichern ist erst wieder mit Verbindung möglich.",
+    );
+  const changes =
+    body.Ops?.length || body.Prints?.length || body.Action || body.Resolve;
+  if (changes && unconfirmedWrites.has(id))
+    throw Error(
+      "Vor einem weiteren Speicherversuch zuerst den Serverstand aktualisieren und den letzten Eintrag prüfen.",
+    );
+  try {
+    const result = await api("online?event=" + encodeURIComponent(id), body);
+    unconfirmedWrites.delete(id);
+    return result;
+  } catch (err) {
+    if (err instanceof TypeError) {
+      if (changes) unconfirmedWrites.add(id);
+      throw Error(
+        "Der Server hat den Vorgang nicht bestätigt. Prüfe nach der Wiederverbindung zuerst den Serverstand.",
+      );
+    }
+    throw err;
+  }
+}
 async function reprint(row, format) {
   if (!row.Data[format])
     throw Error("Dieses Original benötigt ein Belegprofil.");
@@ -168,19 +246,33 @@ async function reprint(row, format) {
   );
 }
 async function commit(next) {
-  await save(next);
-  s = next;
+  if (offlineEnabled) {
+    await save(next);
+    s = next;
+    return;
+  }
+  if (next.ops.length || next.prints?.length) {
+    const out = await workspaceRequest(next.event.ID, {
+      Ops: next.ops,
+      Prints: next.prints || [],
+    });
+    s = onlineSnapshot(out, next);
+  } else s = next;
 }
 function canWrite() {
   if (
-    Date.parse(s.expires) <= Date.now() ||
+    (offlineEnabled && Date.parse(s.expires) <= Date.now()) ||
     s.closed ||
     s.sealed ||
     s.incidentState === "returning" ||
     s.ending ||
     s.role === "Prüfung"
   )
-    throw Error("Lokale Schreibfreigabe beendet.");
+    throw Error(
+      offlineEnabled
+        ? "Lokale Schreibfreigabe beendet."
+        : "Dieser Arbeitsbereich ist schreibgeschützt.",
+    );
 }
 async function queue(k, d, target = crypto.randomUUID(), base = 0) {
   canWrite();
@@ -210,6 +302,10 @@ async function queue(k, d, target = crypto.randomUUID(), base = 0) {
   await commit(next);
 }
 async function sync(extra = {}) {
+  if (!offlineEnabled) {
+    s = onlineSnapshot(await workspaceRequest(s.event.ID, extra), s);
+    return;
+  }
   if (s.recovery)
     throw Error("Wiederhergestelltes Archiv ist schreibgeschützt.");
   const probe = await api("sync", { Ops: [] }, bearer());
@@ -483,44 +579,46 @@ function devicePage() {
     })
     .join("");
   return (
-    "<p>" +
-    esc(s.user) +
-    " · " +
-    esc(s.role) +
-    " · Gerätefreigabe bis " +
-    esc(new Date(s.expires).toLocaleString("de-AT")) +
-    "</p>" +
-    (!s.sealed && !s.recovery
-      ? panel(
-          "Gerätefreigabe verlängern",
-          form(
-            "renew",
-            field("password", "Online-Passwort", "password", true) +
-              field("otp", "TOTP oder Recoverycode (falls eingerichtet)"),
-            "Gerät erneut autorisieren",
-          ),
+    (offlineEnabled
+      ? "<p>" +
+        esc(s.user) +
+        " · " +
+        esc(s.role) +
+        " · Gerätefreigabe bis " +
+        esc(new Date(s.expires).toLocaleString("de-AT")) +
+        "</p>" +
+        (!s.sealed && !s.recovery
+          ? panel(
+              "Gerätefreigabe verlängern",
+              form(
+                "renew",
+                field("password", "Online-Passwort", "password", true) +
+                  field("otp", "TOTP oder Recoverycode (falls eingerichtet)"),
+                "Gerät erneut autorisieren",
+              ),
+            )
+          : "") +
+        panel(
+          "Abgleich",
+          button("readiness", "Offlinebereitschaft prüfen", true) +
+            readiness.map((t) => "<p>" + esc(t) + "</p>").join("") +
+            "<p>" +
+            s.ops.length +
+            " lokale Vorgänge ausstehend · " +
+            s.conflicts.length +
+            " Konflikte im letzten Abgleich</p><p>" +
+            esc(
+              s.synced
+                ? "Letzter bestätigter Abgleich " +
+                    new Date(s.synced).toLocaleString("de-AT")
+                : "Erster Abgleich ausständig",
+            ) +
+            '</p><div class="actions">' +
+            button("sync", "Jetzt abgleichen") +
+            button("recover", "Verschlüsselte Sicherung laden", true) +
+            "</div>",
         )
-      : "") +
-    panel(
-      "Abgleich",
-      button("readiness", "Offlinebereitschaft prüfen", true) +
-        readiness.map((t) => "<p>" + esc(t) + "</p>").join("") +
-        "<p>" +
-        s.ops.length +
-        " lokale Vorgänge ausstehend · " +
-        s.conflicts.length +
-        " Konflikte im letzten Abgleich</p><p>" +
-        esc(
-          s.synced
-            ? "Letzter bestätigter Abgleich " +
-                new Date(s.synced).toLocaleString("de-AT")
-            : "Erster Abgleich ausständig",
-        ) +
-        '</p><div class="actions">' +
-        button("sync", "Jetzt abgleichen") +
-        button("recover", "Verschlüsselte Sicherung laden", true) +
-        "</div>",
-    ) +
+      : button("sync", "Serverstand aktualisieren", true)) +
     conflicts +
     (s.role !== "Kassa"
       ? panel(
@@ -601,20 +699,24 @@ function devicePage() {
           ),
         )
       : "") +
-    incidentPanel() +
-    panel(
-      "Erfassungsende",
-      "<p>Mit der Bestätigung endet die Erfassung auf diesem Gerät für diese Veranstaltung.</p><p>Geräte ohne bestätigtes Ende beim letzten Abgleich: " +
-        esc(s.pending ?? "Unbekannt") +
-        '</p><div class="actions">' +
-        (!s.sealed
-          ? button("seal", "Mein Erfassungsende bestätigen")
-          : "<strong>Erfassungsende bestätigt</strong>") +
-        (s.role === "Prüfung"
-          ? button("close", "Bestände prüfen und abschließen")
-          : "") +
-        "</div>",
-    )
+    (offlineEnabled
+      ? incidentPanel() +
+        panel(
+          "Erfassungsende",
+          "<p>Mit der Bestätigung endet die Erfassung auf diesem Gerät für diese Veranstaltung.</p><p>Geräte ohne bestätigtes Ende beim letzten Abgleich: " +
+            esc(s.pending ?? "Unbekannt") +
+            '</p><div class="actions">' +
+            (!s.sealed
+              ? button("seal", "Mein Erfassungsende bestätigen")
+              : "<strong>Erfassungsende bestätigt</strong>") +
+            (s.role === "Prüfung"
+              ? button("close", "Bestände prüfen und abschließen")
+              : "") +
+            "</div>",
+        )
+      : s.role === "Prüfung" && !s.closed
+        ? button("close", "Bestände prüfen und abschließen")
+        : "")
   );
 }
 function formFields(k) {
@@ -625,7 +727,7 @@ function formFields(k) {
       k === "period" ? "Periodenbeginn" : "Datum",
       "date",
       true,
-      today(),
+      offlineEnabled ? today() : defaultDay(s.event),
     );
   if (monetary.has(k))
     f += label(
@@ -1152,7 +1254,12 @@ function records() {
           "</tbody></table>",
       );
   }
-  if (page === "Geldtaschen" && !s.sealed && s.role !== "Prüfung") {
+  if (
+    offlineEnabled &&
+    page === "Geldtaschen" &&
+    !s.sealed &&
+    s.role !== "Prüfung"
+  ) {
     detail +=
       "<details><summary>Physische Übergabe dokumentieren (optional)</summary>" +
       form(
@@ -1176,7 +1283,10 @@ function records() {
   return (
     panel(
       "Einträge",
-      '<details class="filter-box"' +
+      (!offlineEnabled
+        ? button("sync", "Serverstand aktualisieren", true)
+        : "") +
+        '<details class="filter-box"' +
         (filter || Object.values(journalFilters).some(Boolean) ? " open" : "") +
         "><summary>Einträge filtern</summary>" +
         form(
@@ -1209,7 +1319,11 @@ function records() {
             form(
               "record",
               formFields(kind),
-              edit ? "Berichtigung speichern" : "Lokal speichern",
+              edit
+                ? "Berichtigung speichern"
+                : offlineEnabled
+                  ? "Lokal speichern"
+                  : "Speichern",
             ) +
             button("cancel", "Abbrechen", true),
         )
@@ -1219,6 +1333,11 @@ function records() {
 let donorReview;
 const donorRequest = (body) => api("donation-reports", body, bearer());
 function donationPanel() {
+  if (!offlineEnabled && s.role === "Leitung" && !s.donorAccess)
+    return panel(
+      "Spendenmeldedaten",
+      button("viewDonors", "Meldedaten für diese Sitzung öffnen", true),
+    );
   if (!s.donorAccess || s.recovery) return "";
   const review = donorReview?.device === s.device ? donorReview : null;
   let content = form(
@@ -1295,7 +1414,12 @@ function exchange() {
     panel(
       "Auswertungszeitraum",
       select("reportPeriod", "Zeitraum", [
-        ["", "Gesamter lokaler Stand"],
+        [
+          "",
+          offlineEnabled
+            ? "Gesamter lokaler Stand"
+            : "Gewählter Arbeitsbereich",
+        ],
         ...periods.map((r) => [
           r.ID,
           r.Data.Label + " · " + r.Data.Date + " bis " + r.Data.To,
@@ -1551,7 +1675,7 @@ function docs() {
             : "") +
           select("version", "Vorlagenstand", [
             ["active", "Freigegebene Fassung"],
-            ["draft", "Lokaler Entwurf"],
+            ["draft", offlineEnabled ? "Lokaler Entwurf" : "Sitzungsentwurf"],
           ]) +
           field("revisionReason", "Korrekturgrund (für Ersatzbeleg)") +
           select("format", "Ausgabe", [
@@ -1583,7 +1707,9 @@ function docs() {
     ) +
     panel(
       "Archiv",
-      "<p>Freie Nummern dieses Geräts: " +
+      (offlineEnabled
+        ? "<p>Freie Nummern dieses Geräts: "
+        : "<p>Verfügbare Belegnummern: ") +
         availableNumbers(s) +
         "</p>" +
         originals
@@ -1605,7 +1731,9 @@ function docs() {
       "Vorlagen anpassen",
       button(
         "pinTemplates",
-        "Freigegebenen Vorlagenstand für dieses Gerät übernehmen",
+        offlineEnabled
+          ? "Freigegebenen Vorlagenstand für dieses Gerät übernehmen"
+          : "Vorlagen aktualisieren",
         true,
       ) +
         form(
@@ -1644,7 +1772,9 @@ function docs() {
             ]) +
             field("footer", "Fußzeile") +
             field("margin", "Seitenrand in mm", "number", true, "15"),
-          "Entwurf lokal speichern",
+          offlineEnabled
+            ? "Entwurf lokal speichern"
+            : "Entwurf für diese Sitzung übernehmen",
         ).replace(
           "</form>",
           '<button data-release="true">Fassung freigeben</button></form>',
@@ -1655,10 +1785,10 @@ function docs() {
             "Word-Layout für Dankesbriefe (A4, DOCX)",
             '<input type="file" name="file" accept=".docx" required>',
           ),
-          "Word-Layout als lokalen Briefentwurf übernehmen",
+          "Word-Layout als Briefentwurf übernehmen",
         ) +
         (s.drafts?.[profileID(6)]?.File
-          ? "<p>Word-Layout lokal gespeichert</p>"
+          ? "<p>Word-Layout im Entwurf verfügbar</p>"
           : "") +
         form(
           "importTemplate",
@@ -1715,27 +1845,187 @@ function preparePanel() {
       : "<p>Keine offene Veranstaltung zugewiesen.</p>",
   );
 }
+let years = [],
+  allSpaces = [],
+  selectedYear = "";
+const legacyGroup = "unassigned";
+const fiscalYear = () => years.find((y) => y.ID === selectedYear);
+const defaultDay = (scope) =>
+  !scope || (today() >= scope.Starts && today() <= scope.Ends)
+    ? today()
+    : scope.Starts;
+function yearForm() {
+  return form(
+    "fiscal-year",
+    field("Name", "Bezeichnung", "text", true) +
+      field("Starts", "Von", "date", true) +
+      field("Ends", "Bis", "date", true),
+    "Geschäftsjahr speichern",
+  );
+}
+function yearSetup() {
+  const old = allSpaces.filter((e) => !e.Year);
+  return (
+    pageHead(
+      "Geschäftsjahre",
+      "Wähle das Geschäftsjahr für eure Kassenführung.",
+    ) +
+    (years.length
+      ? panel(
+          "Geschäftsjahr öffnen",
+          years
+            .map(
+              (y) =>
+                '<p><button class="secondary" data-year="' +
+                esc(y.ID) +
+                '">' +
+                esc(y.Name) +
+                "</button> · " +
+                dat(y.Starts) +
+                " – " +
+                dat(y.Ends) +
+                "</p>",
+            )
+            .join(""),
+        )
+      : "") +
+    (onlineUser.role === "Leitung"
+      ? panel("Geschäftsjahr anlegen", yearForm())
+      : !years.length
+        ? "<p>Dir wurde noch kein Arbeitsbereich in einem Geschäftsjahr zugewiesen.</p>"
+        : "") +
+    (old.length
+      ? panel(
+          "Bisherige Arbeitsbereiche",
+          '<button class="secondary" data-year="unassigned">Ohne Jahreszuordnung öffnen</button>' +
+            (onlineUser.role === "Leitung" && years.length
+              ? form(
+                  "assign-year",
+                  select(
+                    "Event",
+                    "Arbeitsbereich",
+                    old.map((e) => [e.ID, e.Name]),
+                  ) +
+                    select(
+                      "Year",
+                      "Geschäftsjahr",
+                      years.map((y) => [y.ID, y.Name]),
+                    ),
+                  "Geschäftsjahr zuordnen",
+                )
+              : ""),
+        )
+      : "")
+  );
+}
+function eventForm() {
+  const year = fiscalYear(),
+    day = defaultDay(year);
+  return panel(
+    "Veranstaltung anlegen",
+    form(
+      "event",
+      field("Name", "Veranstaltungsname", "text", true) +
+        field("Starts", "Beginn", "date", true, day) +
+        field("Ends", "Ende", "date", true, day) +
+        select("Accounts", "Kontozuordnung", [
+          ["", "Aus"],
+          ["ja", "Ein"],
+        ]),
+      "Veranstaltung speichern",
+    ),
+  );
+}
+function eventsOfYear() {
+  const list = events.filter((e) => !e.General);
+  return (
+    pageHead(
+      "Veranstaltungen",
+      fiscalYear()?.Name || "Bisherige Arbeitsbereiche",
+    ) +
+    panel(
+      "Veranstaltungen im Geschäftsjahr",
+      list.length
+        ? list
+            .map(
+              (e) =>
+                '<p><button class="secondary" data-space="' +
+                esc(e.ID) +
+                '">' +
+                esc(e.Name) +
+                "</button> · " +
+                dat(e.Starts) +
+                " – " +
+                dat(e.Ends) +
+                "</p>",
+            )
+            .join("")
+        : "<p>Für dieses Geschäftsjahr gibt es noch keine Veranstaltung.</p>",
+    ) +
+    (fiscalYear() && onlineUser.role === "Leitung" ? eventForm() : "")
+  );
+}
+async function selectFiscalWorkspace(yearID, eventID) {
+  const spaces = yearID
+    ? allSpaces.filter((e) =>
+        yearID === legacyGroup ? !e.Year : e.Year === yearID,
+      )
+    : [];
+  const chosen =
+    spaces.find((e) => e.ID === eventID) ||
+    spaces.find((e) => e.General) ||
+    spaces[0];
+  const out = chosen ? await workspaceRequest(chosen.ID, {}) : null;
+  selectedYear = yearID;
+  events = spaces;
+  preferredEvent = chosen?.ID || "";
+  s = out ? onlineSnapshot(out) : null;
+  entryOpen = false;
+  edit = null;
+  filter = "";
+  journalFilters = {};
+  overviewPeriod = "";
+  chosenPeriod = "";
+  auditRows = [];
+  donorReview = null;
+  conflictFiles = null;
+  globalRows = [];
+  imported = [];
+  importFile = null;
+  syncDetail = "";
+  sessionStorage.setItem(
+    "bonfire-selection-" + onlineUser.user,
+    JSON.stringify([selectedYear, preferredEvent]),
+  );
+}
 function onlineAdmin() {
   return (
     (onlineUser?.role === "Leitung"
-      ? panel(
-          "Veranstaltung anlegen",
-          form(
-            "event",
-            select("General", "Arbeitsbereich", [
-              ["", "Veranstaltung"],
-              ["ja", "Allgemeines Kassenbuch ohne Veranstaltung"],
-            ]) +
-              field("Name", "Name des Arbeitsbereichs", "text", true) +
-              field("Starts", "Beginn", "date", true, today()) +
-              field("Ends", "Ende", "date", true, today()) +
-              select("Accounts", "Kontozuordnung", [
-                ["", "Aus"],
-                ["ja", "Ein"],
-              ]),
-            "Veranstaltung speichern",
-          ),
-        ) +
+      ? (offlineEnabled
+          ? panel(
+              "Veranstaltung anlegen",
+              form(
+                "event",
+                select("General", "Arbeitsbereich", [
+                  ["", "Veranstaltung"],
+                  ["ja", "Allgemeines Kassenbuch ohne Veranstaltung"],
+                ]) +
+                  field("Name", "Name des Arbeitsbereichs", "text", true) +
+                  field("Starts", "Beginn", "date", true, today()) +
+                  field("Ends", "Ende", "date", true, today()) +
+                  select("Accounts", "Kontozuordnung", [
+                    ["", "Aus"],
+                    ["ja", "Ein"],
+                  ]),
+                "Veranstaltung speichern",
+              ),
+            )
+          : route(
+              "Geschäftsjahre",
+              "Geschäftsjahre verwalten",
+              "secondary",
+              "CalendarDays",
+            )) +
         panel(
           "Benutzer zuweisen",
           form(
@@ -1887,7 +2177,9 @@ function authSurface() {
         ),
       "Anmelden",
     );
-    secondary = button("profileHelp", "Offlineprofile und Sicherungen", true);
+    secondary = offlineEnabled
+      ? button("profileHelp", "Offlineprofile und Sicherungen", true)
+      : "";
   }
   return (
     '<div class="auth-card">' +
@@ -1896,9 +2188,9 @@ function authSurface() {
     title +
     "</h1>" +
     content +
-    "</div><footer>" +
-    secondary +
-    "</footer></div>"
+    "</div>" +
+    (secondary ? "<footer>" + secondary + "</footer>" : "") +
+    "</div>"
   );
 }
 let entryOpen = false;
@@ -1913,7 +2205,7 @@ const pageDescriptions = {
   Spenden: "Spendeneingänge und Meldedaten im gewählten Arbeitsbereich.",
   Dokumente: "Belege ausstellen, Originale nachdrucken und Vorlagen anpassen.",
   Perioden: "Abrechnungszeitraum, Istbestände und Freigabe.",
-  Verwaltung: "Organisation, Benutzer und Geräte verwalten.",
+  Verwaltung: "Organisation, Geschäftsjahre und Zugriffsrechte verwalten.",
 };
 function pageHead(title, description = "", action = "") {
   return (
@@ -1939,6 +2231,22 @@ function prepareView() {
 }
 async function onlineStart(user) {
   onlineUser = user;
+  if (!offlineEnabled) {
+    [years, allSpaces] = await Promise.all([api("years"), api("events")]);
+    const [lastYear, lastEvent] = JSON.parse(
+      sessionStorage.getItem("bonfire-selection-" + user.user) || "[]",
+    );
+    const yearID =
+      years.find((y) => y.ID === lastYear)?.ID ||
+      (lastYear === legacyGroup && allSpaces.some((e) => !e.Year)
+        ? legacyGroup
+        : years.find((y) => y.Starts <= today() && y.Ends >= today())?.ID ||
+          years[0]?.ID ||
+          "");
+    await selectFiscalWorkspace(yearID, lastEvent);
+    logged = true;
+    return;
+  }
   events = await api("events");
   const day = today(),
     distance = (e) =>
@@ -1976,7 +2284,7 @@ function paintConnection() {
   network.innerHTML =
     icon(online ? "Laptop" : "WifiOff") +
     esc(status) +
-    (s
+    (s && offlineEnabled
       ? '<span class="connection-queue">' + s.ops.length + " ausstehend</span>"
       : "");
 }
@@ -2033,7 +2341,30 @@ function shell() {
           events.map((e) => [e.ID, e.Name]),
         )
       : "";
-  if (picker.firstChild) picker.querySelector("select").value = preferredEvent;
+  if (!offlineEnabled && logged) {
+    const unassigned = allSpaces.some((e) => !e.Year)
+      ? [[legacyGroup, "Ohne Jahreszuordnung"]]
+      : [];
+    picker.innerHTML =
+      select("year", "Geschäftsjahr", [
+        ["", "Geschäftsjahre verwalten"],
+        ...years.map((y) => [
+          y.ID,
+          y.Name + " · " + dat(y.Starts) + " – " + dat(y.Ends),
+        ]),
+        ...unassigned,
+      ]) +
+      (events.length
+        ? select(
+            "workspace",
+            "Arbeitsbereich",
+            events.map((e) => [e.ID, e.Name]),
+          )
+        : "");
+    picker.querySelector("[name=year]").value = selectedYear;
+  }
+  if (picker.querySelector("[name=workspace]"))
+    picker.querySelector("[name=workspace]").value = preferredEvent;
   paintConnection();
   document.querySelector("#menu-toggle").innerHTML = icon("Menu");
   document.querySelector("#content").dataset.module = sectionOf(page);
@@ -2119,6 +2450,18 @@ function show() {
   notice.textContent = "";
   state.textContent = "";
   shell();
+  if (
+    !offlineEnabled &&
+    logged &&
+    (!s ||
+      page === "Geschäftsjahre" ||
+      page === "Veranstaltungsliste" ||
+      (page === "Veranstaltungen" && s.event.General))
+  ) {
+    article.innerHTML =
+      !s || page === "Geschäftsjahre" ? yearSetup() : eventsOfYear();
+    return;
+  }
   if (!s) {
     article.innerHTML = logged ? onlineView() : authSurface();
     const selector = article.querySelector("#prepare [name=event]");
@@ -2146,6 +2489,7 @@ function show() {
     "   ·   " +
     s.ops.length +
     " ausstehend";
+  if (!offlineEnabled) state.textContent = s.closed ? "Abgeschlossen" : "";
   const isEvent = sectionOf(page) === "Veranstaltungen",
     isAdmin = sectionOf(page) === "Verwaltung";
   article.innerHTML =
@@ -2159,7 +2503,16 @@ function show() {
           page === "Veranstaltungen",
           s.role,
           overviewPeriod,
-        )
+          !offlineEnabled,
+        ) +
+        (!offlineEnabled && page === "Veranstaltungen"
+          ? route(
+              "Veranstaltungsliste",
+              "Alle Veranstaltungen im Geschäftsjahr",
+              "secondary",
+              "CalendarDays",
+            )
+          : "")
       : pageHead(
           isEvent ? s.event.Name : titleOf(page),
           pageDescriptions[page] || s.event.Name,
@@ -2176,20 +2529,31 @@ function show() {
         (isEvent
           ? tabs(eventTabs, page)
           : isAdmin
-            ? tabs(adminTabs, page)
+            ? tabs(
+                offlineEnabled
+                  ? adminTabs
+                  : [
+                      ["Verwaltung", "Organisation"],
+                      ["Prüfprotokoll", "Prüfprotokoll"],
+                      ["Datenaustausch", "Datenaustausch"],
+                    ],
+                page,
+              )
             : "") +
         (page === "Datenaustausch"
           ? exchange()
           : page === "Dokumente"
             ? docs()
-            : page === "Gerät & Sync"
+            : page === "Gerät & Sync" || page === "Prüfprotokoll"
               ? devicePage()
               : records()) +
         (page === "Verwaltung"
-          ? panel(
-              "Weitere Arbeitsbereiche",
-              button("newProfile", "Anderen Arbeitsbereich öffnen", true),
-            )
+          ? !offlineEnabled
+            ? onlineAdmin()
+            : panel(
+                "Weitere Arbeitsbereiche",
+                button("newProfile", "Anderen Arbeitsbereich öffnen", true),
+              )
           : "") +
         (page === "Spenden" ? donationPanel() : "") +
         (page === "Preise"
@@ -2391,15 +2755,35 @@ async function submit(f) {
     mfaCodes = await api("mfa", { Secret: mfaSecret, ...vals });
     mfaSecret = "";
   }
+  if (id === "fiscal-year" || id === "assign-year") {
+    const created = await api(
+      id === "fiscal-year" ? "years" : "years/assign",
+      vals,
+    );
+    [years, allSpaces] = await Promise.all([api("years"), api("events")]);
+    donorAccess = false;
+    await selectFiscalWorkspace(
+      id === "fiscal-year" ? created.ID : vals.Year,
+      vals.Event,
+    );
+    page = "Übersicht";
+  }
   if (id === "event") {
     const created = await api("events", {
       ...vals,
       Accounts: !!vals.Accounts,
       General: !!vals.General,
+      ...(!offlineEnabled ? { Year: selectedYear } : {}),
     });
-    preferredEvent = created.ID;
-    await onlineStart(onlineUser);
-    page = "Einrichtung";
+    if (offlineEnabled) {
+      preferredEvent = created.ID;
+      await onlineStart(onlineUser);
+      page = "Einrichtung";
+    } else {
+      allSpaces = await api("events");
+      await selectFiscalWorkspace(selectedYear, created.ID);
+      page = "Veranstaltungen";
+    }
   }
   if (id === "user") {
     await api("users", vals);
@@ -2550,6 +2934,10 @@ async function submit(f) {
       { Action: "copy", Target: vals.name, Start: vals.start, End: vals.end },
       bearer(),
     );
+    if (!offlineEnabled) {
+      allSpaces = await api("events");
+      events = allSpaces.filter((e) => e.Year === selectedYear);
+    }
     syncDetail = "Veranstaltungskopie angelegt.";
   }
   if (id === "reopen") {
@@ -3023,7 +3411,9 @@ async function submit(f) {
       canWrite();
       if (i === 2 && !s.donorAccess)
         throw Error(
-          "Für nummerierte Spendenbelege ist ein vorbereitetes Belegprofil erforderlich.",
+          offlineEnabled
+            ? "Für nummerierte Spendenbelege ist ein vorbereitetes Belegprofil erforderlich."
+            : "Öffne zuerst die Meldedaten unter Spenden.",
         );
       if (vals.version === "draft")
         throw Error("Originalausgabe verlangt die freigegebene Fassung.");
@@ -3083,9 +3473,9 @@ async function submit(f) {
         fontPreset: snap.font,
         pdfSHA256: await digest(blobs.pdf),
         docxSHA256: await digest(blobs.docx),
-        appAssets: (await caches.keys()).filter((k) =>
-          k.startsWith("bonfire-"),
-        ),
+        appAssets: offlineEnabled
+          ? (await caches.keys()).filter((k) => k.startsWith("bonfire-"))
+          : [],
         sourceRevision: rows().find((r) => r.ID === vals.subject)?.Revision,
       };
       const d = {
@@ -3215,6 +3605,19 @@ document.addEventListener("click", (e) => {
       !b.dataset.file)
   )
     return;
+  if (busy) return;
+  if (b.dataset.year || b.dataset.space) {
+    action(async () => {
+      donorAccess = false;
+      await selectFiscalWorkspace(
+        b.dataset.year || selectedYear,
+        b.dataset.space,
+      );
+      page = b.dataset.space ? "Veranstaltungen" : "Übersicht";
+      show();
+    });
+    return;
+  }
   if (b.dataset.page) {
     if (!s && !logged) {
       destination = b.dataset.page;
@@ -3327,6 +3730,15 @@ document.addEventListener("click", (e) => {
       return;
     }
     switch (b.dataset.act) {
+      case "viewDonors":
+        donorAccess = true;
+        try {
+          await sync();
+        } catch (err) {
+          donorAccess = false;
+          throw err;
+        }
+        break;
       case "refreshWorkplace":
         await onlineStart(onlineUser);
         break;
@@ -3377,7 +3789,7 @@ document.addEventListener("click", (e) => {
         show();
         return;
       case "lock":
-        if (logged && !s) await api("logout", {});
+        if (logged) await api("logout", {});
         location.reload();
         return;
       case "csv":
@@ -3514,9 +3926,19 @@ document.addEventListener("click", (e) => {
         entryOpen = false;
         edit = null;
         break;
-      case "sync":
+      case "sync": {
+        const uncertain = !offlineEnabled && unconfirmedWrites.has(s.event.ID);
         await sync();
+        if (uncertain) {
+          entryOpen = false;
+          edit = null;
+          show();
+          notice.textContent =
+            "Serverstand geladen. Prüfe hier, ob der zuletzt erfasste Vorgang vorhanden ist.";
+          return;
+        }
         break;
+      }
       case "seal":
         if (!confirm("Erfassung dieses Geräts verbindlich beenden?")) return;
         await commit({ ...s, ending: true });
@@ -3552,6 +3974,7 @@ document.addEventListener("click", (e) => {
 });
 async function tryAutoSync() {
   if (
+    !offlineEnabled ||
     !s ||
     s.recovery ||
     busy ||
@@ -3581,8 +4004,10 @@ window.addEventListener("offline", checkConnection);
 document.addEventListener("visibilitychange", checkConnection);
 setInterval(checkConnection, 30000);
 void checkConnection();
-profilesLocal = await slots();
-saved = !!(await readVault());
+if (offlineEnabled) {
+  profilesLocal = await slots();
+  saved = !!(await readVault());
+}
 if (!saved) {
   try {
     const identity = await api("workplace");
@@ -3610,6 +4035,21 @@ document.addEventListener("keydown", (e) => {
 document.querySelector("#workspace-picker").addEventListener("change", (e) =>
   action(async () => {
     try {
+      if (!offlineEnabled) {
+        donorAccess = false;
+        const pickingYear = e.target.name === "year";
+        await selectFiscalWorkspace(
+          pickingYear ? e.target.value : selectedYear,
+          pickingYear ? "" : e.target.value,
+        );
+        page = !selectedYear
+          ? "Geschäftsjahre"
+          : !pickingYear && !s?.event.General
+            ? "Veranstaltungen"
+            : "Übersicht";
+        show();
+        return;
+      }
       const fresh = await api(
         "workplace?event=" + encodeURIComponent(e.target.value),
       );
@@ -3618,7 +4058,7 @@ document.querySelector("#workspace-picker").addEventListener("change", (e) =>
       preferredEvent = fresh.event.ID;
       show();
     } catch (err) {
-      e.target.value = preferredEvent;
+      e.target.value = e.target.name === "year" ? selectedYear : preferredEvent;
       throw err;
     }
   }),

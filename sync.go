@@ -175,6 +175,9 @@ func countKey(kind, wallet, phase string) string {
 	return fmt.Sprintf("%s:%x", kind, hash(wallet + "|" + phase)[:16])
 }
 func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
+	if err := fiscalDateAllowed(ctx, tx, d.Event, o); err != nil {
+		return "", err
+	}
 	if o.Kind == "contact" {
 		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", o.Target); err != nil {
 			return "", err
@@ -265,6 +268,15 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 	}
 	if o.Kind == "original" {
 		v := o.Data
+		if d.Online {
+			next, err := nextOnlineNumber(ctx, tx, d)
+			if err != nil {
+				return "", err
+			}
+			if next != v.Number {
+				return "", problem{409, "Belegnummer inzwischen vergeben. Bitte neu laden."}
+			}
+		}
 		var owner string
 		err = tx.QueryRow(ctx, "SELECT device::text FROM entries WHERE event=$1 AND id=$2 AND kind IN ('sponsorship','payment','donation')", d.Event, v.Reference).Scan(&owner)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -333,14 +345,21 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 	return "Übernommen", err
 }
 func accept(ctx context.Context, tx pgx.Tx, d *device, o op) error {
-	raw, _ := json.Marshal(o)
-	digest := hash(string(raw))
 	var old []byte
 	var owner string
 	if !idPattern.MatchString(o.ID) {
 		return fail("Ungültige Vorgangs-ID.")
 	}
-	err := tx.QueryRow(ctx, "SELECT digest,device::text FROM operations WHERE id=$1", o.ID).Scan(&old, &owner)
+	var storedSeq int64
+	err := tx.QueryRow(ctx, "SELECT digest,device::text,seq FROM operations WHERE id=$1", o.ID).Scan(&old, &owner, &storedSeq)
+	if d.Online {
+		o.Seq = d.Last + 1
+		if err == nil {
+			o.Seq = storedSeq
+		}
+	}
+	raw, _ := json.Marshal(o)
+	digest := hash(string(raw))
 	if err == nil {
 		if owner != d.ID || subtle.ConstantTimeCompare(old, digest) != 1 {
 			return fail("Vorgangs-ID mit abweichendem Inhalt.")
@@ -368,6 +387,9 @@ func accept(ctx context.Context, tx pgx.Tx, d *device, o op) error {
 		if err != nil {
 			return err
 		}
+	}
+	if d.Online && outcome == "Konflikt" {
+		return problem{409, "Buchung widerspricht dem aktuellen Stand. Bitte aktualisieren und Angaben prüfen."}
 	}
 	if o.Kind == "original" && outcome == "Konflikt" {
 		if o.Data.Number < d.Block*1000 || o.Data.Number >= d.Block*1000+d.DigitalCount {
@@ -408,6 +430,9 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	d, err := lock(ctx, tx, r)
 	if err != nil {
 		return nil, err
+	}
+	if d.Online && q.Action == "Ende" {
+		return nil, fail("Onlinebuchungen sind unmittelbar gespeichert.")
 	}
 	if d.IncidentState == "returning" && (q.Resolve != "" || q.Action != "" && q.Action != "Ende") {
 		return nil, problem{403, "Rückkehrprofil darf nur Daten abgleichen und sein Erfassungsende bestätigen."}
@@ -560,7 +585,7 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	deviceRows, err := tx.Query(ctx, `SELECT d.id::text,d.name,d.sealed,d.incident_state,d.last_seq,
  CASE WHEN d.incident_state<>'' AND $2 IN ('Leitung','Prüfung') THEN concat_ws(' · ',nullif(d.incident,''),(SELECT a.action FROM audit a
  WHERE a.event=d.event AND a.subject=d.id::text AND (a.action LIKE 'Ausnahmeentscheid%' OR a.action LIKE 'Gerät zurück%')
- ORDER BY a.id DESC LIMIT 1)) ELSE '' END FROM devices d WHERE d.event=$1 ORDER BY d.name,d.id`, d.Event, d.Role)
+ ORDER BY a.id DESC LIMIT 1)) ELSE '' END FROM devices d WHERE d.event=$1 AND NOT d.online_actor ORDER BY d.name,d.id`, d.Event, d.Role)
 	if err != nil {
 		return nil, err
 	}
@@ -569,7 +594,7 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		return nil, err
 	}
 	var pending int
-	if err = tx.QueryRow(ctx, "SELECT count(*) FROM devices WHERE event=$1 AND NOT sealed", d.Event).Scan(&pending); err != nil {
+	if err = tx.QueryRow(ctx, "SELECT count(*) FROM devices WHERE event=$1 AND NOT online_actor AND NOT sealed", d.Event).Scan(&pending); err != nil {
 		return nil, err
 	}
 	if q.Action == "Abschluss" {
@@ -602,7 +627,13 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"priceHistory": prices, "acknowledgedPrints": acceptedPrints, "incidentState": d.IncidentState, "entries": entries, "conflicts": conflicts, "sealed": d.Sealed, "pending": pending, "devices": devices, "accounts": d.Accounts, "closed": d.Closed, "last": d.Last}, tx.Commit(ctx)
+	out := map[string]any{"priceHistory": prices, "acknowledgedPrints": acceptedPrints, "incidentState": d.IncidentState, "entries": entries, "conflicts": conflicts, "sealed": d.Sealed, "pending": pending, "devices": devices, "accounts": d.Accounts, "closed": d.Closed, "last": d.Last}
+	if d.Online {
+		if err = onlineDetails(ctx, tx, d, out); err != nil {
+			return nil, err
+		}
+	}
+	return out, tx.Commit(ctx)
 }
 func checkBalance(entries []row, accounts bool) error {
 	configured := map[string]bool{}
@@ -703,7 +734,7 @@ func (a *app) user(ctx context.Context, w http.ResponseWriter, r *http.Request) 
 func (a *app) metrics(w http.ResponseWriter, r *http.Request) {
 	var dbBytes, backupAt, stale int64
 	var open, clashes int
-	err := a.db.QueryRow(r.Context(), "SELECT (SELECT count(*) FROM devices WHERE NOT sealed),(SELECT count(*) FROM operations WHERE outcome='Konflikt'),pg_database_size(current_database()),(SELECT coalesce(extract(epoch FROM max(completed_at)),0)::bigint FROM backup_history),(SELECT count(*) FROM devices WHERE NOT sealed AND last_seen<now()-interval '24 hours')").Scan(&open, &clashes, &dbBytes, &backupAt, &stale)
+	err := a.db.QueryRow(r.Context(), "SELECT (SELECT count(*) FROM devices WHERE NOT online_actor AND NOT sealed),(SELECT count(*) FROM operations WHERE outcome='Konflikt'),pg_database_size(current_database()),(SELECT coalesce(extract(epoch FROM max(completed_at)),0)::bigint FROM backup_history),(SELECT count(*) FROM devices WHERE NOT online_actor AND NOT sealed AND last_seen<now()-interval '24 hours')").Scan(&open, &clashes, &dbBytes, &backupAt, &stale)
 	if err != nil {
 		http.Error(w, "unavailable", 503)
 		return

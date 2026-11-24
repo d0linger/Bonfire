@@ -100,11 +100,15 @@ export const adminTabs = [
   ["Datenaustausch", "Datenaustausch"],
 ];
 export const sectionOf = (p) =>
-  eventTabs.some(([k]) => k === p)
-    ? "Veranstaltungen"
-    : adminTabs.some(([k]) => k === p) || p === "Einrichtung"
-      ? "Verwaltung"
-      : p;
+  p === "Geschäftsjahre" || p === "Prüfprotokoll"
+    ? "Verwaltung"
+    : p === "Veranstaltungsliste"
+      ? "Veranstaltungen"
+      : eventTabs.some(([k]) => k === p)
+        ? "Veranstaltungen"
+        : adminTabs.some(([k]) => k === p) || p === "Einrichtung"
+          ? "Verwaltung"
+          : p;
 export const titleOf = (p) =>
   modules.find(([k]) => k === sectionOf(p))?.[1] || p;
 export const route = (p, t, css = "secondary", ico = "") =>
@@ -337,7 +341,7 @@ export function walletTable(rows) {
     "</section>"
   );
 }
-function eventCounts(rows, device, pending, conflicts) {
+function eventCounts(rows, device, pending, conflicts, online) {
   const wallets = rows.filter((r) => r.Kind === "wallet");
   const counts = rows.filter((r) => r.Kind === "count");
   const phase = (name, title) => {
@@ -358,13 +362,17 @@ function eventCounts(rows, device, pending, conflicts) {
     head("Zählstand der Geldtaschen") +
     phase("Anfang", "Anfangszählung") +
     phase("Ende", "Endzählung") +
-    line("RefreshCw", "Geräte mit offenem Erfassungsende", pending) +
+    (online
+      ? ""
+      : line("RefreshCw", "Geräte mit offenem Erfassungsende", pending)) +
     (conflicts ? line("CircleAlert", "Offene Klärfälle", conflicts) : "") +
     '<div class="actions"><button type="button" class="secondary" data-act="' +
     (device ? "sync" : "refreshWorkplace") +
     '">' +
     icon("RefreshCw") +
-    (device ? "Jetzt synchronisieren" : "Serverstand aktualisieren") +
+    (device && !online
+      ? "Jetzt synchronisieren"
+      : "Serverstand aktualisieren") +
     "</button>" +
     route("Perioden", "Abschluss prüfen", "secondary", "ClipboardCheck") +
     "</div></section>"
@@ -379,6 +387,7 @@ export function overview(
   eventMode = false,
   role = "Leitung",
   periodID = "",
+  online = false,
 ) {
   const periods = rows.filter((r) => r.Kind === "period" && r.Data.To);
   const period = periods.find((r) => r.ID === periodID);
@@ -486,7 +495,7 @@ export function overview(
     "</div>" +
     (eventMode
       ? tabs(eventTabs, "Veranstaltungen") +
-        eventCounts(rows, device, pending, conflicts)
+        eventCounts(rows, device, pending, conflicts, online)
       : "") +
     scope +
     '<div class="kpis">' +
@@ -520,30 +529,39 @@ export function overview(
       "Abrechnung prüfen",
       e.Closed
         ? "Abgeschlossen"
-        : pending === 1
-          ? "Ein Gerät mit offenem Erfassungsende"
-          : pending + " Geräte mit offenem Erfassungsende",
+        : online
+          ? "Bestände und Abrechnung prüfen"
+          : pending === 1
+            ? "Ein Gerät mit offenem Erfassungsende"
+            : pending + " Geräte mit offenem Erfassungsende",
     ) +
-    task(
-      device ? "Gerät & Sync" : e.Closed ? "Perioden" : "Einrichtung",
-      conflicts ? "CircleAlert" : "Laptop",
-      conflicts
-        ? "Klärfälle prüfen"
-        : device
-          ? "Geräteabgleich"
-          : e.Closed
-            ? "Abschluss ansehen"
-            : role === "Prüfung"
-              ? "Prüfprofil einrichten"
-              : "Offline-Erfassung einrichten",
-      conflicts
-        ? conflicts + " offene Konflikte"
-        : device
-          ? "Lokal gespeicherte Vorgänge abgleichen"
-          : role === "Prüfung"
-            ? "Für die Prüfung und Abschlussfreigabe auf diesem Gerät"
-            : "Für Buchungen und Belegausgabe auf diesem Gerät",
-    ) +
+    (online
+      ? task(
+          "Veranstaltungsliste",
+          "CalendarDays",
+          "Veranstaltungen",
+          "Veranstaltungen dieses Geschäftsjahrs öffnen",
+        )
+      : task(
+          device ? "Gerät & Sync" : e.Closed ? "Perioden" : "Einrichtung",
+          conflicts ? "CircleAlert" : "Laptop",
+          conflicts
+            ? "Klärfälle prüfen"
+            : device
+              ? "Geräteabgleich"
+              : e.Closed
+                ? "Abschluss ansehen"
+                : role === "Prüfung"
+                  ? "Prüfprofil einrichten"
+                  : "Offline-Erfassung einrichten",
+          conflicts
+            ? conflicts + " offene Konflikte"
+            : device
+              ? "Lokal gespeicherte Vorgänge abgleichen"
+              : role === "Prüfung"
+                ? "Für die Prüfung und Abschlussfreigabe auf diesem Gerät"
+                : "Für Buchungen und Belegausgabe auf diesem Gerät",
+        )) +
     "</section></div>" +
     (eventMode
       ? walletTable(rows)

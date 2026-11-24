@@ -45,23 +45,26 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 		return "", problem{403, "Prüfrolle erforderlich."}
 	}
 	var start, end string
-	err := tx.QueryRow(ctx, "SELECT data->>'Date',data->>'To' FROM entries WHERE event=$1 AND id=$2 AND kind='period'", d.Event, id).Scan(&start, &end)
+	var year *string
+	err := tx.QueryRow(ctx, "SELECT j.data->>'Date',j.data->>'To',e.fiscal_year::text FROM entries j JOIN events e ON e.id=j.event WHERE j.event=$1 AND j.id=$2 AND j.kind='period'", d.Event, id).Scan(&start, &end, &year)
 	if err != nil {
 		return "", fail("Periode fehlt.")
 	}
 	// Preparation, sync and settings hold the shared counterpart. The exclusive lock
 	// serializes the final snapshot with every write which could change its scope.
 	var overlap bool
-	err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM period_closures WHERE reopened_at IS NULL AND starts<=$2 AND ends>=$1)", start, end).Scan(&overlap)
+	err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM period_closures WHERE reopened_at IS NULL AND starts<=$2 AND ends>=$1 AND (fiscal_year IS NULL OR $3::uuid IS NULL OR fiscal_year=$3))", start, end, year).Scan(&overlap)
 	if err != nil {
 		return "", err
 	}
 	if overlap {
 		return "", fail("Zeitraum überschneidet sich mit freigegebenem Abschluss.")
 	}
-	const scope = "SELECT e.id FROM events e WHERE e.starts<=$2::date AND e.ends>=$1::date OR EXISTS(SELECT 1 FROM entries j WHERE j.event=e.id AND (j.data->>'Date')::date BETWEEN $1::date AND $2::date)"
+	const scope = `SELECT e.id FROM events e WHERE ($3::uuid IS NULL OR e.fiscal_year=$3)
+		AND ((e.starts<=$2::date AND e.ends>=$1::date) OR EXISTS(
+			SELECT 1 FROM entries j WHERE j.event=e.id AND (j.data->>'Date')::date BETWEEN $1::date AND $2::date))`
 	var missing bool
-	err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM ("+scope+") s WHERE NOT EXISTS(SELECT 1 FROM grants_event g WHERE g.event=s.id AND g.username=$3) OR EXISTS(SELECT 1 FROM devices d WHERE d.event=s.id AND NOT d.sealed) OR EXISTS(SELECT 1 FROM operations o WHERE o.event=s.id AND o.outcome='Konflikt'))", start, end, d.User).Scan(&missing)
+	err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM ("+scope+") s WHERE NOT EXISTS(SELECT 1 FROM grants_event g WHERE g.event=s.id AND g.username=$4) OR EXISTS(SELECT 1 FROM devices d WHERE d.event=s.id AND NOT d.online_actor AND NOT d.sealed) OR EXISTS(SELECT 1 FROM operations o WHERE o.event=s.id AND o.outcome='Konflikt'))", start, end, year, d.User).Scan(&missing)
 	if err != nil {
 		return "", err
 	}
@@ -69,14 +72,14 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 		return "", fail("Fehlende Prüfzuständigkeit, offene Geräte oder ungeklärte Konflikte.")
 	}
 	var accountMode, allAccounts bool
-	err = tx.QueryRow(ctx, "SELECT coalesce(bool_or(accounts),false),coalesce(bool_and(accounts),false) FROM events WHERE id IN ("+scope+")", start, end).Scan(&accountMode, &allAccounts)
+	err = tx.QueryRow(ctx, "SELECT coalesce(bool_or(accounts),false),coalesce(bool_and(accounts),false) FROM events WHERE id IN ("+scope+")", start, end, year).Scan(&accountMode, &allAccounts)
 	if err != nil {
 		return "", err
 	}
 	if accountMode != allAccounts {
 		return "", fail("Unterschiedliche Kontozuordnungen zuerst abstimmen.")
 	}
-	rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event IN ("+scope+") AND ((data->>'Date')::date BETWEEN $1 AND $2 OR (kind IN ('account','wallet') AND (data->>'Date')::date<=$2)) ORDER BY id", start, end)
+	rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event IN ("+scope+") AND ((data->>'Date')::date BETWEEN $1 AND $2 OR (kind IN ('account','wallet') AND (data->>'Date')::date<=$2)) ORDER BY id", start, end, year)
 	if err != nil {
 		return "", err
 	}
@@ -94,7 +97,7 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 		return "", fail(err.Error())
 	}
 	closure := uuid()
-	_, err = tx.Exec(ctx, "INSERT INTO period_closures(id,period_id,version,starts,ends,reviewer,snapshot) SELECT $1,$2,coalesce(max(version),0)+1,$3,$4,$5,$6 FROM period_closures WHERE period_id=$2", closure, id, start, end, d.User, entries)
+	_, err = tx.Exec(ctx, "INSERT INTO period_closures(id,period_id,version,starts,ends,reviewer,snapshot,fiscal_year) SELECT $1,$2,coalesce(max(version),0)+1,$3,$4,$5,$6,$7 FROM period_closures WHERE period_id=$2", closure, id, start, end, d.User, entries, year)
 	if err != nil {
 		return "", err
 	}
@@ -105,7 +108,10 @@ func protectedPeriod(ctx context.Context, tx pgx.Tx, d device, o op) (bool, erro
 		return false, nil
 	}
 	var frozen bool
-	err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM period_closures p WHERE p.reopened_at IS NULL AND ($1::date BETWEEN starts AND ends OR EXISTS(SELECT 1 FROM entries j WHERE j.event=$2 AND j.id=$3 AND (j.data->>'Date')::date BETWEEN p.starts AND p.ends)))", o.Data.Date, d.Event, o.Target).Scan(&frozen)
+	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM period_closures p WHERE p.reopened_at IS NULL
+		AND (p.fiscal_year IS NULL OR p.fiscal_year=(SELECT fiscal_year FROM events WHERE id=$2))
+		AND ($1::date BETWEEN starts AND ends OR EXISTS(SELECT 1 FROM entries j WHERE j.event=$2 AND j.id=$3
+			AND (j.data->>'Date')::date BETWEEN p.starts AND p.ends)))`, o.Data.Date, d.Event, o.Target).Scan(&frozen)
 	return frozen, err
 }
 func periodAction(ctx context.Context, tx pgx.Tx, d device, action, id, reason string) (any, error) {
