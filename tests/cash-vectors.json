@@ -1,0 +1,10 @@
+[
+  {"name":"R01 Wechselgeld", "pieces":{"20000":1,"5000":1,"2000":1,"1000":1,"500":2,"200":5}, "amount":30000,"valid":true},
+  {"name":"R01 fünf Cent", "pieces":{"1":3,"2":1}, "amount":5,"valid":true},
+  {"name":"R01 alle Nennwerte", "pieces":{"20000":1,"10000":1,"5000":1,"2000":1,"1000":1,"500":1,"200":1,"100":1,"50":1,"20":1,"10":1,"5":1,"2":1,"1":1}, "amount":38888,"valid":true},
+  {"name":"R01 weiterer Schein", "pieces":{"20000":1,"5000":2,"2000":1,"1000":1,"500":2,"200":5}, "amount":35000,"valid":true},
+  {"name":"Negative Stückzahl", "pieces":{"5":-1}, "amount":0,"valid":false},
+  {"name":"Unbekannter Nennwert", "pieces":{"2500":1}, "amount":2500,"valid":false},
+  {"name":"Mehrdeutiger Nennwert", "pieces":{"05":1}, "amount":5,"valid":false},
+  {"name":"Stückzahllimit", "pieces":{"20000":1000001}, "amount":20000020000,"valid":false}
+]
