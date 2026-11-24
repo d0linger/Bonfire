@@ -20,8 +20,12 @@ type backupCommand struct {
 	Cron         string `json:"cron"`
 	Days         int    `json:"days"`
 	Confirmation string `json:"confirmation"`
-	Password     string `json:"password,omitempty"`
-	OTP          string `json:"otp,omitempty"`
+}
+
+type backupAuthorization struct {
+	backupCommand
+	Password string `json:"password,omitempty"`
+	OTP      string `json:"otp,omitempty"`
 }
 
 var backupTransport = &http.Transport{
@@ -67,7 +71,7 @@ func (a *app) proxyBackup(w http.ResponseWriter, r *http.Request) {
 			body = r.Body
 		} else {
 			r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
-			var command backupCommand
+			var command backupAuthorization
 			if read(r, &command) != nil {
 				http.Error(w, "Ungültiger Auftrag.", 400)
 				return
@@ -90,16 +94,20 @@ func (a *app) proxyBackup(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
-			command.Password, command.OTP = "", ""
-			raw, _ := json.Marshal(command)
+			raw, err := json.Marshal(command.backupCommand)
+			if err != nil {
+				http.Error(w, "Invalid backup command", http.StatusBadRequest)
+				return
+			}
 			body = bytes.NewReader(raw)
 		}
 	}
-	req, err := http.NewRequestWithContext(r.Context(), r.Method, "http://backup"+path, body)
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, "http://backup", body)
 	if err != nil {
 		http.Error(w, "Auftrag ungültig.", 400)
 		return
 	}
+	req.URL.Path = path
 	req.URL.RawQuery = r.URL.Query().Encode()
 	req.Header.Set("X-Bonfire-Actor", user)
 	res, err := backupTransport.RoundTrip(req)

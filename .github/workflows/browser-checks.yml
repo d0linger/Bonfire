@@ -30,7 +30,8 @@ jobs:
         run: ./ops/init.ps1
       - run: docker compose up -d --build --wait
       - run: |
-          export BONFIRE_URL="http://$(docker compose port app 8080)"
+          address=$(docker compose port app 8080)
+          export BONFIRE_URL="http://$address"
           node tests/browser-guards.mjs
       - if: always()
         run: docker compose down --volumes

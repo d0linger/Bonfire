@@ -70,7 +70,9 @@ func (b *backupWorker) persist() error {
 func backupNow() time.Time { return time.Now().UTC() }
 func writeBackupJSON(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Print("Backup response interrupted")
+	}
 }
 func badBackup(w http.ResponseWriter, msg string) { http.Error(w, msg, http.StatusUnprocessableEntity) }
 
@@ -270,7 +272,9 @@ func (b *backupWorker) run(q backupCommand, actor, key string, days int, pr *bac
 			defer func() {
 				clean, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
-				ctl.Exec(clean, "DROP DATABASE IF EXISTS "+dbIdent(db)+" WITH (FORCE)")
+				if _, err := ctl.Exec(clean, "DROP DATABASE IF EXISTS "+dbIdent(db)+" WITH (FORCE)"); err != nil {
+					log.Print("Failed to remove temporary restore database")
+				}
 			}()
 			if q.Action == "promote" {
 				if pr.Hash != fingerprint {
@@ -368,7 +372,9 @@ func (b *backupWorker) download(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
-	io.Copy(w, file)
+	if _, err := io.Copy(w, file); err != nil {
+		log.Print("Backup download interrupted")
+	}
 }
 
 func (b *backupWorker) upload(w http.ResponseWriter, r *http.Request) {
@@ -408,7 +414,9 @@ func (b *backupWorker) upload(w http.ResponseWriter, r *http.Request) {
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if e.Name() != name && backupName.MatchString(e.Name()) {
-			os.Remove(filepath.Join(dir, e.Name()))
+			if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+				log.Print("Failed to remove superseded backup upload")
+			}
 		}
 	}
 	writeBackupJSON(w, map[string]string{"name": name})
@@ -481,8 +489,7 @@ func runBackupWorker() error {
 	if err != nil {
 		return errors.New("Wartungsdatenbank nicht erreichbar")
 	}
-	err = b.recoverSwap(ctx, c)
-	c.Close(ctx)
+	err = errors.Join(b.recoverSwap(ctx, c), c.Close(ctx))
 	if err != nil {
 		return errors.New("Unvollständigen Restore anhand des Sicherungsjournals prüfen")
 	}

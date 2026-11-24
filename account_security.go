@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base32"
 	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -90,8 +91,21 @@ func createAccountSession(ctx context.Context, tx pgx.Tx, r *http.Request, usern
 }
 
 func setAccountSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
-	http.SetCookie(w, &http.Cookie{Name: "bonfire_session", Value: token, Path: "/api", MaxAge: 1800, HttpOnly: true,
-		Secure: r.TLS != nil || strings.HasPrefix(r.Header.Get("Origin"), "https://"), SameSite: http.SameSiteStrictMode})
+	writeSessionCookie(w, r, token, 1800)
+}
+
+func writeSessionCookie(w http.ResponseWriter, r *http.Request, token string, age int) {
+	// #nosec G124 -- Secure is disabled only for the explicitly supported loopback HTTP development origin.
+	cookie := &http.Cookie{Name: "bonfire_session", Value: token, Path: "/api", MaxAge: age, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}
+	// Plain HTTP is supported only for local development on loopback.
+	host := r.URL.Hostname()
+	if host == "" {
+		host = (&url.URL{Host: r.Host}).Hostname()
+	}
+	if r.TLS == nil && !strings.HasPrefix(r.Header.Get("Origin"), "https://") && (host == "localhost" || net.ParseIP(host).IsLoopback()) {
+		cookie.Secure = false
+	}
+	http.SetCookie(w, cookie)
 }
 
 type personalSession struct {

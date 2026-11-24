@@ -34,6 +34,8 @@ jobs:
         run: |
           ./ops/init.ps1
           ./ops/accept-online.ps1
+  recovery:
+    uses: ./.github/workflows/extended-checks.yml
   analysis:
     uses: ./.github/workflows/source-analysis.yml
     permissions:
@@ -53,12 +55,13 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
-    needs: [test, security, container, analysis, browser]
+    needs: [test, security, container, analysis, browser, recovery]
     env:
+      RECOVERY: ${{ needs.recovery.result }}
       ANALYSIS: ${{ needs.analysis.result }}
       BROWSER: ${{ needs.browser.result }}
       ONLINE: ${{ needs.test.result }}
       CONTAINER: ${{ needs.container.result }}
       SECURITY: ${{ needs.security.result }}
     steps:
-      - run: test "$ONLINE" = success && test "$SECURITY" = success && test "$CONTAINER" = success && test "$ANALYSIS" = success && test "$BROWSER" = success
+      - run: test "$ONLINE" = success && test "$SECURITY" = success && test "$CONTAINER" = success && test "$ANALYSIS" = success && test "$BROWSER" = success && test "$RECOVERY" = success

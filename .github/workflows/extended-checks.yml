@@ -1,5 +1,6 @@
 name: Extended acceptance
 on:
+  workflow_call:
   workflow_dispatch:
   schedule:
     - cron: "38 4 * * 3"

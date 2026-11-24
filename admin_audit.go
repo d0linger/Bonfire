@@ -26,7 +26,7 @@ var serverBuild = sync.OnceValue(func() string {
 	if err != nil {
 		return "Unbekannt"
 	}
-	file, err := os.Open(path)
+	file, err := os.Open(path) // #nosec G304 -- path came from os.Executable and is used only to hash the running binary.
 	if err != nil {
 		return "Unbekannt"
 	}

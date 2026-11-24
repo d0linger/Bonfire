@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505 -- RFC 6238 HMAC-SHA1 for existing authenticator enrollments.
 	"crypto/subtle"
 	"encoding/base32"
 	"encoding/binary"
@@ -24,6 +24,9 @@ func otpMatch(secret, code string, at time.Time) (int64, bool) {
 		return 0, false
 	}
 	for step := at.Unix()/30 - 1; step <= at.Unix()/30+1; step++ {
+		if step < 0 {
+			continue
+		}
 		var msg [8]byte
 		binary.BigEndian.PutUint64(msg[:], uint64(step))
 		h := hmac.New(sha1.New, key)
@@ -45,7 +48,7 @@ func (a *app) logout(ctx context.Context, w http.ResponseWriter, r *http.Request
 			return nil, err
 		}
 	}
-	http.SetCookie(w, &http.Cookie{Name: "bonfire_session", Path: "/api", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	writeSessionCookie(w, r, "", -1)
 	return true, nil
 }
 func loginName(value string) string {

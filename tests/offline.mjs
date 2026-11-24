@@ -114,7 +114,7 @@ async function press(p, text) {
 async function ready(p, name) {
   await by(p, "user").fill("leitung");
   await p.locator("#login [name=pass]").fill(password);
-  await press(p, "Anmelden");
+  await press(p, "Sign in");
   await p.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
   await by(p, "workspace").selectOption(eventID);
   await p.waitForFunction(

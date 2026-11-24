@@ -59,13 +59,15 @@ func route(fn endpoint) http.HandlerFunc {
 			var p problem
 			if !errors.As(err, &p) {
 				p = problem{500, "Datenbankvorgang fehlgeschlagen."}
-				log.Printf("request failed %s %T", r.Pattern, err)
+				log.Printf("request handler failed (%T)", err)
 			}
 			http.Error(w, p.message, p.code)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(result)
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			failedRequests.Add(1)
+		}
 	}
 }
 func read(r *http.Request, v any) error {

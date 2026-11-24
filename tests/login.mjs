@@ -34,7 +34,7 @@ try {
   const login = async (password = pw) => {
     await page.locator("#login [name=user]").fill(user.toUpperCase());
     await page.locator("#login [name=pass]").fill(password);
-    await click("Anmelden");
+    await click("Sign in");
   };
   await page.goto(base);
   await page.locator("#login").waitFor();

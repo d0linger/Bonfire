@@ -201,7 +201,7 @@ try {
       .waitFor();
   }
   await page.locator("#menu-toggle").click();
-  const home = page.getByRole("link", { name: "BONFIRE – Zur Übersicht" });
+  const home = page.getByRole("link", { name: "BONFIRE Fire Brigade Finance – Overview" });
   await home.focus();
   await home.press("Enter");
   await page.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();

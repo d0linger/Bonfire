@@ -3391,24 +3391,24 @@ function authSurface() {
         true,
       ) + button("backLogin", "Zurück zur Anmeldung", true);
   } else {
-    title = "Anmelden";
+    title = "Sign in";
     content = form(
       "login",
       label(
-        "E-Mail-Adresse oder Benutzername",
+        "Email or username",
         '<input name="user" type="text" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" value="' +
           esc(loginIdentity) +
           '" required>',
       ) +
         label(
-          "Passwort",
+          "Password",
           '<input name="pass" type="password" autocomplete="current-password" required>',
         ),
-      "Anmelden",
+      "Sign in",
     );
     secondary =
       (supportsPasskeys()
-        ? button("passkeyLogin", "Mit Passkey anmelden", true)
+        ? button("passkeyLogin", "Sign in with a passkey", true)
         : "") +
       (offlineEnabled
         ? button("profileHelp", "Offlineprofile und Sicherungen", true)
@@ -3559,7 +3559,7 @@ function shell() {
     ? rows().find((r) => r.Kind === "organization")?.Data
     : onlineData?.entries.find((r) => r.Kind === "organization")?.Data;
   document.querySelector("#crumb").textContent =
-    (org?.Label || "Feuerwehrfinanzen") +
+    (org?.Label || "Fire Brigade Finance") +
     "   /   " +
     (active
       ? page === "Einrichtung"
