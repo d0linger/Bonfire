@@ -12,7 +12,7 @@ test:
 	npm test
 
 test-finance:
-	go test -run 'Test(CashVectors|AccountReconciliation|ZeroVersusUnknown|UsedWalletRequiresSettlement)' ./...
+	go test -run 'Test(CashVectors|SettlementVectors|InvoicePositionRounding|AccountReconciliation|ZeroVersusUnknown|UsedWalletRequiresSettlement)' ./...
 	node --test tests/domain.test.mjs tests/kassenalltag.test.mjs tests/reports.test.mjs
 
 # These checks share one isolated stack when requested together.

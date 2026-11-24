@@ -1,13 +1,10 @@
-import { readFile } from "node:fs/promises";
+import { testPassword } from "../tests/test-password.mjs";
 import { randomUUID } from "node:crypto";
 const base = process.env.BONFIRE_URL || "http://127.0.0.1:8137";
 if (!["localhost", "127.0.0.1", "[::1]"].includes(new URL(base).hostname))
   throw Error("Übungsdaten nur für lokale Testinstallationen.");
 const pass =
-  process.env.BONFIRE_ADMIN_PASSWORD ||
-  (await readFile(".env", "utf8"))
-    .match(/^BONFIRE_ADMIN_PASSWORD=(.+)$/m)[1]
-    .trim();
+  testPassword();
 const headers = {
   Authorization: "Basic " + Buffer.from("leitung:" + pass).toString("base64"),
   "Content-Type": "application/json",

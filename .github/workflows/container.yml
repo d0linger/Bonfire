@@ -2,6 +2,8 @@ name: Container inspection
 on:
   workflow_call:
   workflow_dispatch:
+  schedule:
+    - cron: "32 5 * * 1"
 permissions:
   contents: read
 jobs:
