@@ -29,6 +29,8 @@ Am Beginn eines Arbeitsbereichs bietet der Dialog **Händisch erfassen** und **A
 
 Unter **Veranstaltungen → Bearbeiten** können Admins den Namen und den Zeitraum eines offenen Fests korrigieren. Die Aktion ist auch auf der Festübersicht verfügbar. Bestehende Buchungen behalten ihr Buchungsdatum. Das Audit-Log hält die ursprünglichen und die korrigierten Angaben fest.
 
+Unter **Veranstaltungen → Fest auswählen → Geldtaschen** legst du die Tasche an und erfasst Anfangs- und Endzählung. Bringst du während des Fests Wechselgeld zur Tasche, wähle **Wechselgeld nachlegen** und erfasse Betrag, Quelle und empfangende Geldtasche. BONFIRE berücksichtigt die Nachversorgung bei der Endabrechnung. Unter **Weitere Vorgänge** findest du die Wechselgeldplanung, Bars und Schichten, Abschöpfung, Zwischenzählung und Rückgabe.
+
 Admins wählen auf der Festübersicht oder im Reiter **Abschluss** die Aktion **Veranstaltung abschließen**. BONFIRE prüft Eröffnungs- und Istbestände, Geldtaschenabrechnungen, offene Privatauslagen und Sponsoringforderungen sowie ausstehende Geräte und Konflikte. Beheben lässt sich ein gemeldeter Hinderungsgrund im weiterhin offenen Arbeitsbereich.
 
 Sind alle Feste abgeschlossen, steht auf der Jahresübersicht **Geschäftsjahr abschließen** bereit. Der Jahresabschluss prüft und sperrt auch das allgemeine Kassenbuch. Die Daten bleiben einsehbar. Für eine Korrektur wählt ein Admin **Geschäftsjahr wieder öffnen** und gibt den Grund an. Damit öffnet sich das Kassenbuch. Jedes Fest bleibt bis zu seiner eigenen begründeten Freigabe gesperrt. Abschluss und Wiederöffnung erscheinen im Audit-Log.

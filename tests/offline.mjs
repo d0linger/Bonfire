@@ -155,11 +155,22 @@ async function record(p, group, type, label, values = {}) {
           ? "Preise & Druck"
           : "Sponsoren & Rechnungen",
     );
-  await p.locator('[data-act="focusEntry"]').click();
+  if (group === "Geldtaschen") {
+    const action =
+      type === "count" ? "count:" + (values.Phase || "Anfang") : type;
+    const trigger = p.locator('[data-wallet-action="' + action + '"]');
+    if (!(await trigger.isVisible()))
+      await p.locator(".wallet-more summary").click();
+    await trigger.click();
+  } else {
+    await p.locator('[data-act="focusEntry"]').click();
+  }
   if (await by(p, "type").count()) await by(p, "type").selectOption(type);
   await by(p, "Label").fill(label);
   await by(p, "Date").fill(exerciseDay);
   for (const [name, value] of Object.entries(values)) {
+    if (group === "Geldtaschen" && type === "count" && name === "Phase")
+      continue;
     const input = by(p, name);
     const collapsed = input.locator("xpath=ancestor::details[not(@open)]");
     if (await collapsed.count())

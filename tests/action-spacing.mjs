@@ -95,7 +95,12 @@ try {
       for (const pair of touching) failures.push({ name, width, pair });
       if (
         process.env.BONFIRE_LAYOUT_SCREENSHOTS &&
-        ["Erfassung", "Kontakte", "Veranstaltungsliste"].includes(name)
+        [
+          "Erfassung",
+          "Kontakte",
+          "Veranstaltungsliste",
+          "Geldtaschen",
+        ].includes(name)
       ) {
         const area = name === "Kontakte" ? page.locator(".entry-list") : page;
         await area.screenshot({
@@ -207,6 +212,94 @@ try {
       .first()
       .click();
     await check(key);
+    if (key === "Geldtaschen") {
+      const actions = page.getByRole("region", {
+        name: "Geldtaschen verwalten",
+      });
+      assert.deepEqual(await actions.getByRole("button").allTextContents(), [
+        "Geldtasche anlegen",
+        "Anfangsbestand zählen",
+        "Wechselgeld nachlegen",
+        "Endbestand zählen",
+      ]);
+      await actions.getByText("Weitere Vorgänge", { exact: true }).click();
+      await check("Weitere Geldtaschenvorgänge", actions);
+      assert.deepEqual(await actions.getByRole("heading").allTextContents(), [
+        "Vor dem Fest",
+        "Während des Fests",
+        "Am Festende",
+      ]);
+      const dialog = page.getByRole("dialog");
+      const wallet = "Tasche Süd";
+      for (const name of [
+        "Verfügbares Wechselgeld erfassen",
+        "Wechselgeld je Tasche planen",
+      ]) {
+        await actions.getByRole("button", { name }).click();
+        await dialog.getByRole("heading", { name: "Stückelung" }).waitFor();
+        assert.equal(
+          await dialog.locator("[name=Wallet]").count(),
+          name.includes("planen") ? 1 : 0,
+        );
+        await page.keyboard.press("Escape");
+      }
+      await actions.getByRole("button", { name: "Geldtasche anlegen" }).click();
+      await dialog.getByLabel("Bezeichnung").fill(wallet);
+      await dialog
+        .getByRole("button", { name: "Speichern", exact: true })
+        .click();
+      await dialog.waitFor({ state: "hidden" });
+      await actions
+        .getByRole("button", { name: "Wechselgeld nachlegen" })
+        .click();
+      await dialog.locator("[name=Wallet]").selectOption({ label: wallet });
+      await dialog.locator("[name=Account]").fill("Handkassa");
+      await dialog.getByLabel("Betrag in EUR").fill("25,00");
+      assert.equal(await dialog.locator("[name=To]").count(), 0);
+      await dialog
+        .getByRole("button", { name: "Speichern", exact: true })
+        .click();
+      await dialog.waitFor({ state: "hidden" });
+      for (const [name, phase, coins] of [
+        ["Anfangsbestand zählen", "Anfang", "2"],
+        ["Zwischenstand zählen", "Zwischenstand", "15"],
+        ["Endbestand zählen", "Ende", "17"],
+      ]) {
+        await actions.getByRole("button", { name, exact: true }).click();
+        await dialog.getByRole("heading", { name, exact: true }).waitFor();
+        assert.equal(await dialog.locator("[name=Phase]").inputValue(), phase);
+        assert.equal(
+          await dialog.getByLabel("Vorgang", { exact: true }).count(),
+          0,
+        );
+        await dialog.getByLabel("Bezeichnung").fill(name);
+        await dialog.locator("[name=Wallet]").selectOption({ label: wallet });
+        await dialog.locator("[name=coin200]").fill(coins);
+        await dialog
+          .getByRole("button", { name: "Speichern", exact: true })
+          .click();
+        await dialog.waitFor({ state: "hidden" });
+      }
+      const { entries } = await api("online?event=" + event.ID, {});
+      const topUp = entries.find((r) => r.Kind === "supply").Data;
+      assert.deepEqual(
+        [topUp.Account, topUp.To, topUp.Amount],
+        ["Handkassa", wallet, 2500],
+      );
+      assert.equal(topUp.Wallet, entries.find((r) => r.Kind === "wallet").ID);
+      const counts = entries.filter((r) => r.Kind === "count");
+      assert.deepEqual(
+        Object.fromEntries(counts.map((r) => [r.Data.Phase, r.Data.Amount])),
+        {
+          Anfang: 400,
+          Zwischenstand: 3000,
+          Ende: 3400,
+        },
+      );
+      await page
+        .getByText(/Tasche Süd · Weitere Sammelbareinnahme\s+(?:€\s*)?5,00/)
+        .waitFor();
+    }
   }
   for (const key of [
     "Spenden",

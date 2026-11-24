@@ -176,6 +176,7 @@ function closeEditor() {
   entryDialog.replaceChildren();
   edit = null;
   const key = [
+    "data-wallet-action",
     "data-event-edit",
     "data-event-cleanup",
     "data-edit",
@@ -827,7 +828,8 @@ function devicePage() {
         : "")
   );
 }
-function formFields(k) {
+function formFields(k, countPhase = "") {
+  const walletTopUp = page === "Geldtaschen" && k === "supply" && !edit;
   const simpleBooking = [
     "expense",
     "income",
@@ -837,7 +839,13 @@ function formFields(k) {
   ].includes(k);
   let extra = "";
   let f =
-    field("Label", "Bezeichnung", "text", true) +
+    field(
+      "Label",
+      "Bezeichnung",
+      "text",
+      true,
+      walletTopUp ? "Wechselgeld nachgelegt" : "",
+    ) +
     field(
       "Date",
       k === "period" ? "Periodenbeginn" : "Datum",
@@ -880,7 +888,11 @@ function formFields(k) {
       "presale",
     ].includes(k)
   ) {
-    const wallet = refs("Wallet", "Geldtasche", ["wallet"]);
+    const wallet = refs(
+      "Wallet",
+      walletTopUp ? "Empfangende Geldtasche" : "Geldtasche",
+      ["wallet"],
+    );
     if (simpleBooking) extra += wallet;
     else f += wallet;
   }
@@ -986,12 +998,18 @@ function formFields(k) {
   if (k === "contact")
     f += field("Address", "Anschrift") + field("Category", "Person / Firma");
   if (monetary.has(k) && k !== "price") {
+    const sourceLabel = walletTopUp
+      ? "Entnommen aus (Quelle)"
+      : "Konto / Quelle";
     if (s.event.Accounts)
-      f += refs("Account", "Konto / Quelle", ["account", "wallet"]);
+      f += refs("Account", sourceLabel, ["account", "wallet"]);
     else if (simpleBooking) extra += field("Account", "Konto / Quelle");
-    else f += field("Account", "Konto / Quelle");
+    else f += field("Account", sourceLabel, "text", walletTopUp);
   }
-  if (["transfer", "payout", "supply", "skim", "return"].includes(k))
+  if (
+    !walletTopUp &&
+    ["transfer", "payout", "supply", "skim", "return"].includes(k)
+  )
     f += s.event.Accounts
       ? refs("To", "Zielkonto", ["account", "wallet"])
       : field("To", "Zielkonto", "text", true);
@@ -1096,7 +1114,9 @@ function formFields(k) {
       ["Bestätigt", "Zählung bestätigen"],
     ]);
   if (["count", "plan", "reserve"].includes(k)) {
-    if (k !== "reserve")
+    if (countPhase)
+      f += '<input type="hidden" name="Phase" value="' + esc(countPhase) + '">';
+    else if (k !== "reserve")
       f += select(
         "Phase",
         "Phase",
@@ -1429,10 +1449,10 @@ function records() {
     "</section>"
   );
 }
-function recordForm() {
+function recordForm(countPhase = "") {
   return form(
     "record",
-    formFields(kind),
+    formFields(kind, countPhase),
     edit
       ? "Berichtigung speichern"
       : offlineEnabled
@@ -1456,14 +1476,72 @@ function entryLabel(page) {
     }[page] || "Eintrag erfassen"
   );
 }
+const walletStages = [
+  [
+    "Vor dem Fest",
+    [
+      ["bar", "Bar anlegen"],
+      ["shift", "Schicht anlegen"],
+      ["reserve", "Verfügbares Wechselgeld erfassen"],
+      ["plan", "Wechselgeld je Tasche planen"],
+    ],
+  ],
+  [
+    "Während des Fests",
+    [
+      ["skim", "Bargeld abschöpfen"],
+      ["count:Zwischenstand", "Zwischenstand zählen"],
+    ],
+  ],
+  ["Am Festende", [["return", "Restgeld zurückgeben"]]],
+];
+function walletButton(action, title) {
+  return (
+    '<button type="button" class="secondary" aria-haspopup="dialog" data-wallet-action="' +
+    esc(action) +
+    '">' +
+    esc(title) +
+    "</button>"
+  );
+}
+function walletActions() {
+  return (
+    '<section class="wallet-menu" aria-label="Geldtaschen verwalten"><div class="actions">' +
+    walletButton("wallet", "Geldtasche anlegen") +
+    walletButton("count:Anfang", "Anfangsbestand zählen") +
+    walletButton("supply", "Wechselgeld nachlegen") +
+    walletButton("count:Ende", "Endbestand zählen") +
+    '</div><details class="wallet-more"' +
+    (article.querySelector(".wallet-more[open]") ? " open" : "") +
+    '><summary>Weitere Vorgänge</summary><div class="wallet-actions">' +
+    walletStages
+      .map(
+        ([stage, actions]) =>
+          "<div><h2>" +
+          esc(stage) +
+          "</h2>" +
+          actions
+            .map(([action, title]) => walletButton(action, title))
+            .join("") +
+          "</div>",
+      )
+      .join("") +
+    "</div></details></section>"
+  );
+}
 function openRecord(trigger, item = null) {
   canWrite();
   const kinds = editableKinds();
   if (!kinds.length || (item && !kinds.includes(item.Kind))) return;
   edit = item;
-  kind = item?.Kind || (kinds.includes(kind) ? kind : kinds[0]);
+  const [walletKind, countPhase] = (trigger?.dataset.walletAction || "").split(
+    ":",
+  );
+  if (walletKind && (page !== "Geldtaschen" || !kinds.includes(walletKind)))
+    return;
+  kind = item?.Kind || walletKind || (kinds.includes(kind) ? kind : kinds[0]);
   const selector =
-    kinds.length > 1
+    kinds.length > 1 && page !== "Geldtaschen"
       ? select(
           "type",
           "Vorgang",
@@ -1472,8 +1550,12 @@ function openRecord(trigger, item = null) {
       : "";
   openEditor(
     trigger,
-    item ? types[kind] + " berichtigen" : entryLabel(page),
-    recordForm(),
+    item
+      ? types[kind] + " berichtigen"
+      : walletKind
+        ? trigger.textContent
+        : entryLabel(page),
+    recordForm(countPhase),
     (offlineEnabled
       ? ""
       : '<p class="booking-target">Buchungsziel <strong>' +
@@ -3222,7 +3304,9 @@ function show() {
           isOnlineEventPage()
             ? s.event.Name
             : pageDescriptions[page] || s.event.Name,
-          editableKinds().length ? button("focusEntry", entryLabel(page)) : "",
+          page !== "Geldtaschen" && editableKinds().length
+            ? button("focusEntry", entryLabel(page))
+            : "",
         ) +
         (isEvent
           ? tabs(offlineEnabled ? eventTabs : onlineEventTabs, page)
@@ -3238,6 +3322,7 @@ function show() {
                 page,
               )
             : "") +
+        (page === "Geldtaschen" && writableWorkspace() ? walletActions() : "") +
         (page === "Datenaustausch"
           ? exchange()
           : page === "Dokumente"
@@ -3844,6 +3929,13 @@ async function submit(f) {
         "Das Buchungsziel hat sich geändert. Erfassung schließen und im gewünschten Bereich erneut öffnen.",
       );
     const d = { ...vals };
+    if (kind === "supply" && vals.To === undefined) {
+      const wallet = rows().find(
+        (r) => r.Kind === "wallet" && r.ID === d.Wallet,
+      );
+      if (!wallet) throw Error("Empfangende Geldtasche auswählen.");
+      d.To = s.event.Accounts ? wallet.ID : wallet.Data.Label;
+    }
     delete d.amount;
     delete d.file;
     if (
@@ -4528,6 +4620,10 @@ document.addEventListener("click", (e) => {
     return;
   }
   action(async () => {
+    if (b.dataset.walletAction) {
+      openRecord(b);
+      return;
+    }
     if (b.dataset.edit) {
       const row = rows().find((r) => r.ID === b.dataset.edit);
       if (!row) throw Error("Der Eintrag ist nicht mehr verfügbar.");
