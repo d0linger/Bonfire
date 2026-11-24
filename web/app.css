@@ -1452,3 +1452,13 @@ section > :is(.actions, button, form) + form {
 #record label[hidden] {
   display: none;
 }
+.fiscal-year-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding-block: 8px;
+}
+.fiscal-year-row + .fiscal-year-row {
+  border-top: 1px solid var(--line);
+}

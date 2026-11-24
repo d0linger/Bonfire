@@ -180,6 +180,7 @@ function closeEditor() {
   edit = null;
   const key = [
     "data-wallet-action",
+    "data-year-edit",
     "data-event-edit",
     "data-event-cleanup",
     "data-edit",
@@ -2424,13 +2425,18 @@ const defaultDay = (scope) =>
   !scope || (today() >= scope.Starts && today() <= scope.Ends)
     ? today()
     : scope.Starts;
+function yearFields(y = {}) {
+  return (
+    field("Name", "Bezeichnung", "text", true, y.Name) +
+    field("Starts", "Von", "date", true, y.Starts) +
+    field("Ends", "Bis", "date", true, y.Ends)
+  );
+}
 function yearForm() {
   return popupForm(
     "fiscal-year",
     "Geschäftsjahr anlegen",
-    field("Name", "Bezeichnung", "text", true) +
-      field("Starts", "Von", "date", true) +
-      field("Ends", "Bis", "date", true),
+    yearFields(),
     "Geschäftsjahr speichern",
   );
 }
@@ -2448,15 +2454,23 @@ function yearSetup() {
           years
             .map(
               (y) =>
-                '<p><button type="button" class="secondary" data-year="' +
+                '<div class="fiscal-year-row"><button type="button" class="secondary" data-year="' +
                 esc(y.ID) +
                 '">' +
                 esc(y.Name) +
-                "</button> · " +
+                "</button><span>" +
                 dat(y.Starts) +
                 " – " +
                 dat(y.Ends) +
-                "</p>",
+                "</span>" +
+                (onlineUser.role === "Admin" && !y.Closed
+                  ? '<button type="button" class="secondary" data-year-edit="' +
+                    esc(y.ID) +
+                    '" aria-haspopup="dialog" aria-label="Geschäftsjahr ' +
+                    esc(y.Name) +
+                    ' bearbeiten">Bearbeiten</button>'
+                  : "") +
+                "</div>",
             )
             .join(""),
         )
@@ -3794,19 +3808,22 @@ async function submit(f) {
     );
     page = s && !s.event.General ? "Veranstaltungen" : "Übersicht";
   }
-  if (id === "event-edit") {
+  if (id === "event-edit" || id === "year-edit") {
     const previous = Object.fromEntries(
       Object.keys(vals).map((key) => [
         key,
         f.elements.namedItem(key).defaultValue,
       ]),
     );
-    await api("events/edit", {
-      Event: f.dataset.event,
+    const yearEdit = id === "year-edit";
+    await api(yearEdit ? "years/edit" : "events/edit", {
+      ...(yearEdit ? { Year: f.dataset.year } : { Event: f.dataset.event }),
       Previous: previous,
       Updated: vals,
     });
-    if (s?.event.ID === f.dataset.event) await sync();
+    if (yearEdit) {
+      [years, allSpaces] = await Promise.all([api("years"), api("events")]);
+    } else if (s?.event.ID === f.dataset.event) await sync();
   }
   if (id === "event") {
     const created = await api("events", {
@@ -4825,6 +4842,28 @@ document.addEventListener("click", (e) => {
       document
         .querySelector(mobile ? "#menu-toggle" : "#fiscal-switch summary")
         ?.focus();
+    });
+    return;
+  }
+  if (b.dataset.yearEdit) {
+    action(async () => {
+      years = await api("years");
+      const y = years.find((item) => item.ID === b.dataset.yearEdit);
+      if (!y || y.Closed) {
+        show();
+        throw Error("Dieses Geschäftsjahr kann nicht mehr bearbeitet werden.");
+      }
+      openEditor(
+        b,
+        "Geschäftsjahr bearbeiten",
+        form(
+          "year-edit",
+          yearFields(y),
+          "Änderungen speichern",
+          button("cancel", "Abbrechen", true),
+        ),
+      );
+      entryDialog.querySelector("form").dataset.year = y.ID;
     });
     return;
   }

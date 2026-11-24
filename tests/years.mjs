@@ -92,6 +92,30 @@ await api("users", manager, {
   Event: event.ID,
 });
 const cashier = await login(basic(reader, password));
+const details = ({ Name, Starts, Ends }) => ({ Name, Starts, Ends });
+const editYear = (Updated, status, Previous = details(y), cookie = manager) =>
+  api("years/edit", cookie, { Year: y.ID, Previous, Updated }, status);
+const renamed = {
+  ...details(y),
+  Name: "Fiktives Rumpfjahr",
+  Starts: "2025-12-31",
+};
+await editYear(renamed, 403, details(y), cashier);
+await editYear({ ...details(y), Name: next.Name }, 409);
+await editYear({ ...details(y), Ends: next.Starts }, 409);
+await editYear({ ...details(y), Ends: "2026-10-30" }, 409);
+await editYear({ ...details(y), Starts: "2027-01-01" }, 422);
+await editYear(renamed, 200);
+await editYear(renamed, 200);
+await editYear({ ...renamed, Name: "Veralteter Stand" }, 409);
+const editedLedger = (await api("events?year=" + y.ID, manager)).find(
+  (e) => e.General,
+);
+assert.deepEqual(
+  [editedLedger.ID, editedLedger.Starts, editedLedger.Ends],
+  [ledgers[0].ID, renamed.Starts, renamed.Ends],
+);
+await editYear(details(y), 200, renamed);
 assert.deepEqual(
   (await api("years", cashier)).map((v) => v.ID),
   [y.ID],
@@ -115,6 +139,11 @@ for (const day of [y.Starts, y.Ends, next.Starts]) {
   );
 }
 const mode = await api("mode", manager);
+await editYear({ ...details(y), Starts: "2026-01-02" }, 409);
+assert.deepEqual(
+  details((await api("years", manager)).find((v) => v.ID === y.ID)),
+  details(y),
+);
 if (!mode.offline) await api("events", manager, festival, 422);
 const legacyID = mode.offline
   ? (await api("events", manager, festival)).ID
@@ -143,6 +172,16 @@ await api("online?event=" + nextLedger.ID, manager, {
     period,
   ],
 });
+await api(
+  "years/edit",
+  manager,
+  {
+    Year: next.ID,
+    Previous: details(next),
+    Updated: { ...details(next), Ends: "2027-12-30" },
+  },
+  409,
+);
 for (const Action of ["period", "journal-period"]) {
   const report = await api(
     "manage",

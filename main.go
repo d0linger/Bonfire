@@ -433,6 +433,7 @@ func main() {
 	mux.HandleFunc("GET /api/events", route(a.events))
 	mux.HandleFunc("GET /api/years", route(a.years))
 	mux.HandleFunc("POST /api/years", route(a.years))
+	mux.HandleFunc("POST /api/years/edit", route(a.editYear))
 	mux.HandleFunc("POST /api/years/assign", route(a.assignYear))
 	mux.HandleFunc("POST /api/events", route(a.events))
 	mux.HandleFunc("POST /api/events/edit", route(a.editEvent))

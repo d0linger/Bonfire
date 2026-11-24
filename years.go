@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -14,6 +15,23 @@ import (
 type fiscalYear struct {
 	ID, Name, Starts, Ends string
 	Closed                 bool
+}
+
+func validYearDetails(name, starts, ends string) bool {
+	return name != "" && len(name) <= 100 && date(starts) && date(ends) && starts <= ends
+}
+
+func yearWriteError(err error) error {
+	var dbErr *pgconn.PgError
+	if errors.As(err, &dbErr) {
+		switch dbErr.Code {
+		case "23P01":
+			return problem{409, "Der Zeitraum überschneidet sich mit einem bestehenden Geschäftsjahr."}
+		case "23505":
+			return problem{409, "Diese Geschäftsjahresbezeichnung ist bereits vergeben."}
+		}
+	}
+	return err
 }
 
 func (a *app) years(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
@@ -39,7 +57,7 @@ func (a *app) years(ctx context.Context, w http.ResponseWriter, r *http.Request)
 	}
 	y.Name = strings.TrimSpace(y.Name)
 	y.Closed = false
-	if y.Name == "" || len(y.Name) > 100 || !date(y.Starts) || !date(y.Ends) || y.Starts > y.Ends {
+	if !validYearDetails(y.Name, y.Starts, y.Ends) {
 		return nil, fail("Bezeichnung und Zeitraum des Geschäftsjahrs prüfen.")
 	}
 	tx, err := a.db.Begin(ctx)
@@ -49,16 +67,7 @@ func (a *app) years(ctx context.Context, w http.ResponseWriter, r *http.Request)
 	defer tx.Rollback(ctx)
 	y.ID = uuid()
 	if _, err = tx.Exec(ctx, "INSERT INTO fiscal_years(id,name,starts,ends) VALUES($1,$2,$3,$4)", y.ID, y.Name, y.Starts, y.Ends); err != nil {
-		var dbErr *pgconn.PgError
-		if errors.As(err, &dbErr) {
-			switch dbErr.Code {
-			case "23P01":
-				return nil, problem{409, "Der Zeitraum überschneidet sich mit einem bestehenden Geschäftsjahr."}
-			case "23505":
-				return nil, problem{409, "Diese Geschäftsjahresbezeichnung ist bereits vergeben."}
-			}
-		}
-		return nil, err
+		return nil, yearWriteError(err)
 	}
 	ledger := uuid()
 	_, err = tx.Exec(ctx, `INSERT INTO events(id,name,starts,ends,general_ledger,fiscal_year)
@@ -70,6 +79,84 @@ func (a *app) years(ctx context.Context, w http.ResponseWriter, r *http.Request)
 		return nil, err
 	}
 	return y, tx.Commit(ctx)
+}
+
+func (a *app) editYear(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
+	var in struct {
+		Year              string
+		Previous, Updated eventDetails
+	}
+	if err := read(r, &in); err != nil {
+		return nil, err
+	}
+	next := in.Updated
+	next.Name = strings.TrimSpace(next.Name)
+	if !idPattern.MatchString(in.Year) || !validYearDetails(next.Name, next.Starts, next.Ends) {
+		return nil, fail("Name, Startdatum und Enddatum des Geschäftsjahrs prüfen.")
+	}
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(751025)"); err != nil {
+		return nil, err
+	}
+	user, err := accountManager(ctx, tx, r, true)
+	if err != nil {
+		return nil, err
+	}
+	var current eventDetails
+	var closed bool
+	var ledger string
+	err = tx.QueryRow(ctx, `SELECT y.name,y.starts::text,y.ends::text,y.closed OR e.closed,e.id::text
+		FROM fiscal_years y JOIN events e ON e.fiscal_year=y.id AND e.general_ledger
+		WHERE y.id=$1 ORDER BY EXISTS(SELECT FROM audit a WHERE a.event=e.id AND a.action='Geschäftsjahr angelegt' AND a.subject=y.id::text) DESC,e.id
+		LIMIT 1 FOR UPDATE OF y,e`, in.Year).Scan(&current.Name, &current.Starts, &current.Ends, &closed, &ledger)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, problem{404, "Geschäftsjahr nicht gefunden."}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if closed {
+		return nil, problem{409, "Geschäftsjahr oder Kassenbuch abgeschlossen. Zur Bearbeitung zuerst wieder öffnen."}
+	}
+	if current == next {
+		return true, tx.Commit(ctx)
+	}
+	if current != in.Previous {
+		return nil, problem{409, "Das Geschäftsjahr wurde inzwischen geändert. Den Bearbeitungsdialog erneut öffnen."}
+	}
+	if current.Starts != next.Starts || current.Ends != next.Ends {
+		var blocker string
+		err = tx.QueryRow(ctx, `SELECT CASE
+			WHEN EXISTS(SELECT FROM events WHERE fiscal_year=$1 AND id<>$5 AND (starts<$2 OR ends>$3))
+				THEN 'Der neue Zeitraum muss alle zugeordneten Veranstaltungen und weiteren Arbeitsbereiche umfassen.'
+			WHEN EXISTS(SELECT FROM entries j JOIN events e ON e.id=j.event WHERE e.fiscal_year=$1 AND j.kind=ANY($4::text[])
+				AND ((j.data->>'Date')::date NOT BETWEEN $2 AND $3 OR (CASE WHEN j.kind='period' THEN j.data->>'To' END)::date NOT BETWEEN $2 AND $3))
+				THEN 'Der neue Zeitraum muss alle vorhandenen Buchungen, Zählungen und Abrechnungsperioden umfassen.'
+			WHEN EXISTS(SELECT FROM period_closures WHERE fiscal_year=$1 AND reopened_at IS NULL AND (starts<$2 OR ends>$3))
+				THEN 'Eine freigegebene Abrechnungsperiode liegt außerhalb des neuen Zeitraums.'
+			ELSE '' END`, in.Year, next.Starts, next.Ends, fiscalDatedKinds, ledger).Scan(&blocker)
+		if err != nil {
+			return nil, err
+		}
+		if blocker != "" {
+			return nil, problem{409, blocker}
+		}
+	}
+	if _, err = tx.Exec(ctx, "UPDATE fiscal_years SET name=$2,starts=$3,ends=$4 WHERE id=$1", in.Year, next.Name, next.Starts, next.Ends); err != nil {
+		return nil, yearWriteError(err)
+	}
+	if _, err = tx.Exec(ctx, "UPDATE events SET starts=$2,ends=$3 WHERE id=$1", ledger, next.Starts, next.Ends); err != nil {
+		return nil, err
+	}
+	change := fmt.Sprintf("%s (%s – %s) → %s (%s – %s)", current.Name, current.Starts, current.Ends, next.Name, next.Starts, next.Ends)
+	if err = audit(ctx, tx, ledger, user, "Geschäftsjahr bearbeitet", change); err != nil {
+		return nil, err
+	}
+	return true, tx.Commit(ctx)
 }
 
 func (a *app) createEvent(ctx context.Context, user string, e event) (event, error) {

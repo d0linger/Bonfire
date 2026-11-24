@@ -79,7 +79,35 @@ try {
       .locator("#fiscal-switch [aria-current=true]")
       .getAttribute("data-fiscal");
   };
-  const yearA = await createYear("2046", "2046-01-01", "2046-10-31");
+  const yearA = await createYear("Entwurf 2046", "2046-01-02", "2046-10-30");
+  await chooseYear("");
+  await button("Geschäftsjahr Entwurf 2046 bearbeiten").click();
+  const yearDialog = page.getByRole("dialog", {
+    name: "Geschäftsjahr bearbeiten",
+  });
+  assert.equal(
+    await yearDialog.getByLabel("Bezeichnung").inputValue(),
+    "Entwurf 2046",
+  );
+  assert.equal(
+    await yearDialog.getByLabel("Von", { exact: true }).inputValue(),
+    "2046-01-02",
+  );
+  assert.equal(
+    await yearDialog.getByLabel("Bis", { exact: true }).inputValue(),
+    "2046-10-30",
+  );
+  await yearDialog.getByLabel("Bezeichnung").fill("2046");
+  await yearDialog.getByLabel("Von", { exact: true }).fill("2046-01-01");
+  await yearDialog.getByLabel("Bis", { exact: true }).fill("2046-10-31");
+  await submit("year-edit");
+  await yearDialog.waitFor({ state: "hidden" });
+  const yearRow = page
+    .locator(".fiscal-year-row")
+    .filter({ has: page.locator('[data-year="' + yearA + '"]') });
+  assert.match(await yearRow.innerText(), /01\.01\.2046.*31\.10\.2046/);
+  await yearRow.getByRole("button", { name: "2046", exact: true }).click();
+  await page.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
   const opening = button("Anfangsbestand fehlt");
   const enterOpening = async (target, date, amount) => {
     await opening.click();

@@ -327,6 +327,16 @@ await call(ledgerPath, cash, {
   Ops: [make("opening", "Eröffnung", 0), make("actual", "Gezählt", 0)],
 });
 assert.equal((await call(ledgerPath, cash, finalizeYear)).yearClosed, true);
+await call(
+  "years/edit",
+  cash,
+  {
+    Year: year.ID,
+    Previous: { Name: year.Name, Starts: date, Ends: date },
+    Updated: { Name: "Geschlossenes Jahr ändern", Starts: date, Ends: date },
+  },
+  409,
+);
 const manage = (id, user, Action, Reason, status) =>
   call("manage", user, { Action, Reason }, status, { "X-Bonfire-Event": id });
 await manage(event.ID, cash, "reopen", "Korrektur erforderlich", 409);
