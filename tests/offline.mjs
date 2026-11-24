@@ -158,6 +158,9 @@ async function record(p, group, type, label, values = {}) {
   await by(p, "Date").fill(exerciseDay);
   for (const [name, value] of Object.entries(values)) {
     const input = by(p, name);
+    const collapsed = input.locator("xpath=ancestor::details[not(@open)]");
+    if (await collapsed.count())
+      await collapsed.locator("summary").first().click();
     if (name === "Contact") {
       await p.locator("[data-contact-filter]").fill("Musterplatz");
       assert.ok(

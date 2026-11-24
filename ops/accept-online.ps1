@@ -15,7 +15,7 @@ try {
   $env:BONFIRE_URL = 'http://' + (docker compose port app 8080).Trim()
   $env:BONFIRE_YEAR_FIXTURE_ID = (docker compose exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U bonfire -d bonfire -c "INSERT INTO events(id,name,starts,ends) VALUES(gen_random_uuid(),'Fiktiver Altbestand','2026-03-01','2026-03-02') RETURNING id").Trim()
   if ($LASTEXITCODE -or !$env:BONFIRE_YEAR_FIXTURE_ID) { throw 'Fiktiver Altbestand konnte nicht vorbereitet werden.' }
-  foreach ($suite in 'years','online-api','year-workplace','admin-navigation','admin-users','admin-audit') {
+  foreach ($suite in 'years','online-api','year-workplace','admin-navigation','admin-users','admin-audit','action-spacing') {
     node "tests/$suite.mjs"
     if ($LASTEXITCODE) { throw "Fehler in tests/$suite.mjs" }
   }

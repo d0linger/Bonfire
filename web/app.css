@@ -603,6 +603,7 @@ details {
 }
 .panel-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -1092,6 +1093,88 @@ body.auth-screen {
     font-size: 18px;
   }
 }
+.entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.record-editor {
+  max-width: 48rem;
+}
+.record-editor > .panel-head {
+  align-items: end;
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.record-editor > .panel-head label {
+  width: min(100%, 16rem);
+}
+.record-editor .form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.record-extra {
+  grid-column: 1 / -1;
+  padding: 0;
+  margin: 4px 0 0;
+  background: var(--soft);
+}
+.record-extra > summary {
+  padding: 11px 14px;
+}
+.record-extra > .form {
+  padding: 0 14px 14px;
+}
+@media (max-width: 600px) {
+  .record-editor .form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .record-editor > .panel-head label {
+    width: 100%;
+  }
+  .entry-list thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .entry-list tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "name amount" "date kind" "actions actions";
+    gap: 4px 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .entry-list td {
+    padding: 0;
+    border: 0;
+    overflow-wrap: anywhere;
+  }
+  .entry-list td:nth-child(1) {
+    grid-area: date;
+    color: var(--muted);
+  }
+  .entry-list td:nth-child(2) {
+    grid-area: kind;
+    text-align: end;
+    color: var(--muted);
+  }
+  .entry-list td:nth-child(3) {
+    grid-area: name;
+    font-weight: 600;
+  }
+  .entry-list td:nth-child(4) {
+    grid-area: amount;
+  }
+  .entry-list td:nth-child(5) {
+    grid-area: actions;
+  }
+  .entry-actions:not(:empty) {
+    margin-top: 6px;
+  }
+}
 .filter-box {
   margin: 0 0 14px;
   padding: 9px 12px;
@@ -1126,5 +1209,32 @@ body.auth-screen {
     background: var(--surface);
     padding: 8px 0;
     border-top: 1px solid var(--line);
+  }
+}
+
+.auth-card footer.actions {
+  justify-content: center;
+  margin-top: 0;
+}
+.account-console .account-section,
+.ops-pages,
+.proof-tabs {
+  flex-wrap: wrap;
+}
+.account-console .account-section + .list,
+section > :is(.actions, button, form) + form {
+  margin-block-start: 12px;
+}
+.admin-links,
+.fiscal-options {
+  display: grid;
+  gap: 4px;
+}
+.task + .task {
+  margin-top: 6px;
+}
+@media (max-width: 760px) {
+  .tabs {
+    gap: 6px;
   }
 }

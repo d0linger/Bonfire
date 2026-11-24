@@ -23,7 +23,7 @@ try {
   page.on("pageerror", (err) => errors.push(err.message));
   const button = (name) => page.getByRole("button", { name, exact: true });
   const submit = async (id) => {
-    await page.locator("#" + id + " button").click();
+    await page.locator("#" + id + " button:not([type=button])").click();
     await page.waitForFunction(
       () => !document.querySelector('article[aria-busy="true"]'),
     );
@@ -85,6 +85,13 @@ try {
   await go("Kassenbuch");
   await button("Buchung erfassen").click();
   const booking = "Eintritt " + randomUUID();
+  const editor = page.locator("#record");
+  const details = editor.locator(".record-extra > summary");
+  assert.ok(await editor.locator("[name=Method]").isVisible());
+  assert.ok(!(await editor.locator("[name=Reference]").isVisible()));
+  await details.click();
+  await editor.locator("[name=Reference]").fill("Übungsbeleg 1");
+  await details.click();
   await page.locator("#record [name=Label]").fill(booking);
   await page.locator("#record [name=amount]").fill("50,00");
   await context.setOffline(true);
@@ -99,6 +106,18 @@ try {
   await page.reload();
   await go("Kassenbuch");
   await page.getByRole("cell", { name: booking, exact: true }).waitFor();
+  await page
+    .getByRole("row")
+    .filter({ hasText: booking })
+    .getByRole("button", { name: "Bearbeiten" })
+    .click();
+  assert.ok(await editor.getByLabel("Änderungsgrund").isVisible());
+  await details.click();
+  assert.equal(
+    await editor.locator("[name=Reference]").inputValue(),
+    "Übungsbeleg 1",
+  );
+  await editor.getByRole("button", { name: "Abbrechen", exact: true }).click();
   await button("Buchung erfassen").click();
   const uncertain = "Wechselgeldbeleg " + randomUUID();
   await page.locator("#record [name=Label]").fill(uncertain);

@@ -289,6 +289,7 @@ export const bookings = (rows) =>
     .sort((a, b) => (b.Data.Date || "").localeCompare(a.Data.Date || ""));
 const head = (t, action = "") =>
   '<div class="panel-head"><h2>' + t + "</h2>" + action + "</div>";
+export { head as panelHeading };
 const line = (i, t, v) =>
   '<div class="balance-row">' +
   icon(i) +

@@ -9,6 +9,7 @@ import {
   esc,
   flowAmount,
   moduleList,
+  panelHeading,
   titleOf,
   sectionOf,
   route,
@@ -101,14 +102,16 @@ const button = (act, t, secondary = false) =>
   '">' +
   esc(t) +
   "</button>";
-const form = (id, inner, submit) =>
+const form = (id, inner, submit, secondaryAction = "") =>
   '<form id="' +
   id +
   '"><div class="form">' +
   inner +
   '</div><div class="actions"><button>' +
   esc(submit) +
-  "</button></div></form>";
+  "</button>" +
+  secondaryAction +
+  "</div></form>";
 const panel = (t, c) => "<section><h2>" + esc(t) + "</h2>" + c + "</section>";
 const heading = (t) => "<h1>" + esc(t) + "</h1>";
 let profilesLocal = [];
@@ -406,7 +409,7 @@ function refs(name, title, kinds) {
 function table(list, editable = false) {
   if (!list.length) return '<p class="muted">Keine Einträge.</p>';
   return (
-    '<div class="list"><table><thead><tr><th>Datum</th><th>Vorgang</th><th>Bezeichnung</th><th>Betrag</th><th></th></tr></thead><tbody>' +
+    '<div class="list entry-list"><table><thead><tr><th>Datum</th><th>Vorgang</th><th>Bezeichnung</th><th>Betrag</th><th aria-label="Aktionen"></th></tr></thead><tbody>' +
     list
       .map(
         (r) =>
@@ -426,7 +429,7 @@ function table(list, editable = false) {
             : "") +
           "</td><td>" +
           esc(flowAmount(r)) +
-          "</td><td>" +
+          '</td><td><div class="entry-actions">' +
           (r.Kind === "attachment" && r.Data.File
             ? '<button type="button" data-attachment="' +
               esc(r.ID) +
@@ -449,7 +452,7 @@ function table(list, editable = false) {
               (r.Data.Retired ? "Wiederherstellen" : "Archivieren") +
               "</button>"
             : "") +
-          "</td></tr>",
+          "</div></td></tr>",
       )
       .join("") +
     "</tbody></table></div>"
@@ -628,10 +631,12 @@ function devicePage() {
     (s.role !== "Kassa"
       ? panel(
           "Prüfprotokoll",
-          button("audit", "Protokoll anzeigen", true) +
+          '<div class="actions">' +
+            button("audit", "Protokoll anzeigen", true) +
             button("journalHistory", "Storno und Ersatz anzeigen", true) +
             button("numbers", "Nummernregister prüfen", true) +
             button("conflictFiles", "Strittige Originalfassungen laden", true) +
+            "</div>" +
             (conflictFiles?.device === s.device && conflictFiles.list.length
               ? form(
                   "conflictFile",
@@ -725,6 +730,14 @@ function devicePage() {
   );
 }
 function formFields(k) {
+  const simpleBooking = [
+    "expense",
+    "income",
+    "refund",
+    "deposit",
+    "deposit-return",
+  ].includes(k);
+  let extra = "";
   let f =
     field("Label", "Bezeichnung", "text", true) +
     field(
@@ -751,7 +764,7 @@ function formFields(k) {
       "reserve",
     ].includes(k)
   )
-    f += refs("Bar", "Bar (optional)", ["bar"]);
+    extra += refs("Bar", "Bar (optional)", ["bar"]);
   if (
     [
       "expense",
@@ -768,8 +781,11 @@ function formFields(k) {
       "income",
       "presale",
     ].includes(k)
-  )
-    f += refs("Wallet", "Geldtasche", ["wallet"]);
+  ) {
+    const wallet = refs("Wallet", "Geldtasche", ["wallet"]);
+    if (simpleBooking) extra += wallet;
+    else f += wallet;
+  }
   if (
     [
       "sponsorship",
@@ -781,8 +797,11 @@ function formFields(k) {
       "contact",
     ].includes(k) &&
     k !== "contact"
-  )
-    f += refs("Contact", "Kontakt", ["contact"]);
+  ) {
+    const contact = refs("Contact", "Kontakt", ["contact"]);
+    if (simpleBooking) extra += contact;
+    else f += contact;
+  }
   if (k === "organization")
     f +=
       label(
@@ -815,7 +834,7 @@ function formFields(k) {
       field("unitSale", "Preis pro Stück in EUR", "text", true) +
       field("field_paymentEvidence", "Zahlungsnachweis / Belegnummer");
   if (k === "expense")
-    f += refs("field_sale", "Zugehöriger Vorverkauf (Herstellungskosten)", [
+    extra += refs("field_sale", "Zugehöriger Vorverkauf (Herstellungskosten)", [
       "presale",
     ]);
   if (k === "paper")
@@ -868,10 +887,12 @@ function formFields(k) {
       field("field_unitReason", "Begründung für die geklärte Ausgabeeinheit");
   if (k === "contact")
     f += field("Address", "Anschrift") + field("Category", "Person / Firma");
-  if (monetary.has(k) && k !== "price")
-    f += s.event.Accounts
-      ? refs("Account", "Konto / Quelle", ["account", "wallet"])
-      : field("Account", "Konto / Quelle");
+  if (monetary.has(k) && k !== "price") {
+    if (s.event.Accounts)
+      f += refs("Account", "Konto / Quelle", ["account", "wallet"]);
+    else if (simpleBooking) extra += field("Account", "Konto / Quelle");
+    else f += field("Account", "Konto / Quelle");
+  }
   if (["transfer", "payout", "supply", "skim", "return"].includes(k))
     f += s.event.Accounts
       ? refs("To", "Zielkonto", ["account", "wallet"])
@@ -905,7 +926,7 @@ function formFields(k) {
       "return",
     ].includes(k)
   )
-    f += field("field_matter", "Eindeutige externe Vorgangskennung (optional)");
+    extra += field("field_matter", "Externe Vorgangskennung");
   if (k === "payment") f += refs("Reference", "Forderung", ["sponsorship"]);
   else if (k === "reimbursement") {
     f += refs("Reference", "Einzelne Privatauslage", ["outlay"]);
@@ -968,10 +989,9 @@ function formFields(k) {
         ["Offen", "Namentlich"],
         ["Anonym", "Anonym"],
       ]);
-  else if (
-    ["expense", "income", "refund", "deposit", "deposit-return"].includes(k)
-  )
-    f += field("Category", "Kategorie") + field("Reference", "Belegreferenz");
+  else if (simpleBooking)
+    extra +=
+      field("Category", "Kategorie") + field("Reference", "Belegreferenz");
   if (k === "count")
     f += select("Status", "Erfassungsstand", [
       ["Unbestätigt", "Erfasste Beobachtung"],
@@ -1006,15 +1026,20 @@ function formFields(k) {
       esc(eur(0)) +
       '</output></p><div class="form">';
   }
-  return (
-    f +
-    field(
-      "Note",
-      edit ? "Änderungsgrund" : "Notiz / Textbaustein",
-      "text",
-      !!edit,
-    )
-  );
+  if (edit) f += field("Note", "Änderungsgrund", "text", true);
+  else extra += field("Note", "Notiz / Textbaustein");
+  if (extra)
+    f +=
+      '<details class="record-extra"><summary>' +
+      (simpleBooking
+        ? edit
+          ? "Zuordnung und Belegdetails"
+          : "Zuordnung, Beleg und Notiz"
+        : "Weitere Angaben") +
+      '</summary><div class="form">' +
+      extra +
+      "</div></details>";
+  return f;
 }
 function journalFilterFields() {
   const all = rows(),
@@ -1286,52 +1311,54 @@ function records() {
       "</details>";
   }
   return (
-    panel(
+    "<section>" +
+    panelHeading(
       "Einträge",
-      (!offlineEnabled
-        ? button("sync", "Serverstand aktualisieren", true)
-        : "") +
-        '<details class="filter-box"' +
-        (filter || Object.values(journalFilters).some(Boolean) ? " open" : "") +
-        "><summary>Einträge filtern</summary>" +
-        form(
-          "filter",
-          field(
-            "filter",
-            "Bezeichnung oder Kategorie suchen",
-            "search",
-            false,
-            filter,
-          ) + (page === "Journal" ? journalFilterFields() : ""),
-          "Filtern",
-        ) +
-        "</details>" +
-        table(set, true) +
-        detail,
+      !offlineEnabled ? button("sync", "Serverstand aktualisieren", true) : "",
     ) +
+    '<details class="filter-box"' +
+    (filter || Object.values(journalFilters).some(Boolean) ? " open" : "") +
+    "><summary>Einträge filtern</summary>" +
+    form(
+      "filter",
+      field(
+        "filter",
+        "Bezeichnung oder Kategorie suchen",
+        "search",
+        false,
+        filter,
+      ) + (page === "Journal" ? journalFilterFields() : ""),
+      "Filtern",
+    ) +
+    "</details>" +
+    table(set, true) +
+    detail +
+    "</section>" +
     ((entryOpen || edit) &&
     !s.sealed &&
     !s.closed &&
     s.role !== "Prüfung" &&
     (page !== "Verwaltung" || s.role === "Leitung")
-      ? panel(
-          edit ? "Eintrag berichtigen" : "Eintrag erfassen",
-          select(
-            "type",
-            "Vorgang",
-            kinds.map((k) => [k, types[k]]),
-          ) +
-            form(
-              "record",
-              formFields(kind),
-              edit
-                ? "Berichtigung speichern"
-                : offlineEnabled
-                  ? "Lokal speichern"
-                  : "Speichern",
-            ) +
-            button("cancel", "Abbrechen", true),
-        )
+      ? '<section class="record-editor"><div class="panel-head"><h2>' +
+        (edit ? "Eintrag berichtigen" : "Eintrag erfassen") +
+        "</h2>" +
+        select(
+          "type",
+          "Vorgang",
+          kinds.map((k) => [k, types[k]]),
+        ) +
+        "</div>" +
+        form(
+          "record",
+          formFields(kind),
+          edit
+            ? "Berichtigung speichern"
+            : offlineEnabled
+              ? "Lokal speichern"
+              : "Speichern",
+          button("cancel", "Abbrechen", true),
+        ) +
+        "</section>"
       : "")
   );
 }
@@ -1559,12 +1586,6 @@ function installStudio() {
       "beforeend",
       button("docProof", "Druckvorschau öffnen", true),
     );
-  document
-    .querySelector("#template")
-    .insertAdjacentHTML(
-      "beforeend",
-      button("draftProof", "Änderungen ansehen", true),
-    );
 }
 async function proofDocument(editing) {
   const studio = document.querySelector(".document-studio"),
@@ -1720,13 +1741,13 @@ function docs() {
         originals
           .map(
             (r) =>
-              "<p>" +
+              '<p class="actions"><span>' +
               esc(r.Data.Label) +
               " · " +
               r.Data.Number +
-              ' <button data-file="' +
+              '</span><button data-file="' +
               esc(r.ID) +
-              '" data-format="PDF">PDF</button> <button data-file="' +
+              '" data-format="PDF">PDF</button><button data-file="' +
               esc(r.ID) +
               '" data-format="DOCX">DOCX</button></p>',
           )
@@ -1780,9 +1801,8 @@ function docs() {
           offlineEnabled
             ? "Entwurf lokal speichern"
             : "Entwurf für diese Sitzung übernehmen",
-        ).replace(
-          "</form>",
-          '<button data-release="true">Fassung freigeben</button></form>',
+          '<button data-release="true">Fassung freigeben</button>' +
+            button("draftProof", "Änderungen ansehen", true),
         ) +
         form(
           "wordLayout",
@@ -2083,7 +2103,8 @@ function onlineAdmin() {
 function profileTools() {
   return panel(
     "Offlineprofile auf diesem Gerät",
-    button("newProfile", "Neues Arbeitsprofil", true) +
+    '<div class="actions">' +
+      button("newProfile", "Neues Arbeitsprofil", true) +
       profilesLocal
         .map(
           (k, i) =>
@@ -2094,6 +2115,7 @@ function profileTools() {
             "</a>",
         )
         .join("") +
+      "</div>" +
       (!saved
         ? "<h3>Gerätesicherung einsehen</h3><p>Öffne eine verschlüsselte Sicherung mit ihrem bisherigen lokalen Passwort. Das Archiv zeigt den gespeicherten Stand. Buchen und Synchronisieren sind im Archiv gesperrt.</p>" +
           form(
@@ -2187,7 +2209,7 @@ function authSurface() {
     "</h1>" +
     content +
     "</div>" +
-    (secondary ? "<footer>" + secondary + "</footer>" : "") +
+    (secondary ? '<footer class="actions">' + secondary + "</footer>" : "") +
     "</div>"
   );
 }
