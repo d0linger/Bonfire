@@ -19,8 +19,8 @@
       button.setAttribute("aria-pressed", String(effective === "dark"));
       button.title =
         effective === "dark"
-          ? "Zum Hellmodus wechseln"
-          : "Zum Dunkelmodus wechseln";
+          ? "Switch to light mode"
+          : "Switch to dark mode";
     }
   }
   function restore() {

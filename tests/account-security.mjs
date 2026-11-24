@@ -69,7 +69,7 @@ try {
   await page.goto(url.href);
   await page.locator("#login [name=user]").fill(user);
   await page.locator("#login [name=pass]").fill(initial);
-  await click("Anmelden");
+  await click("Sign in");
   await openAccount();
   assert.equal((await current()).sessions.length, 2);
   await click("Beenden");
@@ -156,7 +156,7 @@ try {
   await settled();
   await page.getByText("Virtueller Kassaschlüssel", { exact: true }).waitFor();
   await click("Arbeitsplatz schließen");
-  await click("Mit Passkey anmelden");
+  await click("Sign in with a passkey");
   await openAccount();
   const keys = await context.request
     .get(api("account/passkeys"))
@@ -175,7 +175,7 @@ try {
   await settled();
   assert.equal((await current()).mfa, false);
   await click("Arbeitsplatz schließen");
-  await click("Mit Passkey anmelden");
+  await click("Sign in with a passkey");
   await page
     .getByText("Anmeldung mit diesem Passkey fehlgeschlagen.", { exact: true })
     .waitFor();

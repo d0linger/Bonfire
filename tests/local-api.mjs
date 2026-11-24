@@ -1,10 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { testPassword } from "./test-password.mjs";
 import assert from "node:assert/strict";
 const pass =
-  process.env.BONFIRE_ADMIN_PASSWORD ||
-  (await readFile(".env", "utf8"))
-    .match(/^BONFIRE_ADMIN_PASSWORD=(.+)$/m)[1]
-    .trim();
+  testPassword();
 const base = process.env.BONFIRE_URL || "http://127.0.0.1:8137",
   basic = (u, p) => "Basic " + Buffer.from(u + ":" + p).toString("base64"),
   admin = basic("leitung", pass),

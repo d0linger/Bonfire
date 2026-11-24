@@ -1,5 +1,5 @@
+import { testPassword } from "./test-password.mjs";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { zipSync, strToU8 } from "fflate";
 const base = process.env.BONFIRE_URL;
@@ -14,10 +14,7 @@ if (
     "Ausschließlich mit einer eigens erstellten Testinstallation auf Zufallsport ausführen.",
   );
 let password =
-  process.env.BONFIRE_ADMIN_PASSWORD ||
-  (await readFile(".env", "utf8"))
-    .match(/^BONFIRE_ADMIN_PASSWORD=(.+)$/m)[1]
-    .trim();
+  testPassword();
 let login = process.env.BONFIRE_TEST_LOGIN || "leitung";
 let cookie = "";
 async function signIn() {

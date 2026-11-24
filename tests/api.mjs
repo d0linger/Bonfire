@@ -1,12 +1,10 @@
+import { testPassword } from "./test-password.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 const base = process.env.BONFIRE_URL || "http://127.0.0.1:8137";
 const pw =
-  process.env.BONFIRE_ADMIN_PASSWORD ||
-  (await readFile(".env", "utf8"))
-    .match(/^BONFIRE_ADMIN_PASSWORD=(.+)$/m)[1]
-    .trim();
+  testPassword();
 const basic = (name, pass) =>
   "Basic " + Buffer.from(name + ":" + pass).toString("base64");
 const admin = basic("leitung", pw);

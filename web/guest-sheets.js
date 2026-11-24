@@ -43,8 +43,8 @@ export async function guestSheets(s) {
           .at(-1)
           .push({
             name: block.headers[0],
-            unit: "Einheit",
-            price: "Preis",
+            unit: "Unit",
+            price: "Price",
             bold: true,
           });
       heading = false;

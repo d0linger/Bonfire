@@ -28,13 +28,8 @@ export function fiscalPicker(years, selected, hasLegacy) {
     (y.range ? "<small>" + esc(y.range) + "</small>" : "") +
     "</span>";
   return (
-    '<details id="fiscal-switch"><summary aria-label="' +
-    esc(
-      "Geschäftsjahr auswählen" +
-        (current ? ", " + current.name + ", " + current.range : ""),
-    ) +
-    '"><span class="fiscal-caption">Geschäftsjahr</span><span class="fiscal-value">' +
-    lines(current || { name: "Auswählen" }) +
+    '<details id="fiscal-switch"><summary><span class="fiscal-caption">Fiscal year</span><span class="fiscal-value">' +
+    lines(current || { name: "Select" }) +
     icon("ChevronDown") +
     "</span></summary>" +
     '<div class="fiscal-options">' +

@@ -174,7 +174,7 @@ try {
     .click();
   await page
     .getByRole("dialog")
-    .getByLabel("E-Mail-Adresse oder Benutzername")
+    .getByLabel("Email or username")
     .waitFor();
   assert.equal(
     await page.getByRole("dialog").getByLabel("Rolle").inputValue(),
@@ -209,7 +209,7 @@ try {
   await changed.goto(url.origin);
   await changed.locator("#login [name=user]").fill(newLogin);
   await changed.locator("#login [name=pass]").fill(interim);
-  await changed.getByRole("button", { name: "Anmelden", exact: true }).click();
+  await changed.getByRole("button", { name: "Sign in", exact: true }).click();
   await changed
     .getByRole("heading", { name: "Neues Passwort festlegen" })
     .waitFor();
@@ -227,7 +227,7 @@ try {
   });
   await changed.locator("#login [name=user]").fill(newLogin);
   await changed.locator("#login [name=pass]").fill(newSecret);
-  await changed.getByRole("button", { name: "Anmelden", exact: true }).click();
+  await changed.getByRole("button", { name: "Sign in", exact: true }).click();
   await changed
     .locator("nav")
     .getByRole("button", { name: "Kassenbuch", exact: true })

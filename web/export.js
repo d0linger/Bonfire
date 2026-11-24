@@ -22,17 +22,17 @@ import {
 import { denom, eur, summary, types, today } from "./domain.js";
 import contracts from "./contracts.json" with { type: "json" };
 export const profiles = [
-  "Werberechnung · Überweisung",
-  "Werberechnung · Barzahlung",
-  "Spendenbeleg · A6",
-  "Getränkekarten · 3 je Seite",
-  "Essenskarten · 7 je Seite",
-  "Gästepreisliste · Letter",
-  "Dankesbrief",
-  "Stückelung und Zählung",
-  "Veranstaltungsergebnis",
-  "Abschlussprüfung",
-  "Journal und Belegliste",
+  "Sponsorship invoice · bank transfer",
+  "Sponsorship invoice · cash",
+  "Donation receipt · A6",
+  "Drinks price cards · 3 per page",
+  "Food price cards · 7 per page",
+  "Guest price list · Letter",
+  "Thank-you letter",
+  "Cash denomination count",
+  "Event financial statement",
+  "Closing reconciliation",
+  "Journal and supporting documents",
 ];
 export const profileID = (i) =>
   i === 11
@@ -40,7 +40,7 @@ export const profileID = (i) =>
     : i === 12
       ? "donation_confirmation_a4"
       : contracts[i].id;
-const fmt = (value) => (value == null ? "Offen" : String(value));
+const fmt = (value) => (value == null ? "Outstanding" : String(value));
 import { pricesAt } from "./price-history.js";
 export function snapshot(index, s, rows, opts) {
   if (index >= 3 && index <= 5) {
@@ -67,19 +67,19 @@ export function snapshot(index, s, rows, opts) {
       (!org?.Label || !org.Address || !recipient?.Label || !recipient.Address)
     )
       throw Error("Anschrift der Feuerwehr und des Empfängers erforderlich.");
-    const title = index === 11 ? "Zahlungsbestätigung" : "Spendenbestätigung";
+    const title = index === 11 ? "Payment confirmation" : "Donation confirmation";
     return {
       index,
       profile: profileID(index),
       title,
       width: 210,
       height: 297,
-      organization: org?.Label || "Feuerwehr",
+      organization: org?.Label || "Fire brigade",
       event: s.event.Name,
       subject: chosen.ID,
       date: today(),
       number: opts.number || null,
-      status: opts.number ? "Original" : "Arbeitsfassung",
+      status: opts.number ? "Original" : "Working copy",
       font: "helvetica",
       margin: 20,
       lines: [],
@@ -92,16 +92,16 @@ export function snapshot(index, s, rows, opts) {
           recipient?.Label,
           ...(recipient?.Address || "").split(/\r?\n/),
         ].filter(Boolean),
-        meta: [today(), opts.number ? "Beleg " + opts.number : "Vorschau"],
+        meta: [today(), opts.number ? "Receipt " + opts.number : "Preview"],
         intro: "Wir bestätigen den Eingang über " + eur(v.Amount) + ".",
         blocks: [
           {
-            headers: ["Datum", "Zahlungsart", "Verwendungszweck", "Erhalten"],
+            headers: ["Date", "Payment method", "Payment reference", "Received"],
             widths: [30, 32, 76, 32],
             rows: [[v.Date, v.Method || "—", v.Label, eur(v.Amount)]],
           },
         ],
-        after: [org?.Label || "Feuerwehr"],
+        after: [org?.Label || "Fire brigade"],
       },
     };
   }
@@ -115,7 +115,7 @@ export function snapshot(index, s, rows, opts) {
   const org = rows.find((r) => r.Kind === "organization")?.Data;
   const title =
     index === 0 && v.Fields?.claimType === "invoice"
-      ? "Rechnung"
+      ? "Invoice"
       : config.Label || profiles[index];
   const [width, height] =
     index === 2
@@ -157,11 +157,11 @@ export function snapshot(index, s, rows, opts) {
         "Organisation und Empfänger mit Anschrift sind für die Originalausgabe erforderlich.",
       );
     if (org?.Address) add(org.Address);
-    add(contact?.Label || "Anonym");
+    add(contact?.Label || "Anonymous");
     if (contact?.Address) add(contact.Address);
     add(v.Label);
-    add(index === 0 ? "Rechnungsbetrag" : "Eingang", eur(v.Amount));
-    add("Datum", v.Date);
+    add(index === 0 ? "Invoice amount" : "Received", eur(v.Amount));
+    add("Date", v.Date);
     if (index === 0) {
       for (const l of v.Lines || [])
         add(
@@ -180,17 +180,17 @@ export function snapshot(index, s, rows, opts) {
         throw Error(
           "Für das Rechnungsoriginal fehlen Kontodaten, Rechtstext, Leistung oder Fälligkeit.",
         );
-      if (v.Fields?.service) add("Leistung", v.Fields.service);
-      if (v.Fields?.due) add("Fällig am", v.Fields.due);
+      if (v.Fields?.service) add("Service", v.Fields.service);
+      if (v.Fields?.due) add("Due on", v.Fields.due);
       if (org?.Fields?.IBAN) add(org.Fields.holder, org.Fields.IBAN);
       if (org?.Fields?.legal) add(org.Fields.legal);
       const paid = rows
         .filter((r) => r.Kind === "payment" && r.Data.Reference === chosen.ID)
         .reduce((n, r) => n + r.Data.Amount, 0);
-      add("Bereits bezahlt", eur(paid));
-      add("Offen", eur(v.Amount - paid));
+      add("Already paid", eur(paid));
+      add("Outstanding", eur(v.Amount - paid));
       if (paid < v.Amount)
-        add("Zahlungsreferenz", invoiceReference(v, opts.number));
+        add("Payment reference", invoiceReference(v, opts.number));
     }
     if (index === 1) {
       const parent = rows.find((r) => r.ID === v.Reference);
@@ -203,8 +203,8 @@ export function snapshot(index, s, rows, opts) {
       const paid = rows
         .filter((r) => r.Kind === "payment" && r.Data.Reference === v.Reference)
         .reduce((n, r) => n + r.Data.Amount, 0);
-      add("Bar erhalten", eur(v.Amount));
-      add("Verbleibend", eur(parent.Data.Amount - paid));
+      add("Cash received", eur(v.Amount));
+      add("Remaining", eur(parent.Data.Amount - paid));
     }
     if (index === 2 && opts.number && !config.File)
       throw Error("Freigegebener LFK-Druckhintergrund fehlt.");
@@ -217,11 +217,11 @@ export function snapshot(index, s, rows, opts) {
         "Freigegebener Belegtext, Spenderdaten oder Sammlung fehlen.",
       );
     if (index === 2 && contact?.Fields?.birth)
-      add("Geburtsdatum", contact.Fields.birth);
+      add("Date of birth", contact.Fields.birth);
     if (index === 2 && org?.Fields?.donationLegal)
       add(org.Fields.donationLegal);
-    if (index === 2) add("Sammlung", v.Reference || "Nicht erfasst");
-    if (index === 6) add("Vielen Dank für Ihre Unterstützung.");
+    if (index === 2) add("Collection", v.Reference || "Unrecorded");
+    if (index === 6) add("Thank you for your support.");
   } else if (index >= 3 && index <= 5) {
     const prices = rows.filter(
       (r) =>
@@ -243,32 +243,32 @@ export function snapshot(index, s, rows, opts) {
       chosen
         ? chosen.Kind === "plan"
           ? "Plan"
-          : "Erfasste Zählung"
-        : "Leeres Zählblatt",
+          : "Recorded count"
+        : "Blank cash count",
     );
     if (chosen)
       add(
-        v.Fields?.countScope === "all" ? "Alle Geldtaschen" : v.Wallet,
+        v.Fields?.countScope === "all" ? "All wallets" : v.Wallet,
         v.Phase,
       );
     if (!chosen || v.Pieces)
       for (const d of denom)
         add(eur(d), chosen ? String(v.Pieces[String(d)] ?? 0) : "________");
-    if (chosen) add("Summe", eur(v.Amount));
+    if (chosen) add("Total", eur(v.Amount));
   } else if (index === 8) {
-    add(opts.bar ? "Bar " + opts.bar : "Gesamtveranstaltung");
-    add("Erfasste Einnahmen", eur(money.receipts));
-    add("Direkte Kosten", eur(money.costs));
-    add("Ergebnis aus erfassten Vorgängen", eur(money.result));
+    add(opts.bar ? "Bar " + opts.bar : "Whole event");
+    add("Recorded income", eur(money.receipts));
+    add("Direct costs", eur(money.costs));
+    add("Net result from recorded entries", eur(money.result));
   } else if (index === 9) {
-    add("Status", s.closed ? "Freigegeben" : "Vorläufig");
-    add("Eröffnung", eur(rows.find((r) => r.Kind === "opening")?.Data.Amount));
-    add("Zahlungsüberschuss", eur(money.ear));
+    add("Status", s.closed ? "Freigegeben" : "Provisional");
+    add("Opening balance", eur(rows.find((r) => r.Kind === "opening")?.Data.Amount));
+    add("Cash surplus", eur(money.ear));
     const actuals = rows.filter((r) => r.Kind === "actual");
-    if (!actuals.length) add("Istbestand", "Offen");
+    if (!actuals.length) add("Actual balance", "Outstanding");
     for (const a of actuals)
-      add(a.Data.Account || "Gesamtbestand", eur(a.Data.Amount));
-    add("Offene Konflikte im letzten Abgleich", s.conflicts.length);
+      add(a.Data.Account || "Total balance", eur(a.Data.Amount));
+    add("Unresolved conflicts", s.conflicts.length);
   } else {
     for (const r of data.filter((r) =>
       [
@@ -315,7 +315,7 @@ export function snapshot(index, s, rows, opts) {
             file: config.File,
             values: [
               eur(v.Amount),
-              opts.number || "Entwurf",
+              opts.number || "Draft",
               [org?.Label, org?.Address].filter(Boolean).join(", "),
               [contact?.Label, contact?.Address].filter(Boolean).join(", "),
               contact?.Fields?.birth || "",
@@ -328,11 +328,11 @@ export function snapshot(index, s, rows, opts) {
     width,
     height,
     title,
-    organization: org?.Label || opts.organization || "Feuerwehr",
-    event: s.event.General ? "Allgemeines Kassenbuch" : s.event.Name,
+    organization: org?.Label || opts.organization || "Fire brigade",
+    event: s.event.General ? "General cashbook" : s.event.Name,
     date: today(),
     number: opts.number || null,
-    status: opts.number ? "Original" : "Arbeitsfassung",
+    status: opts.number ? "Original" : "Working copy",
     subject: chosen?.ID || null,
     templateVersion: tpl?.Revision ?? 0,
     templateVersionID: versionID,
@@ -450,7 +450,7 @@ export async function render(s) {
       for (let slot = 0; slot < Math.min(per, s.copies || per); slot++) {
         let cy = top + slot * (h + gap);
         const lines = [
-          [s.cardHeader || s.event, "Preis", ""],
+          [s.cardHeader || s.event, "Price", ""],
           ...content.map(([text, price]) => [text, price, ""]),
         ];
         const wordRows = [];

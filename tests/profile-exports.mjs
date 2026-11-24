@@ -11,9 +11,9 @@ assert.equal(url.hostname, "127.0.0.1");
 assert.ok(url.port && url.port !== "8137");
 const browser = await chromium.launch({executablePath: process.env.BONFIRE_BROWSER});
 try {
-  const page = await browser.newPage();
+  const context = await browser.newContext();
   const post = async (path, data, headers = {}) => {
-    const result = await page.request.post(url.origin + "/api/" + path, {data, headers});
+    const result = await context.request.post(url.origin + "/api/" + path, {data, headers});
     assert.equal(result.status(), 200, path + ": " + (await result.text()).slice(0, 120));
     return result.json();
   };
@@ -29,24 +29,25 @@ try {
   const claim = entry("sponsorship","Übungsbanner",{Amount:10000});
   const payment = entry("payment","Teilzahlung",{Amount:4000, Method:"Bar", Reference:claim.Target, Wallet:wallet.Target});
   const donation = entry("donation","Übungsspende",{Amount:550, Method:"Bar", Wallet:wallet.Target});
-  const prices = ["Getr�nk","Essen"].map(Category => entry("price",Category === "Essen" ? "Bread" : "Juice",{
+  const prices = ["Getränk","Essen"].map(Category => entry("price",Category === "Essen" ? "Bread" : "Juice",{
     Category,Unit:"Portion",Status:"Freigegeben",Amount:250,
   }));
   const before = await post(path,{Ops:[wallet,claim,payment,donation,...prices]});
-  await page.goto(url.origin);
-  await page.locator("#fiscal-switch summary").click();
-  await page.locator('[data-fiscal="' + year.ID + '"]').click();
-  await page.locator('nav [data-page="Veranstaltungen"]').click();
-  await page.locator('[data-space="' + event.ID + '"]').click();
-  await page.locator('.tabs [data-page="Dokumente"]').click();
-  const form = page.locator("#export");
   const output = "test-results/online-exports";
   await mkdir(output,{recursive:true});
   for (let i=0; i<11; i++) {
+    const page = await context.newPage();
+    await page.goto(url.origin);
+    await page.locator("#fiscal-switch summary").click();
+    await page.locator('[data-fiscal="' + year.ID + '"]').click();
+    await page.locator('nav [data-page="Veranstaltungen"]').click();
+    await page.locator('[data-space="' + event.ID + '"]').click();
+    await page.locator('.tabs [data-page="Dokumente"]').click();
+    const form = page.locator("#export");
     for (const format of ["PDF","DOCX"]) {
       await form.locator('[name="profile"]').selectOption(String(i));
-    const subject = {0:claim,1:payment,2:donation,6:donation}[i];
-    if (subject) await form.locator('[name="subject"]').selectOption(subject.Target);
+      const subject = {0:claim,1:payment,2:donation,6:donation}[i];
+      if (subject) await form.locator('[name="subject"]').selectOption(subject.Target);
       await form.locator('[name="organization"]').fill("Übungsfeuerwehr");
       await form.locator('[name="format"]').selectOption(format);
       const download = page.waitForEvent("download",{timeout:15000});
@@ -70,6 +71,7 @@ try {
       }
       await writeFile(output + "/T" + (i+1) + "." + format.toLowerCase(),bytes);
     }
+    await page.close();
   }
   const after = await post(path,{});
   assert.equal(after.last,before.last);

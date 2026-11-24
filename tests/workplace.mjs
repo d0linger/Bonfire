@@ -74,7 +74,7 @@ try {
   await page.goto(url);
   await page.locator("#login [name=user]").fill(user);
   await page.locator("#login [name=pass]").fill(pass);
-  await page.getByRole("button", { name: "Anmelden", exact: true }).click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
   await page.getByText("Server erreichbar", { exact: true }).waitFor();
   const main = page.locator("article");
