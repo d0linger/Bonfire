@@ -28,7 +28,13 @@ jobs:
       - run: npx playwright install --with-deps "$BONFIRE_ENGINE"
       - shell: pwsh
         run: ./ops/init.ps1
-      - run: docker compose up -d --build --wait
+      - name: Start disposable browser installation
+        run: |
+          password=$(openssl rand -hex 24)
+          echo "::add-mask::$password"
+          echo "BONFIRE_ADMIN_PASSWORD=$password" >> "$GITHUB_ENV"
+          BONFIRE_ADMIN_PASSWORD="$password" docker compose up -d --build --wait
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost" -keyout "$RUNNER_TEMP/browser.key" -out "$RUNNER_TEMP/browser.crt"
       - run: |
           address=$(docker compose port app 8080)
           export BONFIRE_URL="http://$address"

@@ -35,18 +35,18 @@ jobs:
           ./ops/init.ps1
           ./ops/accept-online.ps1
   recovery:
-    uses: $/.github/workflows/extended-checks.yml
+    uses: ./.github/workflows/extended-checks.yml
   analysis:
-    uses: $/.github/workflows/source-analysis.yml
+    uses: ./.github/workflows/source-analysis.yml
     permissions:
       contents: read
       security-events: write
   browser:
-    uses: $/.github/workflows/browser-checks.yml
+    uses: ./.github/workflows/browser-checks.yml
   container:
-    uses: $/.github/workflows/container.yml
+    uses: ./.github/workflows/container.yml
   security:
-    uses: $/.github/workflows/security.yml
+    uses: ./.github/workflows/security.yml
     permissions:
       contents: read
       pull-requests: read

@@ -1,3 +1,4 @@
+import { testPassword } from "./test-password.mjs";
 import { chromium } from "playwright";
 import { api, admin, auth } from "./local-api.mjs";
 import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
@@ -59,10 +60,7 @@ const proxy = http.createServer((req, res) => {
 });
 await new Promise((ok) => proxy.listen(0, "127.0.0.1", ok));
 const base = "http://127.0.0.1:" + proxy.address().port;
-const localEnv = await readFile(".env", "utf8").catch(() => "");
-const password =
-  process.env.BONFIRE_ADMIN_PASSWORD ||
-  localEnv.match(/^BONFIRE_ADMIN_PASSWORD=(.+)$/m)?.[1].trim();
+const password = testPassword();
 const credentials =
   "Basic " + Buffer.from("leitung:" + password).toString("base64");
 const eventName = "Übungsfest " + randomUUID().slice(0, 8);

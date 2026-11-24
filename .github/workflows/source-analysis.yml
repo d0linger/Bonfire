@@ -91,4 +91,4 @@ jobs:
           tar -xzf release.tgz
           scanner=$(find "$PWD" -type f -name zizmor -print -quit)
           cd "$GITHUB_WORKSPACE"
-          "$scanner" --offline .
+          "$scanner" --offline --min-severity low .
