@@ -11,6 +11,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// Unicode White_Space characters recognized by strings.TrimSpace.
+const reportWhitespace = " \t\n\v\f\r\u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+
 type donationCommand struct{ Action, Period, Report, Request, Digest, Reason string }
 type donationPerson struct{ Vorname, Nachname, Geburtsdatum string }
 type donationLine struct {
@@ -31,7 +34,7 @@ func donationBytes(ctx context.Context, tx pgx.Tx, event, period string) ([]byte
 	rows, err := tx.Query(ctx, `SELECT e.id,e.revision,e.data->>'Date',(e.data->>'Amount')::bigint,
  coalesce(e.data->>'Status',''),coalesce(c.data->'Fields'->>'given',''),coalesce(c.data->'Fields'->>'family',''),
  coalesce(c.data->'Fields'->>'birth','') FROM entries e LEFT JOIN directory c ON c.id=e.data->>'Contact'
- WHERE e.event=$1 AND e.kind='donation' AND coalesce(nullif(trim(e.data->'Fields'->>'reporting'),''),left(e.data->>'Date',4))=$2 ORDER BY e.id`, event, period)
+ WHERE e.event=$1 AND e.kind='donation' AND coalesce(nullif(btrim(e.data->'Fields'->>'reporting',$3),''),left(e.data->>'Date',4))=$2 ORDER BY e.id`, event, period, reportWhitespace)
 	if err != nil {
 		return nil, "", err
 	}

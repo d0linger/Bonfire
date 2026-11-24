@@ -142,20 +142,42 @@ func (b *backupWorker) prune(ctx context.Context, target string, days int) error
 	if days == 0 {
 		return nil
 	}
+	cutoff := time.Now().AddDate(0, 0, -days)
+	if target == "s3" {
+		if b.s3 == nil {
+			return errors.New("S3 is not configured")
+		}
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		var newest minio.ObjectInfo
+		objects := b.s3.ListObjects(ctx, b.bucket, minio.ListObjectsOptions{Prefix: b.prefix + "bonfire-"})
+		for object := range objects {
+			if object.Err != nil {
+				return object.Err
+			}
+			if !backupName.MatchString(strings.TrimPrefix(object.Key, b.prefix)) {
+				continue
+			}
+			if newest.Key == "" || object.LastModified.After(newest.LastModified) {
+				object, newest = newest, object
+			}
+			if object.Key != "" && object.LastModified.Before(cutoff) {
+				if err := b.s3.RemoveObject(ctx, b.bucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
+					return err
+				}
+			}
+		}
+		return ctx.Err()
+	}
 	files, err := b.listFiles(ctx, target)
 	if err != nil {
 		return err
 	}
-	cutoff := time.Now().AddDate(0, 0, -days)
 	for i, f := range files {
 		if i == 0 || !f.At.Before(cutoff) {
 			continue
 		}
-		if target == "s3" {
-			err = b.s3.RemoveObject(ctx, b.bucket, b.prefix+f.Name, minio.RemoveObjectOptions{})
-		} else {
-			err = os.Remove(filepath.Join(backupHome, f.Name))
-		}
+		err = os.Remove(filepath.Join(backupHome, f.Name))
 		if err != nil {
 			return err
 		}

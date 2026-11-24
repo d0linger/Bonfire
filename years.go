@@ -131,6 +131,7 @@ func (a *app) editYear(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	if current.Starts != next.Starts || current.Ends != next.Ends {
 		var blocker string
 		err = tx.QueryRow(ctx, `SELECT CASE
+ WHEN EXISTS(SELECT FROM period_closures p JOIN fiscal_years y ON y.id=p.fiscal_year WHERE y.id=$1 AND p.reopened_at IS NULL AND p.starts=y.starts AND p.ends=y.ends) THEN 'Reopen the full-year closure before changing its dates.'
 			WHEN EXISTS(SELECT FROM events WHERE fiscal_year=$1 AND id<>$5 AND (starts<$2 OR ends>$3))
 				THEN 'Der neue Zeitraum muss alle zugeordneten Veranstaltungen und weiteren Arbeitsbereiche umfassen.'
 			WHEN EXISTS(SELECT FROM entries j JOIN events e ON e.id=j.event WHERE e.fiscal_year=$1 AND j.kind=ANY($4::text[])

@@ -77,17 +77,17 @@ func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request)
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	var candidate string
+	var candidate, alias string
 	var revision int64
 	token, completing := strings.CutPrefix(r.Header.Get("Authorization"), "Bonfire-Challenge ")
 	identifier, _, _ := r.BasicAuth()
 	var lookup pgx.Row
 	if completing {
-		lookup = tx.QueryRow(ctx, "SELECT u.name,u.account_revision FROM users u JOIN login_challenges c ON c.username=u.name WHERE c.token=$1", hash(token))
+		lookup = tx.QueryRow(ctx, "SELECT u.name,u.account_revision,coalesce(u.login_alias,u.name) FROM users u JOIN login_challenges c ON c.username=u.name WHERE c.token=$1", hash(token))
 	} else {
-		lookup = tx.QueryRow(ctx, "SELECT name,account_revision FROM users WHERE coalesce(login_alias,name)=$1", loginName(identifier))
+		lookup = tx.QueryRow(ctx, "SELECT name,account_revision,coalesce(login_alias,name) FROM users WHERE coalesce(login_alias,name)=$1", loginName(identifier))
 	}
-	if err := lookup.Scan(&candidate, &revision); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err := lookup.Scan(&candidate, &revision, &alias); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
 	if completing {
@@ -127,6 +127,11 @@ func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request)
 			return nil, err
 		}
 		return map[string]string{"challenge": token}, tx.Commit(ctx)
+	}
+	if completing {
+		a.mu.Lock()
+		delete(a.attempts, loginBucket(r, alias))
+		a.mu.Unlock()
 	}
 	if change {
 		token = secret()
