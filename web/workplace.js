@@ -30,7 +30,15 @@ import {
   Check,
 } from "lucide";
 import { closure } from "./context.js";
-import { eur, summary, groups, types } from "./domain.js";
+import {
+  eur,
+  summary,
+  groups,
+  types,
+  poolCount,
+  counted,
+  pooledRevenue,
+} from "./domain.js";
 
 const shapes = {
   LayoutDashboard,
@@ -381,35 +389,87 @@ export function moduleList(page, all) {
     "</tbody></table></div>"
   );
 }
-export function walletTable(rows) {
+export function walletTable(rows, actions = "") {
   const wallets = rows.filter((r) => r.Kind === "wallet");
+  const allStart = poolCount(rows, "Anfang"),
+    allEnd = poolCount(rows, "Ende");
+  const groupsByBar = new Map();
+  for (const w of wallets) {
+    const bar = w.Data.Bar || "";
+    if (!groupsByBar.has(bar)) groupsByBar.set(bar, []);
+    groupsByBar.get(bar).push(w);
+  }
+  function subtotal(label, group, overall = false) {
+    function balance(phase) {
+      const status = (r) =>
+        phase === "Ende" && r.Data.Status ? " · " + esc(r.Data.Status) : "";
+      const pooled = phase === "Anfang" ? allStart : allEnd;
+      if (pooled)
+        return overall
+          ? eur(pooled.Data.Amount) + status(pooled)
+          : "Nur gesamt erfasst";
+      const counts = group.map((w) =>
+        rows.find(
+          (r) =>
+            r.Kind === "count" &&
+            r.Data.Wallet === w.ID &&
+            r.Data.Phase === phase,
+        ),
+      );
+      if (!counts.length || !counts.every(Boolean)) return "Offen";
+      return (
+        eur(counts.reduce((sum, r) => sum + r.Data.Amount, 0)) +
+        (counts.length === 1 ? status(counts[0]) : "")
+      );
+    }
+    let revenue = "Offen";
+    if (allEnd || allStart) {
+      if (!overall) revenue = "Nur gesamt erfasst";
+      else revenue = eur(pooledRevenue(rows));
+    } else {
+      const values = group.map((w) =>
+        counted(
+          rows.filter((r) => r.ID !== "settlement:" + w.ID),
+          w.ID,
+        ),
+      );
+      if (values.length && values.every((n) => n != null))
+        revenue = eur(values.reduce((a, b) => a + b, 0));
+    }
+    return (
+      '<tr><th scope="row">' +
+      esc(label) +
+      '</th><td class="num">' +
+      balance("Anfang") +
+      '</td><td class="num">' +
+      balance("Ende") +
+      '</td><td class="num">' +
+      revenue +
+      "</td></tr>"
+    );
+  }
   return (
     "<section>" +
     head("Geldtaschen") +
-    (wallets.length
-      ? '<div class="list"><table><thead><tr><th>Geldtasche</th><th class="num">Anfang</th><th class="num">Endzählung</th><th>Datenstand</th></tr></thead><tbody>' +
-        wallets
-          .map((w) => {
-            const cash = rows.filter(
-              (r) => r.Data.Wallet === w.ID && r.Kind === "count",
-            );
-            const first = cash.find((r) => r.Data.Phase === "Anfang"),
-              end = cash.find((r) => r.Data.Phase === "Ende");
-            return (
-              "<tr><td>" +
-              esc(w.Data.Label) +
-              '</td><td class="num">' +
-              eur(first?.Data.Amount) +
-              '</td><td class="num">' +
-              eur(end?.Data.Amount) +
-              "</td><td>" +
-              esc(end?.Data.Status || (end ? "Erfasst" : "Endzählung offen")) +
-              "</td></tr>"
-            );
-          })
+    (wallets.length || allStart || allEnd
+      ? '<div class="list"><table><thead><tr><th>Bereich</th><th class="num">Anfangsbestand</th><th class="num">Endbestand</th><th class="num">Sammelbareinnahme</th></tr></thead><tbody>' +
+        subtotal("Alle Geldtaschen", wallets, true) +
+        [...groupsByBar]
+          .map(
+            ([bar, group]) =>
+              (bar
+                ? subtotal(
+                    "Bar · " +
+                      (rows.find((r) => r.Kind === "bar" && r.ID === bar)?.Data
+                        .Label || bar),
+                    group,
+                  )
+                : "") + group.map((w) => subtotal(w.Data.Label, [w])).join(""),
+          )
           .join("") +
         "</tbody></table></div>"
       : '<p class="empty">Noch keine Geldtaschen erfasst.</p>') +
+    actions +
     "</section>"
   );
 }
@@ -417,6 +477,13 @@ function eventCounts(rows, device, pending, conflicts, online) {
   const wallets = rows.filter((r) => r.Kind === "wallet");
   const counts = rows.filter((r) => r.Kind === "count");
   const phase = (name, title) => {
+    const pool = poolCount(rows, name);
+    if (pool)
+      return line(
+        "Wallet",
+        title + " · alle Geldtaschen gemeinsam",
+        eur(pool.Data.Amount),
+      );
     const selected = wallets.map((w) =>
       counts.find((r) => r.Data.Wallet === w.ID && r.Data.Phase === name),
     );

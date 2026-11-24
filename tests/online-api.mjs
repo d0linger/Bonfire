@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { strToU8, zipSync } from "fflate";
 import { api, admin, basic } from "./local-api.mjs";
 
@@ -69,6 +69,99 @@ const make = (Kind, Label, Amount) => ({
 });
 const first = make("income", "Barzahlung", 100),
   other = make("income", "Zweite Zahlung", 200);
+{
+  const date = "2461-06-23";
+  const poolYear = await call("years", cash, {
+    Name: "Zählprüfung",
+    Starts: date,
+    Ends: date,
+  });
+  const pool = await call("events", cash, {
+    Year: poolYear.ID,
+    Name: "Fiktive Sammelzählung",
+    Starts: date,
+    Ends: date,
+  });
+  const endpoint = "online?event=" + pool.ID;
+  const post = (Ops, status = 200) =>
+    call(
+      endpoint,
+      cash,
+      { Ops: Ops.map((op) => ({ ...op, Data: { ...op.Data, Date: date } })) },
+      status,
+    );
+  const a = make("wallet", "Tasche A"),
+    b = make("wallet", "Tasche B");
+  function count(wallet, phase, n) {
+    const op = make("count", "Zählung " + phase, n);
+    op.Target =
+      "count:" +
+      createHash("sha256")
+        .update(wallet + "|" + phase)
+        .digest("hex")
+        .slice(0, 32);
+    Object.assign(op.Data, {
+      Wallet: wallet,
+      Phase: phase,
+      Fields: { countMode: "amount", countScope: wallet ? "wallet" : "all" },
+    });
+    return op;
+  }
+  await post([
+    a,
+    b,
+    count(a.Target, "Anfang", 10000),
+    count(b.Target, "Anfang", 5000),
+  ]);
+  await post([count("", "Anfang", 15000)], 409);
+  const end = count("", "Ende", 38000);
+  const topup = make("supply", "Wechselgeld aus Hauptkassa", 3000);
+  Object.assign(topup.Data, {
+    Wallet: a.Target,
+    Account: "Hauptkassa",
+    To: a.Target,
+  });
+  const internal = make("supply", "Wechselgeld aus Nachbartasche", 1000);
+  Object.assign(internal.Data, {
+    Wallet: b.Target,
+    Account: a.Target,
+    To: b.Target,
+  });
+  const donation = make("donation", "Barspende im Gesamtbestand", 2000);
+  donation.Data.Method = "Bar";
+  await post([topup, internal, donation, end]);
+  await post([count(b.Target, "Ende", 10000)], 409);
+  const settlement = make("income", "Gemeinsame Barabrechnung", 18000);
+  settlement.Target = "settlement-total";
+  Object.assign(settlement.Data, {
+    Method: "Bar",
+    Reference: "wallet-settlement-total",
+  });
+  await post(
+    [
+      {
+        ...settlement,
+        ID: randomUUID(),
+        Data: { ...settlement.Data, Amount: 20000 },
+      },
+    ],
+    409,
+  );
+  await Promise.all([post([settlement]), post([settlement])]);
+  const booked = (await call(endpoint, cash, {})).entries.filter(
+    (r) => r.Kind === "income",
+  );
+  assert.equal(booked.length, 1);
+  assert.equal(booked[0].Data.Amount, 18000);
+  await post([
+    make("opening", "Anfang", 15000),
+    make("actual", "Ist inklusive externer Hauptkassa", 35000),
+  ]);
+  assert.equal(
+    (await call(endpoint, cash, { Action: "Abschluss" })).closed,
+    true,
+  );
+}
 await Promise.all([
   send({ Ops: [first] }),
   send({ Ops: [first] }),

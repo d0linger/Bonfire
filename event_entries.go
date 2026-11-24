@@ -54,7 +54,7 @@ var removableKinds = append(slices.Clone(portableKinds), strings.Fields("payment
 func entryChangeAllowed(ctx context.Context, tx pgx.Tx, source device, current row, moving bool) error {
 	v := current.Data
 	if !slices.Contains(removableKinds, current.Kind) || moving && !slices.Contains(portableKinds, current.Kind) ||
-		strings.HasPrefix(current.ID, "import:") || current.ID == "settlement:"+v.Wallet || v.Fields["previous"] != "" {
+		strings.HasPrefix(current.ID, "import:") || current.ID == "settlement:"+v.Wallet || current.ID == pooledSettlement || v.Fields["previous"] != "" {
 		return problem{409, "Dieser Vorgang ist an einen Fachablauf gebunden. Belege, Überträge und Sammelabrechnungen bleiben nachvollziehbar."}
 	}
 	if current.Kind == "price" && v.Status == "Freigegeben" {
@@ -75,6 +75,7 @@ func entryChangeAllowed(ctx context.Context, tx pgx.Tx, source device, current r
 		  OR EXISTS(SELECT FROM entries WHERE event=$1 AND id<>$2 AND ($2 IN (data->>'Bar',data->>'Wallet',data->>'Account',data->>'To',data->>'Reference',data->'Fields'->>'sale') OR data->'Allocations' ? $2))
 		  THEN 'Andere Einträge oder Originalbelege verweisen auf diesen Vorgang. Zuerst die verknüpften Einträge prüfen.'
 		WHEN $3<>'' AND EXISTS(SELECT FROM entries WHERE event=$1 AND id='settlement:' || $3) THEN 'Die Geldtasche ist bereits abgerechnet.'
+		WHEN ($3<>'' OR $4='count') AND EXISTS(SELECT FROM entries WHERE event=$1 AND id='settlement-total') THEN 'Die Geldtaschen sind gemeinsam abgerechnet.'
 		WHEN $4='period' AND EXISTS(SELECT FROM period_closures WHERE period_id=$2) THEN 'Für diese Periode besteht ein Abschlussnachweis.'
 		WHEN $4='donation' AND EXISTS(SELECT FROM donation_reports WHERE event=$1 AND period=$5) THEN 'Für diesen Meldezeitraum besteht bereits ein Spendenprüflauf.'
 		ELSE '' END`, source.Event, current.ID, v.Wallet, current.Kind, donationPeriod(v)).Scan(&blocker)
@@ -218,7 +219,7 @@ func (a *app) changeEventEntry(ctx context.Context, w http.ResponseWriter, r *ht
 		}
 		if q.Wallet != "" {
 			var settled bool
-			if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT FROM entries WHERE event=$1 AND id='settlement:' || $2)", dest.Event, q.Wallet).Scan(&settled); err != nil {
+			if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT FROM entries WHERE event=$1 AND id IN ('settlement-total','settlement:' || $2))", dest.Event, q.Wallet).Scan(&settled); err != nil {
 				return nil, err
 			}
 			if settled {

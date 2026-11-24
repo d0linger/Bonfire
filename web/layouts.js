@@ -139,16 +139,24 @@ export function tablesFor(i, s, rows, subject, opts) {
     };
   }
   if (i === 7) {
-    const related = rows.filter((r) => v.Wallet && r.Data.Wallet === v.Wallet);
+    const pooled = v.Fields?.countScope === "all";
+    const related = rows.filter((r) =>
+      pooled
+        ? r.Kind === "count" && r.Data.Fields?.countScope === "all"
+        : v.Wallet && r.Data.Wallet === v.Wallet,
+    );
     const get = (kind, phase) =>
       related.find((r) => r.Kind === kind && r.Data.Phase === phase)?.Data;
     const plan = related.find((r) => r.Kind === "plan")?.Data,
       begin = get("count", "Anfang"),
       end = get("count", "Ende");
-    const qty = (c, obj) => (obj ? String(obj.Pieces?.[c] ?? 0) : "");
+    const qty = (c, obj) => (obj?.Pieces ? String(obj.Pieces[c] ?? 0) : "");
     return {
       intro: row
-        ? v.Phase + " · " + (v.Status || "Unbestätigt")
+        ? (pooled ? "Alle Geldtaschen · " : "") +
+          v.Phase +
+          " · " +
+          (v.Status || "Unbestätigt")
         : "Leeres Zählblatt",
       blocks: [
         {
@@ -159,7 +167,7 @@ export function tablesFor(i, s, rows, subject, opts) {
             qty(c, plan),
             qty(c, begin),
             qty(c, end),
-            end ? eur((end.Pieces?.[c] || 0) * c) : "",
+            end?.Pieces ? eur((end.Pieces[c] || 0) * c) : "",
             "",
           ]),
         },

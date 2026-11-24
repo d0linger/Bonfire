@@ -23,6 +23,7 @@ import {
   recordKinds,
   overview,
   bookings,
+  walletTable,
   ledger,
   dat,
 } from "./workplace.js";
@@ -56,6 +57,8 @@ import {
   visible,
   summary,
   counted,
+  poolCount,
+  pooledRevenue,
   availableNumbers,
   journalMatches,
   countID,
@@ -878,7 +881,15 @@ function formFields(k, countPhase = "") {
       "Bezeichnung",
       "text",
       true,
-      walletTopUp ? "Wechselgeld nachgelegt" : "",
+      walletTopUp
+        ? "Wechselgeld nachgelegt"
+        : k === "count"
+          ? {
+              Anfang: "Anfangszählung",
+              Ende: "Endzählung",
+              Zwischenstand: "Zwischenzählung",
+            }[countPhase]
+          : "",
     ) +
     field(
       "Date",
@@ -902,6 +913,7 @@ function formFields(k, countPhase = "") {
       "opening",
       "actual",
       "reserve",
+      "count",
     ].includes(k)
   )
     extra += refs("Bar", "Bar (optional)", ["bar"]);
@@ -922,6 +934,11 @@ function formFields(k, countPhase = "") {
       "presale",
     ].includes(k)
   ) {
+    if (k === "count" && (countPhase || edit?.Data.Phase) !== "Zwischenstand")
+      f += select("field_countScope", "Zählumfang", [
+        ["wallet", "Einzelne Geldtasche"],
+        ["all", "Alle Geldtaschen zusammen"],
+      ]);
     const wallet = refs(
       "Wallet",
       walletTopUp ? "Empfangende Geldtasche" : "Geldtasche",
@@ -1039,6 +1056,15 @@ function formFields(k, countPhase = "") {
     const sourceLabel = walletTopUp
       ? "Entnommen aus (Quelle)"
       : "Konto / Quelle";
+    if (
+      walletTopUp &&
+      !s.event.Accounts &&
+      rows().filter((r) => r.Kind === "wallet").length > 1
+    )
+      f += select("sourceWallet", "Wechselgeldquelle", [
+        ["", "Hauptkassa oder andere Quelle"],
+        ...choices(["wallet"]).filter(([id]) => id),
+      ]);
     if (s.event.Accounts)
       f += refs("Account", sourceLabel, ["account", "wallet"]);
     else if (simpleBooking) extra += field("Account", "Konto / Quelle");
@@ -1165,8 +1191,18 @@ function formFields(k, countPhase = "") {
         "Phase",
         ["Anfang", "Zwischenstand", "Ende"].map((p) => [p, p]),
       );
+    if (k === "count")
+      f +=
+        select("field_countMode", "Betrag erfassen", [
+          ["amount", "Gesamtbetrag eingeben"],
+          ["pieces", "Münzen und Scheine zählen"],
+        ]) +
+        label(
+          "Gezählter Betrag in EUR",
+          '<input name="amount" inputmode="decimal" placeholder="0,00">',
+        );
     f +=
-      '</div><h3>Stückelung</h3><div class="pieces">' +
+      '</div><div class="count-pieces"><h3>Stückelung</h3><div class="pieces">' +
       denom
         .map((c) =>
           label(
@@ -1185,7 +1221,7 @@ function formFields(k, countPhase = "") {
         .join("") +
       '</div><p class="count-total">Gezählter Betrag <output id="count-total" aria-live="polite">' +
       esc(eur(0)) +
-      '</output></p><div class="form">';
+      '</output></p></div><div class="form">';
   }
   if (edit) f += field("Note", "Änderungsgrund", "text", true);
   else extra += field("Note", "Notiz / Textbaustein");
@@ -1251,6 +1287,50 @@ function journalFilterFields() {
 }
 function isBookingList() {
   return page === "Journal" || (!offlineEnabled && page === "Zahlungen");
+}
+function walletSettlementSummary(entries) {
+  const pooled = poolCount(entries, "Anfang") || poolCount(entries, "Ende");
+  function actionRow(wallet) {
+    const target = wallet ? "settlement:" + wallet.ID : "settlement-total";
+    const previous = entries.find((r) => r.ID === target);
+    const amount = wallet
+      ? counted(
+          entries.filter((r) => r.ID !== target),
+          wallet.ID,
+        )
+      : pooledRevenue(entries);
+    if (amount == null)
+      return wallet
+        ? ""
+        : "<p>Für die Gesamtabrechnung den gemeinsamen Endbestand und den Anfangsbestand erfassen. Der Anfangsbestand kann auch aus den Einzelzählungen aller Börsen stammen.</p>";
+    const label = wallet
+      ? esc(wallet.Data.Label) + " · Weitere Sammelbareinnahme"
+      : "Alle Geldtaschen · Sammelbareinnahme";
+    let action = "";
+    if (amount < 0) action = "Zählungen und Geldbewegungen prüfen.";
+    else if (previous?.Data.Amount === amount) action = "Gebucht";
+    else if (writableWorkspace()) {
+      const title = previous
+        ? "Sammelbetrag berichtigen"
+        : wallet
+          ? "Sammelbetrag buchen"
+          : "Gesamtbetrag buchen";
+      action =
+        '<button type="button" data-settle="' +
+        esc(wallet?.ID || target) +
+        '">' +
+        title +
+        "</button>";
+    }
+    return "<p>" + label + " " + eur(amount) + " " + action + "</p>";
+  }
+  const actions = pooled
+    ? actionRow(null)
+    : entries
+        .filter((r) => r.Kind === "wallet")
+        .map(actionRow)
+        .join("");
+  return walletTable(entries, actions);
 }
 function records() {
   const kinds = recordKinds(page, !offlineEnabled);
@@ -1410,32 +1490,6 @@ function records() {
       "Bestätigten Vorperiodenstand übernehmen",
     );
   if (page === "Geldtaschen") {
-    detail = rows()
-      .filter((r) => r.Kind === "wallet")
-      .map(
-        (r) =>
-          "<p>" +
-          esc(r.Data.Label) +
-          " · Weitere Sammelbareinnahme " +
-          eur(counted(rows(), r.ID)) +
-          " " +
-          (writableWorkspace() &&
-          counted(rows(), r.ID) !== null &&
-          (counted(rows(), r.ID) !== 0 ||
-            !rows().some((x) => x.ID === "settlement:" + r.ID))
-            ? '<button type="button" data-settle="' +
-              esc(r.ID) +
-              '">' +
-              (rows().some((x) => x.ID === "settlement:" + r.ID)
-                ? "Sammelbetrag berichtigen"
-                : "Sammelbetrag buchen") +
-              "</button>"
-            : "") +
-          "</p>",
-      )
-      .join("");
-  }
-  if (page === "Geldtaschen") {
     const plan = denominationNeeds(rows()).filter((r) => r.need || r.stock);
     if (plan.length)
       detail += panel(
@@ -1476,6 +1530,7 @@ function records() {
     );
   }
   return (
+    (page === "Geldtaschen" ? walletSettlementSummary(rows()) : "") +
     "<section>" +
     panelHeading(
       "Einträge",
@@ -1659,6 +1714,39 @@ function openRecord(trigger, item = null) {
   }
   const record = entryDialog.querySelector("#record");
   if (item) fillRecord(record);
+  if (kind === "count") {
+    const fields = record.elements;
+    if (fields.field_countScope) {
+      if (
+        !item &&
+        (!rows().some((r) => r.Kind === "wallet") ||
+          poolCount(rows(), "Anfang") ||
+          (countPhase === "Ende" && poolCount(rows(), "Ende")))
+      )
+        fields.field_countScope.value = "all";
+      if (item)
+        fields.field_countScope.value =
+          item.Data.Fields?.countScope || "wallet";
+      for (const opt of fields.field_countScope.options) {
+        opt.disabled = item
+          ? opt.value !== fields.field_countScope.value
+          : overlapsCountScope(
+              rows(),
+              opt.value === "all",
+              fields.Phase.value,
+            ) ||
+            (opt.value === "wallet" &&
+              !rows().some((r) => r.Kind === "wallet"));
+      }
+      if (fields.field_countScope.selectedOptions[0]?.disabled)
+        fields.field_countScope.value =
+          [...fields.field_countScope.options].find((opt) => !opt.disabled)
+            ?.value || "";
+    }
+    if (item)
+      fields.field_countMode.value = item.Data.Pieces ? "pieces" : "amount";
+    updateCountOptions(record);
+  }
   loadSponsorChoices(record);
   if (!item && kind === "opening" && onOverview()) {
     const period = rows().find(
@@ -3524,6 +3612,32 @@ async function action(fn) {
 async function submit(f) {
   const vals = Object.fromEntries(new FormData(f));
   const id = f.id;
+  if (id === "pooled-settlement") {
+    canWrite();
+    if (f.dataset.event !== s.event.ID)
+      throw Error("Veranstaltung erneut öffnen.");
+    const amount = pooledRevenue(rows()),
+      end = poolCount(rows(), "Ende");
+    if (amount == null || amount < 0 || amount !== Number(f.dataset.amount))
+      throw Error("Zählstand geändert. Abrechnung erneut öffnen.");
+    if (s.event.Accounts && !vals.Account)
+      throw Error("Buchungskonto auswählen.");
+    const previous = rows().find((r) => r.ID === "settlement-total");
+    await queue(
+      "income",
+      {
+        Label: "Barabrechnung aller Geldtaschen",
+        Amount: amount,
+        Date: previous?.Data.Date || end.Data.Date,
+        Account: vals.Account || "",
+        Method: "Bar",
+        Reference: "wallet-settlement-total",
+        Note: vals.reason || "",
+      },
+      "settlement-total",
+      previous?.Revision || 0,
+    );
+  }
   if (id === "conflictFile") {
     const out = await api(
       "manage",
@@ -4036,6 +4150,12 @@ async function submit(f) {
         (r) => r.Kind === "wallet" && r.ID === d.Wallet,
       );
       if (!wallet) throw Error("Empfangende Geldtasche auswählen.");
+      if (d.sourceWallet) {
+        if (d.sourceWallet === wallet.ID)
+          throw Error("Zwei verschiedene Geldtaschen auswählen.");
+        d.Account = d.sourceWallet;
+      }
+      delete d.sourceWallet;
       d.To = s.event.Accounts ? wallet.ID : wallet.Data.Label;
     }
     delete d.amount;
@@ -4159,13 +4279,28 @@ async function submit(f) {
         confirmedAt: new Date().toISOString(),
       };
     if (["plan", "count", "reserve"].includes(kind)) {
-      if (kind !== "reserve" && !d.Wallet) throw Error("Geldtasche auswählen.");
-      d.Pieces = {};
-      for (const n of denom) {
-        d.Pieces[n] = Number(d["coin" + n]);
-        delete d["coin" + n];
+      const pooled = kind === "count" && d.Fields?.countScope === "all";
+      if (kind !== "reserve" && !pooled && !d.Wallet)
+        throw Error("Geldtasche auswählen.");
+      if (pooled) d.Wallet = "";
+      if (
+        kind === "count" &&
+        d.Phase !== "Zwischenstand" &&
+        overlapsCountScope(rows(), pooled, d.Phase)
+      )
+        throw Error(
+          "Gesamtzählung und Einzelzählungen würden sich überschneiden. Den vorhandenen Zählumfang verwenden.",
+        );
+      if (kind === "count" && d.Fields?.countMode === "amount")
+        d.Amount = cents(vals.amount);
+      else {
+        d.Pieces = {};
+        for (const n of denom) {
+          d.Pieces[n] = Number(d["coin" + n]);
+          delete d["coin" + n];
+        }
+        d.Amount = totalPieces(d.Pieces);
       }
-      d.Amount = totalPieces(d.Pieces);
       let phaseKey = d.Phase;
       if (kind === "count" && d.Phase === "Zwischenstand") {
         const observation = edit
@@ -4489,6 +4624,34 @@ document.addEventListener("submit", (e) => {
     if (inEditor) closeEditor();
   });
 });
+function overlapsCountScope(entries, pooled, phase) {
+  return entries.some(
+    (r) =>
+      r.Kind === "count" &&
+      r.Data.Phase !== "Zwischenstand" &&
+      (r.Data.Fields?.countScope === "all") !== pooled &&
+      (r.Data.Phase === phase || (pooled ? phase : r.Data.Phase) === "Anfang"),
+  );
+}
+function updateCountOptions(form) {
+  const e = form.elements;
+  const pooled = e.field_countScope?.value === "all";
+  const manual = e.field_countMode.value === "amount";
+  e.Wallet.closest("label").hidden = e.Wallet.disabled = pooled;
+  e.amount.closest("label").hidden = e.amount.disabled = !manual;
+  e.amount.required = manual;
+  form.querySelector(".count-pieces").hidden = manual;
+  for (const input of form.querySelectorAll(".pieces input"))
+    input.disabled = manual;
+}
+document.addEventListener("change", (e) => {
+  if (e.target.name === "sourceWallet") {
+    const account = e.target.form.elements.Account;
+    account.closest("label").hidden = account.disabled = !!e.target.value;
+  }
+  if (e.target.matches('[name="field_countMode"],[name="field_countScope"]'))
+    updateCountOptions(e.target.form);
+});
 function updateCount(form) {
   const pieces = {};
   let valid = true;
@@ -4773,6 +4936,38 @@ document.addEventListener("click", (e) => {
       return;
     }
     if (b.dataset.settle) {
+      if (b.dataset.settle === "settlement-total") {
+        canWrite();
+        const amount = pooledRevenue(rows()),
+          previous = rows().find((r) => r.ID === "settlement-total");
+        if (amount == null || amount < 0) throw Error("Zählstand prüfen.");
+        openEditor(
+          b,
+          "Geldtaschen gemeinsam abrechnen",
+          "<p>" +
+            esc(s.event.Name) +
+            " · Sammelbareinnahme <strong>" +
+            eur(amount) +
+            "</strong></p><p>Barbuchungen ohne eigene Geldtasche zählen zum gemeinsamen Bestand, sofern kein separates Konto angegeben ist.</p>" +
+            form(
+              "pooled-settlement",
+              (s.event.Accounts
+                ? refs("Account", "Buchungskonto", ["account"])
+                : "") +
+                (previous
+                  ? field("reason", "Änderungsgrund", "text", true)
+                  : ""),
+              previous ? "Berichtigung buchen" : "Gesamtbetrag buchen",
+              button("cancel", "Abbrechen", true),
+            ),
+        );
+        const f = entryDialog.querySelector("form");
+        f.dataset.event = s.event.ID;
+        f.dataset.amount = String(amount);
+        if (previous && f.elements.Account)
+          f.elements.Account.value = previous.Data.Account;
+        return;
+      }
       const wallet = rows().find((r) => r.ID === b.dataset.settle);
       const target = "settlement:" + wallet.ID;
       const previous = rows().find((r) => r.ID === target);

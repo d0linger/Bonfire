@@ -33,6 +33,12 @@ const event = await api("events", {
 const browser = await chromium.launch({
   executablePath: process.env.BONFIRE_BROWSER || undefined,
 });
+const pooledEvent = await api("events", {
+  Name: "Fiktives Fest mit Gesamtzählung",
+  Year: year.ID,
+  Starts: day,
+  Ends: day,
+});
 try {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
@@ -345,7 +351,12 @@ try {
         );
         await dialog.getByLabel("Bezeichnung").fill(name);
         await dialog.locator("[name=Wallet]").selectOption({ label: wallet });
-        await dialog.locator("[name=coin200]").fill(coins);
+        if (phase === "Zwischenstand") {
+          await dialog.getByLabel("Gezählter Betrag in EUR").fill("30,00");
+        } else {
+          await dialog.getByLabel("Betrag erfassen").selectOption("pieces");
+          await dialog.locator("[name=coin200]").fill(coins);
+        }
         await dialog
           .getByRole("button", { name: "Speichern", exact: true })
           .click();
@@ -371,6 +382,36 @@ try {
         .getByText(/Tasche Süd · Weitere Sammelbareinnahme\s+(?:€\s*)?5,00/)
         .waitFor();
     }
+  }
+  await nav("Veranstaltungen");
+  await page.locator('[data-space="' + pooledEvent.ID + '"]').click();
+  await page.locator('article .tabs [data-page="Geldtaschen"]').click();
+  {
+    const dialog = page.getByRole("dialog");
+    for (const [name, value] of [
+      ["Anfangsbestand zählen", "20,50"],
+      ["Endbestand zählen", "82,75"],
+    ]) {
+      await page.getByRole("button", { name, exact: true }).click();
+      assert.equal(await dialog.getByLabel("Zählumfang").inputValue(), "all");
+      assert.equal(
+        await dialog.getByLabel("Geldtasche", { exact: true }).isVisible(),
+        false,
+      );
+      await dialog.getByLabel("Gezählter Betrag in EUR").fill(value);
+      await dialog
+        .getByRole("button", { name: "Speichern", exact: true })
+        .click();
+      await dialog.waitFor({ state: "hidden" });
+    }
+    await page.getByRole("button", { name: "Gesamtbetrag buchen" }).click();
+    await dialog.getByRole("button", { name: "Gesamtbetrag buchen" }).click();
+    await dialog.waitFor({ state: "hidden" });
+    const state = await api("online?event=" + pooledEvent.ID, {});
+    assert.equal(
+      state.entries.find((r) => r.ID === "settlement-total").Data.Amount,
+      6225,
+    );
   }
   for (const key of [
     "Spenden",

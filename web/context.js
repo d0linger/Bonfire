@@ -219,7 +219,7 @@ export function exportContext(i, s, rows, opts) {
     "wallet.id": v.Wallet || null,
     "bar.id": i === 8 ? opts.bar || null : v.Bar || null,
     "cash_count.lines":
-      i === 7 && r
+      i === 7 && r && v.Pieces
         ? denom.map((n) => ({
             denomination_cents: n,
             count: v.Pieces?.[n] ?? 0,

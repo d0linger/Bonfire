@@ -175,6 +175,23 @@ export function journalMatches(row, filters) {
     (!filters.bar || data.Bar === filters.bar)
   );
 }
+function cashAdjustment({ Kind, Data: v }, includes, pooled = false) {
+  if (v.Amount == null || (v.Method && v.Method !== "Bar")) return 0;
+  if (["supply", "skim", "transfer"].includes(Kind)) {
+    const from = Kind === "skim" ? v.Wallet : v.Account;
+    const to = Kind === "supply" ? v.Wallet : v.To;
+    return v.Amount * (Number(includes(from)) - Number(includes(to)));
+  }
+  const assigned =
+    !v.Wallet && v.Method === "Bar"
+      ? includes(v.Account) || (pooled && !v.Account)
+      : includes(v.Wallet);
+  if (!assigned) return 0;
+  if (["expense", "refund", "deposit-return"].includes(Kind)) return v.Amount;
+  if (["income", "payment", "donation", "presale", "deposit"].includes(Kind))
+    return -v.Amount;
+  return 0;
+}
 export function counted(rows, wallet) {
   const list = rows.filter(
     (r) =>
@@ -185,13 +202,45 @@ export function counted(rows, wallet) {
   const start = count("Anfang"),
     end = count("Ende");
   if (start == null || end == null) return null;
-  return (
-    end -
-    start -
-    sum(list, ["supply"]) +
-    sum(list, ["skim", "expense", "refund", "deposit-return"]) -
-    sum(list, ["donation", "payment", "income", "presale", "deposit"])
+  return rows.reduce(
+    (n, r) => n + cashAdjustment(r, (id) => id === wallet),
+    end - start,
   );
+}
+export function poolCount(rows, phase) {
+  return rows.find(
+    (r) =>
+      r.Kind === "count" &&
+      r.Data.Fields?.countScope === "all" &&
+      r.Data.Phase === phase,
+  );
+}
+export function pooledRevenue(rows) {
+  const wallets = new Set(
+    rows.filter((r) => r.Kind === "wallet").map((r) => r.ID),
+  );
+  const separate = rows.filter((r) => r.Kind === "count" && r.Data.Wallet);
+  const end = poolCount(rows, "Ende")?.Data.Amount;
+  let start = poolCount(rows, "Anfang")?.Data.Amount;
+  if (
+    end == null ||
+    separate.some((r) => r.Data.Phase === "Ende") ||
+    rows.some((r) => r.ID?.startsWith("settlement:"))
+  )
+    return null;
+  const openings = separate.filter((r) => r.Data.Phase === "Anfang");
+  if (start == null) {
+    if (
+      !wallets.size ||
+      [...wallets].some((id) => !openings.some((r) => r.Data.Wallet === id))
+    )
+      return null;
+    start = openings.reduce((n, r) => n + r.Data.Amount, 0);
+  } else if (openings.length) return null;
+  return rows.reduce((n, r) => {
+    if (r.ID === "settlement-total") return n;
+    return n + cashAdjustment(r, (id) => wallets.has(id), true);
+  }, end - start);
 }
 export async function countID(kind, wallet, phase) {
   const bytes = await crypto.subtle.digest(

@@ -6,6 +6,23 @@ import { donationReport } from "../web/donors.js";
 import { sponsorshipStatus } from "../web/sponsorship.js";
 import { tablesFor } from "../web/layouts.js";
 const row = (Kind, Data, ID = Kind) => ({ ID, Kind, Data });
+test("Gemeinsames Zählblatt mit erfasstem Betrag lässt unbekannte Stückzahlen leer", () => {
+  const count = row(
+    "count",
+    {
+      Phase: "Ende",
+      Amount: 12345,
+      Fields: { countScope: "all", countMode: "amount" },
+    },
+    "gesamt",
+  );
+  const sheet = tablesFor(7, {}, [count], count.ID, {});
+  assert.match(sheet.intro, /Alle Geldtaschen/);
+  assert.match(sheet.after[0], /123,45/);
+  assert.ok(
+    sheet.blocks[0].rows.every((line) => line[3] === "" && line[4] === ""),
+  );
+});
 test("Überweisungsbezug bleibt bei Altbestand verwendbar und folgt bei Originalen der zugeteilten Nummer", () => {
   const bill = { Label: "Übungsforderung" };
   assert.equal(invoiceReference(bill), bill.Label);

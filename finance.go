@@ -10,25 +10,61 @@ import (
 	"strings"
 )
 
+const pooledSettlement = "settlement-total"
+
+// A return hands over the previously counted closing balance. Only movements
+// before that count adjust the cash takings.
+func cashAdjustment(r row, includes func(string) bool, pooled bool) int64 {
+	v := r.Data
+	if v.Amount == nil || v.Method != "" && v.Method != "Bar" {
+		return 0
+	}
+	n := *v.Amount
+	var adjustment int64
+	switch r.Kind {
+	case "supply", "skim", "transfer":
+		from, to := v.Account, v.To
+		if r.Kind == "supply" {
+			to = v.Wallet
+		} else if r.Kind == "skim" {
+			from = v.Wallet
+		}
+		if includes(from) {
+			adjustment += n
+		}
+		if includes(to) {
+			adjustment -= n
+		}
+	default:
+		assigned := includes(v.Wallet)
+		if v.Wallet == "" && v.Method == "Bar" {
+			assigned = includes(v.Account) || (pooled && v.Account == "")
+		}
+		if !assigned {
+			return 0
+		}
+		switch r.Kind {
+		case "expense", "refund", "deposit-return":
+			return n
+		case "income", "donation", "payment", "presale", "deposit":
+			return -n
+		}
+	}
+	return adjustment
+}
+
 func walletRevenue(rows []row, wallet string) (int64, bool) {
 	var start, end *int64
 	var increments int64
 	for _, r := range rows {
 		v := r.Data
-		if v.Wallet != wallet || v.Amount == nil || v.Method != "" && v.Method != "Bar" {
-			continue
-		}
-		switch r.Kind {
-		case "count":
+		increments += cashAdjustment(r, func(id string) bool { return id != "" && id == wallet }, false)
+		if r.Kind == "count" && v.Wallet == wallet {
 			if v.Phase == "Anfang" {
 				start = v.Amount
 			} else if v.Phase == "Ende" {
 				end = v.Amount
 			}
-		case "skim", "expense", "refund", "deposit-return":
-			increments += *v.Amount
-		case "supply", "income", "donation", "payment", "presale", "deposit":
-			increments -= *v.Amount
 		}
 	}
 	if start == nil || end == nil {
@@ -37,8 +73,70 @@ func walletRevenue(rows []row, wallet string) (int64, bool) {
 	return *end - *start + increments, true
 }
 
+func pooledRevenue(rows []row) (int64, bool) {
+	wallets := map[string]bool{}
+	openings := map[string]int64{}
+	var start, end *int64
+	for _, r := range rows {
+		v := r.Data
+		switch {
+		case r.Kind == "wallet":
+			wallets[r.ID] = true
+		case strings.HasPrefix(r.ID, "settlement:"):
+			return 0, false
+		case r.Kind != "count" || v.Amount == nil:
+			continue
+		case v.Fields["countScope"] == "all":
+			if v.Phase == "Anfang" {
+				start = v.Amount
+			} else if v.Phase == "Ende" {
+				end = v.Amount
+			}
+		case v.Phase == "Anfang":
+			openings[v.Wallet] = *v.Amount
+		case v.Phase == "Ende":
+			return 0, false
+		}
+	}
+	if end == nil || start != nil && len(openings) > 0 {
+		return 0, false
+	}
+	total := *end
+	if start != nil {
+		total -= *start
+	} else {
+		if len(wallets) == 0 || len(openings) != len(wallets) {
+			return 0, false
+		}
+		for id := range wallets {
+			n, ok := openings[id]
+			if !ok {
+				return 0, false
+			}
+			total -= n
+		}
+	}
+	for _, r := range rows {
+		if r.ID != pooledSettlement {
+			total += cashAdjustment(r, func(id string) bool { return wallets[id] }, true)
+		}
+	}
+	return total, true
+}
+
 func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error) {
 	v := o.Data
+	if o.Kind == "count" && v.Phase != "Zwischenstand" {
+		var overlap bool
+		err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT FROM entries WHERE event=$1 AND kind='count'
+			AND data->>'Phase' IN ('Anfang','Ende')
+			AND (coalesce(data->'Fields'->>'countScope','')='all') <> $2
+			AND (data->>'Phase'=$3 OR ($2 AND $3='Anfang') OR (NOT $2 AND data->>'Phase'='Anfang')))`,
+			d.Event, v.Fields["countScope"] == "all", v.Phase).Scan(&overlap)
+		if err != nil || overlap {
+			return false, err
+		}
+	}
 	if o.Kind == "presale" && (v.Fields["saleQuantity"] != "" || v.Fields["unitCents"] != "") {
 		q, e1 := strconv.ParseInt(v.Fields["saleQuantity"], 10, 64)
 		u, e2 := strconv.ParseInt(v.Fields["unitCents"], 10, 64)
@@ -156,11 +254,13 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 			return false, err
 		}
 	}
-	if o.Kind == "income" && v.Reference == "wallet-settlement" {
-		if v.Wallet == "" || o.Target != "settlement:"+v.Wallet {
+	if o.Target == pooledSettlement || strings.HasPrefix(o.Target, "settlement:") || v.Reference == "wallet-settlement" || v.Reference == "wallet-settlement-total" {
+		pooled := o.Target == pooledSettlement
+		if o.Kind != "income" || v.Method != "Bar" || (pooled && (v.Reference != "wallet-settlement-total" || v.Wallet != "" || v.Bar != "")) ||
+			(!pooled && (v.Reference != "wallet-settlement" || v.Wallet == "" || o.Target != "settlement:"+v.Wallet)) {
 			return false, fail("Geldtaschenbezug ungültig.")
 		}
-		rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event=$1 AND data->>'Wallet'=$2 AND id<>$3", d.Event, v.Wallet, o.Target)
+		rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event=$1 AND id<>$2 AND (kind='wallet' OR kind='count' OR kind=ANY($3))", d.Event, o.Target, journalKinds)
 		if err != nil {
 			return false, err
 		}
@@ -169,6 +269,9 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 			return false, err
 		}
 		total, known := walletRevenue(entries, v.Wallet)
+		if pooled {
+			total, known = pooledRevenue(entries)
+		}
 		if !known || v.Amount == nil || *v.Amount != total {
 			return false, nil
 		}
@@ -197,6 +300,23 @@ func validateSettlement(rows []row) error {
 	if err := completeAttachments(rows); err != nil {
 		return err
 	}
+	var pooled bool
+	var booked *int64
+	for _, r := range rows {
+		if r.Kind == "count" && r.Data.Fields["countScope"] == "all" {
+			pooled = true
+		}
+		if r.ID == pooledSettlement {
+			booked = r.Data.Amount
+		}
+	}
+	if pooled || booked != nil {
+		amount, known := pooledRevenue(rows)
+		if !known || booked == nil || *booked != amount {
+			return errors.New("Gesamtzählung aller Geldtaschen noch nicht vollständig abgerechnet")
+		}
+		return nil
+	}
 	for _, r := range rows {
 		if r.Kind != "wallet" {
 			continue
@@ -209,7 +329,7 @@ func validateSettlement(rows []row) error {
 				booked = j.Data.Amount
 				continue
 			}
-			if j.Data.Wallet == r.ID && (j.Kind == "count" ||
+			if cashAdjustment(j, func(id string) bool { return id == r.ID }, false) != 0 || j.Data.Wallet == r.ID && (j.Kind == "count" ||
 				slices.Contains(journalKinds, j.Kind) && (j.Data.Method == "" || j.Data.Method == "Bar")) {
 				needsSettlement = true
 			}

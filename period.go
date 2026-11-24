@@ -79,11 +79,18 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 	if accountMode != allAccounts {
 		return "", fail("Unterschiedliche Kontozuordnungen zuerst abstimmen.")
 	}
-	rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event IN ("+scope+") AND ((data->>'Date')::date BETWEEN $1 AND $2 OR (kind IN ('account','wallet') AND (data->>'Date')::date<=$2)) ORDER BY id", start, end, year)
+	rows, err := tx.Query(ctx, "SELECT event::text,id,kind,device::text,revision,data FROM entries WHERE event IN ("+scope+") AND ((data->>'Date')::date BETWEEN $1 AND $2 OR (kind IN ('account','wallet') AND (data->>'Date')::date<=$2)) ORDER BY id", start, end, year)
 	if err != nil {
 		return "", err
 	}
-	entries, err := pgx.CollectRows(rows, pgx.RowToStructByPos[row])
+	byEvent := map[string][]row{}
+	entries, err := pgx.CollectRows(rows, func(record pgx.CollectableRow) (row, error) {
+		var event string
+		var r row
+		err := record.Scan(&event, &r.ID, &r.Kind, &r.Device, &r.Revision, &r.Data)
+		byEvent[event] = append(byEvent[event], r)
+		return r, err
+	})
 	if err != nil {
 		return "", err
 	}
@@ -93,8 +100,10 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 	if err = checkBalance(entries, accountMode); err != nil {
 		return "", err
 	}
-	if err = validateSettlement(entries); err != nil {
-		return "", fail(err.Error())
+	for _, eventRows := range byEvent {
+		if err = validateSettlement(eventRows); err != nil {
+			return "", fail(err.Error())
+		}
 	}
 	closure := uuid()
 	_, err = tx.Exec(ctx, "INSERT INTO period_closures(id,period_id,version,starts,ends,reviewer,snapshot,fiscal_year) SELECT $1,$2,coalesce(max(version),0)+1,$3,$4,$5,$6,$7 FROM period_closures WHERE period_id=$2", closure, id, start, end, d.User, entries, year)

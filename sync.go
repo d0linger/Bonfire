@@ -124,7 +124,16 @@ func validate(o op, accounts bool) error {
 		if o.Kind == "reserve" && (o.Target != "coinreserve" || v.Wallet != "" || v.Bar != "") {
 			return fail("Wechselgeldbestand wird zentral erfasst.")
 		}
-		if (o.Kind != "reserve" && (v.Wallet == "" || !slices.Contains([]string{"Anfang", "Zwischenstand", "Ende"}, v.Phase))) || v.Pieces == nil {
+		pooled := o.Kind == "count" && v.Fields["countScope"] == "all"
+		manual := o.Kind == "count" && v.Fields["countMode"] == "amount"
+		if o.Kind == "count" && (!slices.Contains([]string{"", "wallet", "all"}, v.Fields["countScope"]) ||
+			!slices.Contains([]string{"", "amount", "pieces"}, v.Fields["countMode"])) {
+			return fail("Zählumfang oder Betragseingabe ungültig.")
+		}
+		if pooled && (v.Wallet != "" || v.Bar != "" || v.Phase == "Zwischenstand") {
+			return fail("Eine Gesamtzählung gehört zur gesamten Veranstaltung.")
+		}
+		if o.Kind != "reserve" && ((!pooled && v.Wallet == "") || !slices.Contains([]string{"Anfang", "Zwischenstand", "Ende"}, v.Phase)) || (v.Pieces == nil) != manual {
 			return fail("Geldtasche, Zählphase und Stückelung angeben.")
 		}
 		var total int64
@@ -135,7 +144,7 @@ func validate(o op, accounts bool) error {
 			}
 			total += c * n
 		}
-		if v.Amount == nil || *v.Amount != total {
+		if v.Amount == nil || *v.Amount < 0 || *v.Amount > 999999999999 || !manual && *v.Amount != total {
 			return fail("Zählsumme stimmt nicht.")
 		}
 		phase := v.Phase

@@ -139,4 +139,6 @@ Die echten iOS-, Android- und Desktop-Zielgeräte, geschlossene installierte PWA
 
 ## Nachweise erneut ausführen
 
+Die Geldtaschenabrechnung wird mit erfundenen Beständen in drei Varianten geprüft. Der Browsertest in `tests/action-spacing.mjs` erfasst Stückzahlen je Börse sowie eine gemeinsame Zählung ohne angelegte Börsen. Bei 20,50 € Anfangsbestand und 82,75 € Endbestand prüft er die gebuchte Sammelbareinnahme von 62,25 €. Der API-Test in `tests/online-api.mjs` kombiniert Einzelanfänge, Wechselgeld aus der Hauptkassa, eine interne Umlagerung, eine bereits gebuchte Spende und einen Gesamtendbestand. Er prüft den Schutz vor überlappenden Endzählungen, den Betrag von 180 €, wiederholtes Buchen und den Veranstaltungsabschluss. `tests/domain.test.mjs` prüft vollständige und offene Barsummen. `tests/reports.test.mjs` prüft das Zählblatt bei manueller Betragseingabe.
+
 Die genauen Befehle stehen in der [Start- und Betriebsanleitung](../README.md). Browserprofile sind voneinander isoliert. Der Test entfernt seine temporären Browserprofile nach dem Lauf. Synthetische Exporte, vertrauliche Wegwerf-Gerätetokens für den Restoretest und Dumps liegen git-ignoriert unter `test-results/`. Ein Backup des Servers erfasst erfolgreiche Synchronisationen. Noch getrennte Geräte benötigen ihre eigene Sicherung.

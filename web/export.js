@@ -182,9 +182,14 @@ export function snapshot(index, s, rows, opts) {
           : "Erfasste Zählung"
         : "Leeres Zählblatt",
     );
-    if (chosen) add(v.Wallet, v.Phase);
-    for (const d of denom)
-      add(eur(d), chosen ? String(v.Pieces[String(d)] ?? 0) : "________");
+    if (chosen)
+      add(
+        v.Fields?.countScope === "all" ? "Alle Geldtaschen" : v.Wallet,
+        v.Phase,
+      );
+    if (!chosen || v.Pieces)
+      for (const d of denom)
+        add(eur(d), chosen ? String(v.Pieces[String(d)] ?? 0) : "________");
     if (chosen) add("Summe", eur(v.Amount));
   } else if (index === 8) {
     add(opts.bar ? "Bar " + opts.bar : "Gesamtveranstaltung");

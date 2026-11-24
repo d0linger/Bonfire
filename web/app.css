@@ -1433,3 +1433,8 @@ section > :is(.actions, button, form) + form {
     gap: 6px;
   }
 }
+
+.count-pieces[hidden],
+#record label[hidden] {
+  display: none;
+}

@@ -5,9 +5,11 @@ import {
   cents,
   totalPieces,
   counted,
+  pooledRevenue,
   summary,
   journalMatches,
 } from "../web/domain.js";
+import { walletTable } from "../web/workplace.js";
 const r = (Kind, Amount, Phase = "") => ({
   Kind,
   Data: { Amount, Phase, Wallet: "Nord" },
@@ -48,6 +50,45 @@ test("Geldtasche mit Rückgabe und bereits erfasster Spende", () => {
   assert.equal(counted(list, "Nord"), 72000);
   assert.equal(counted([...list, r("donation", 10000)], "Nord"), 62000);
   assert.equal(counted([], "Nord"), null);
+});
+test("Börsen einer Bar ergeben nur bei vollständiger Zählung eine Barsumme", () => {
+  const entries = [
+    { Kind: "bar", ID: "bar1", Data: { Label: "Getränke" } },
+    ...["Nord", "Süd"].map((ID) => ({
+      Kind: "wallet",
+      ID,
+      Data: { Label: ID, Bar: "bar1" },
+    })),
+    r("count", 2000, "Anfang"),
+    r("count", 9100, "Ende"),
+    { Kind: "count", Data: { Wallet: "Süd", Phase: "Anfang", Amount: 3500 } },
+  ];
+  const barRow = (rows) =>
+    walletTable(rows).match(
+      /<tr><th scope="row">Bar · Getränke[\s\S]*?<\/tr>/,
+    )[0];
+  assert.match(barRow(entries), /55,00/);
+  assert.match(barRow(entries), /Offen/);
+  assert.doesNotMatch(barRow(entries), /91,00/);
+  entries.push({
+    Kind: "count",
+    Data: { Wallet: "Süd", Phase: "Ende", Amount: 12100 },
+  });
+  assert.match(barRow(entries), /212,00/);
+  assert.match(barRow(entries), /157,00/);
+  entries.splice(
+    3,
+    entries.length - 3,
+    r("count", 2000, "Anfang"),
+    { Kind: "count", Data: { Wallet: "Süd", Phase: "Anfang", Amount: 3500 } },
+    {
+      Kind: "count",
+      Data: { Phase: "Ende", Amount: 21200, Fields: { countScope: "all" } },
+    },
+  );
+  assert.match(barRow(entries), /Nur gesamt erfasst/);
+  assert.doesNotMatch(barRow(entries), /212,00/);
+  assert.equal(pooledRevenue(entries), 15700);
 });
 test("Pfand, Kundenerstattung und Kartenzahlung am selben Stand", () => {
   const list = [
