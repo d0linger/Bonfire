@@ -786,7 +786,18 @@ function formFields(k) {
       ["Überweisung", "Überweisung"],
       ["Karte", "Karte"],
     ]);
-  if (["income", "expense", "payment", "donation", "card"].includes(k))
+  if (
+    [
+      "income",
+      "expense",
+      "payment",
+      "donation",
+      "card",
+      "supply",
+      "skim",
+      "return",
+    ].includes(k)
+  )
     f += field("field_matter", "Eindeutige externe Vorgangskennung (optional)");
   if (k === "payment") f += refs("Reference", "Forderung", ["sponsorship"]);
   else if (k === "reimbursement") {
@@ -1142,20 +1153,25 @@ function records() {
       );
   }
   if (page === "Geldtaschen" && !s.sealed && s.role !== "Prüfung") {
-    detail += form(
-      "handover",
-      refs("wallet", "Geldtasche", ["wallet"]) +
-        select(
-          "to",
-          "Empfangendes Gerät",
-          (s.devices || []).filter((d) => !d.Sealed).map((d) => [d.ID, d.Name]),
-        ) +
-        select("status", "Übergabe", [
-          ["Angeboten", "Übergabe anbieten"],
-          ["Bestätigt", "Empfang bestätigen"],
-        ]),
-      "Übergabe dokumentieren",
-    );
+    detail +=
+      "<details><summary>Physische Übergabe dokumentieren (optional)</summary>" +
+      form(
+        "handover",
+        refs("wallet", "Geldtasche", ["wallet"]) +
+          select(
+            "to",
+            "Empfangendes Gerät",
+            (s.devices || [])
+              .filter((d) => !d.Sealed)
+              .map((d) => [d.ID, d.Name]),
+          ) +
+          select("status", "Übergabe", [
+            ["Angeboten", "Übergabe anbieten"],
+            ["Bestätigt", "Empfang bestätigen"],
+          ]),
+        "Übergabe dokumentieren",
+      ) +
+      "</details>";
   }
   return (
     panel(
@@ -2547,12 +2563,10 @@ async function submit(f) {
     if (!wallet) throw Error("Geldtasche wählen.");
     if (
       vals.status === "Angeboten" &&
-      ((wallet.Data.Fields?.owner || wallet.Device) !== s.device ||
-        vals.to === s.device ||
-        prev?.Data.Status === "Angeboten")
+      (vals.to === s.device || prev?.Data.Status === "Angeboten")
     )
       throw Error(
-        "Nur das zuständige Gerät kann an ein anderes Gerät übergeben.",
+        "Ein anderes empfangendes Gerät wählen und eine offene Übergabe zuerst bestätigen.",
       );
     if (
       vals.status === "Bestätigt" &&
@@ -2826,13 +2840,7 @@ async function submit(f) {
     }
     if (["supply", "skim", "return"].includes(kind)) {
       const wallet = rows().find((r) => r.ID === d.Wallet);
-      if (
-        !wallet ||
-        (wallet.Data.Fields?.owner || wallet.Device) !== s.device ||
-        rows().find((r) => r.ID === "handover:" + d.Wallet)?.Data.Status ===
-          "Angeboten"
-      )
-        throw Error("Für diese Geldtasche fehlt die wirksame Übergabe.");
+      if (!wallet) throw Error("Geldtasche auswählen.");
     }
     if (
       s.event.Accounts &&

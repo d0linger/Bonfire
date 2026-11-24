@@ -39,8 +39,16 @@ await api("users", admin, {
 });
 const prepare = (name, who = admin) =>
   api("prepare", who, { Name: name, Event: event.ID });
+const cashier = "k-" + randomUUID().slice(0, 12),
+  cashierPassword = randomUUID();
+await api("users", admin, {
+  Name: cashier,
+  Role: "Kassa",
+  Password: cashierPassword,
+  Event: event.ID,
+});
 const a = await prepare("West"),
-  b = await prepare("Ost"),
+  b = await prepare("Ost", basic(cashier, cashierPassword)),
   r = await prepare("Prüfteam", basic(reviewer, pw));
 const seq = new Map();
 const rec = (d, Kind, Label, data = {}, Target = randomUUID(), Base = 0) => ({
@@ -87,6 +95,36 @@ const correction = rec(
 await send(a, correction);
 const journal = await api("manage", auth(a), { Action: "journal" });
 assert.ok(journal.some((x) => x.action.startsWith("Storno")));
+const delivery = {
+  Wallet: wallet.Target,
+  Account: "Hauptkasse",
+  To: "Geldtasche Rot",
+  Amount: 5000,
+  Fields: { matter: "Wechselgeld 17" },
+};
+const firstSupply = rec(b, "supply", "Wechselgeld an Rot", delivery);
+const secondSupply = rec(a, "supply", "Zweite Lieferung", {
+  ...delivery,
+  Fields: { matter: "Wechselgeld 18" },
+});
+await Promise.all([send(a, secondSupply), send(b, firstSupply)]);
+out = await send(b, firstSupply);
+assert.deepEqual(out.conflicts, []);
+assert.equal(
+  out.entries.filter(
+    (x) => x.Kind === "supply" && x.Data.Wallet === wallet.Target,
+  ).length,
+  2,
+);
+const repeatedDelivery = rec(a, "supply", "Erneut dieselbe Übergabe", delivery);
+out = await send(a, repeatedDelivery);
+assert.ok(out.conflicts.some((x) => x.ID === repeatedDelivery.ID));
+assert.equal(out.entries.filter((x) => x.Kind === "supply").length, 2);
+await api("sync", auth(a), {
+  Resolve: repeatedDelivery.ID,
+  Choice: "beibehalten",
+  Reason: "Lieferung bereits am anderen Gerät erfasst",
+});
 const offer = rec(
   a,
   "handover",
@@ -95,6 +133,13 @@ const offer = rec(
   "handover:" + wallet.Target,
 );
 await send(a, offer);
+const skim = rec(b, "skim", "Abschöpfung während offener Übergabe", {
+  Wallet: wallet.Target,
+  Amount: 2000,
+  Account: "Geldtasche Rot",
+  To: "Hauptkasse",
+});
+assert.deepEqual((await send(b, skim)).conflicts, []);
 const take = rec(
   b,
   "handover",
@@ -110,9 +155,17 @@ const take = rec(
 );
 out = await send(b, take);
 assert.equal(
-  out.entries.find((r) => r.ID === wallet.Target).Data.Fields.owner,
-  b.device,
+  out.entries.find((r) => r.ID === offer.Target).Data.Status,
+  "Bestätigt",
 );
+assert.equal(out.entries.find((r) => r.ID === wallet.Target).Revision, 1);
+const returned = rec(a, "return", "Rückgabe nach bestätigter Übergabe", {
+  Wallet: wallet.Target,
+  Amount: 8000,
+  Account: "Geldtasche Rot",
+  To: "Hauptkasse",
+});
+assert.deepEqual((await send(a, returned)).conflicts, []);
 const act = rec(a, "actual", "Unabhängiger Istbestand", { Amount: 4000 });
 await send(a, act);
 await api("manage", auth(r), { Action: "period-close", Target: p.Target }, 422);
@@ -358,7 +411,7 @@ assert.equal(
   copiedBar.ID,
 );
 const purse = snapshot.entries.find((x) => x.Kind === "wallet");
-assert.equal(purse.Data.Fields.owner, fresh.device);
+assert.equal(purse.Data.Fields?.owner, undefined);
 assert.equal(
   snapshot.entries.find((x) => x.Kind === "price").Data.Status,
   "Entwurf",
@@ -409,7 +462,7 @@ assert.equal(
   6000,
 );
 console.log(
-  "PASS: approved prior snapshot, structure-only copy with new authority and draft prices, 50/70/60 financial conflict",
+  "PASS: approved prior snapshot, freely accessible copied wallets and draft prices, 50/70/60 financial conflict",
 );
 console.log(
   "PASS: general ledger, linked paper register and duplicate review, gross 280 / fee 5 / neutral payout 275",

@@ -91,6 +91,9 @@ func validate(o op, accounts bool) error {
 			return err
 		}
 	}
+	if slices.Contains([]string{"supply", "skim", "return"}, o.Kind) && v.Wallet == "" {
+		return fail("Geldtasche auswählen.")
+	}
 	if o.Kind == "sponsorship" && !slices.Contains([]string{"", "Offen", "Zugesagt", "Zurückgezogen"}, v.Fields["pledge"]) {
 		return fail("Zusagestatus ungültig.")
 	}
@@ -311,24 +314,17 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 			return "Konflikt", nil
 		}
 	}
-	available, err := walletAuthority(ctx, tx, d, o)
-	if err != nil {
-		return "", err
-	}
-	if !available {
-		return "Konflikt", nil
+	if o.Kind == "handover" {
+		valid, err := validHandover(ctx, tx, d, o)
+		if err != nil {
+			return "", err
+		}
+		if !valid {
+			return "Konflikt", nil
+		}
 	}
 	if o.Kind == "wallet" {
-		owner := d.ID
-		if rev > 0 {
-			if err = tx.QueryRow(ctx, "SELECT coalesce(nullif(data->'Fields'->>'owner',''),device::text) FROM entries WHERE event=$1 AND id=$2", d.Event, o.Target).Scan(&owner); err != nil {
-				return "", err
-			}
-		}
-		if o.Data.Fields == nil {
-			o.Data.Fields = map[string]string{}
-		}
-		o.Data.Fields["owner"] = owner
+		delete(o.Data.Fields, "owner")
 	}
 	if err = retainPrior(ctx, tx, d, o); err != nil {
 		return "", err

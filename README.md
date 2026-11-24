@@ -19,6 +19,10 @@ Die Anmeldung akzeptiert E-Mail-Adressen als Benutzernamen und bestehende Konton
 
 Unter **Offlineprofile und Sicherungen** lässt sich eine verschlüsselte Gerätesicherung mit ihrem bisherigen lokalen Passwort einsehen. Dieses Lesearchiv bewahrt die gespeicherten Einträge zur Kontrolle. Für neue Buchungen, Synchronisation und nummerierte Originale ist ein aktives Geräteprofil erforderlich.
 
+Vorjahre und frühere Perioden öffnet ihr im normalen Kassenbuch. Das Lesearchiv braucht ihr nur, wenn ihr eine bereits exportierte Gerätesicherung prüfen wollt. Darin können Erfassungen stehen, die zum Sicherungszeitpunkt noch ausschließlich auf diesem Gerät lagen. Das Öffnen löst keine Nachbuchung aus.
+
+Beide Kassiere können jede Geldtasche ihres freigegebenen Arbeitsbereichs bedienen. Wer tatsächlich 50 € Wechselgeld übergibt, erfasst die Nachversorgung einmal mit Quelle, Ziel und Betrag. Intern verschiebt sich Geld, der Ertrag bleibt gleich. Die Angabe einer gemeinsamen Vorgangskennung hilft, wenn dieselbe Bewegung auf zwei Geräten erfasst wurde. Eine tatsächliche Übergabe der Tasche lässt sich freiwillig dokumentieren. Sie hat keinen Einfluss darauf, wer buchen darf.
+
 Nach der Anmeldung öffnet **Finanzen im Überblick** mit den Daten des oben ausgewählten Arbeitsbereichs. Die acht Module sind über die linke Navigation erreichbar, auf dem Handy über das Menü. Ein bestehendes gesperrtes Geräteprofil öffnet zunächst die lokale Entsperrung. **Erfassung vorbereiten** richtet den verschlüsselten Offlinezugang ein. Ein Wechsel zwischen localhost und 127.0.0.1 wechselt den Browserspeicher. Für vorbereitete Geräte dieselbe Adresse beibehalten. Bei einem Frontend-Update alle BONFIRE-Tabs und installierten App-Fenster schließen und die bisherige Adresse erneut öffnen. Im Browserspeicher liegen die verschlüsselten Arbeitsprofile samt noch ausstehenden Vorgängen.
 
 ## Von der Veranstaltung zum Abgleich

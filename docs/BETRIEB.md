@@ -9,7 +9,7 @@ Die Leitung richtet Arbeitsbereiche, Benutzer, Kontenoption und Nummern ein. Zur
 ## Vor einer Veranstaltung
 
 1. Sicherung erzeugen und eine Wiederherstellung prüfen. Zeitpunkt, Softwarestand, Schlüsselverantwortung und Sicherungsziel intern festhalten.
-2. Arbeitsbereiche, frei gewählte Perioden, Eröffnungswerte, Konten, Geldtaschen und Zuständigkeiten prüfen. Nur geklärte Preise freigeben. Originalformulare und Rechtstexte benötigen die Freigabe der verantwortlichen Stelle.
+2. Arbeitsbereiche, frei gewählte Perioden, Eröffnungswerte, Konten und Geldtaschen prüfen. Beide Kassiere können im zugewiesenen Arbeitsbereich auf alle Geldtaschen buchen. Nur geklärte Preise freigeben. Originalformulare und Rechtstexte benötigen die Freigabe der verantwortlichen Stelle.
 3. Jedes Gerät mit eigenem Profil vorbereiten. Daten abgleichen, den gewünschten Vorlagenstand anheften und unter **Gerät & Sync** die Offlinebereitschaft prüfen. Netz trennen, PWA vollständig beenden und erneut öffnen. Bei Formular- oder Druckbedarf die konkrete Ausgabe auf demselben Gerät erproben.
 4. Gerätepasswort sicher verwahren. Verschlüsseltes Gerätearchiv zusätzlich sichern. Auf dem Server fehlen während der Trennung die dort noch nicht bestätigten Vorgänge und Dateien.
 

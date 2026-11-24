@@ -8,7 +8,7 @@ services:
     volumes:
       - data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "bonfire", "-d", "bonfire"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "bonfire", "-d", "bonfire"]
       interval: 3s
       timeout: 3s
       retries: 20

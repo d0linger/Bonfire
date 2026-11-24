@@ -252,7 +252,7 @@ func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name, start, e
 		v := r.Data
 		v.Date = start
 		if r.Kind == "wallet" {
-			v.Fields = map[string]string{"owner": "unassigned"}
+			delete(v.Fields, "owner")
 		}
 		if r.Kind == "shift" {
 			v.Fields = nil

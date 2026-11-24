@@ -226,6 +226,12 @@ try {
   const b = await start("B");
   await ready(b.p, "Süd");
   connected = false;
+  await record(b.p, "Geldtaschen", "skim", "Gezählte Abschöpfung", {
+    Wallet: "Kasse Blau",
+    amount: "30,00",
+    Account: "Kasse Blau",
+    To: "Hauptkasse",
+  });
   await record(a.p, "Geldtaschen", "count", "Nordzählung", {
     Wallet: "Kasse Blau",
     Phase: "Ende",
@@ -605,12 +611,11 @@ try {
     Phase: "Anfang",
     coin200: "2",
   });
-  await record(a.p, "Geldtaschen", "skim", "Gezählte Abschöpfung", {
-    Wallet: "Kasse Blau",
-    amount: "30,00",
-    Account: "Kasse Blau",
-    To: "Hauptkasse",
-  });
+  await press(a.p, "Veranstaltungen");
+  await press(a.p, "Geldtaschen");
+  await a.p
+    .getByRole("cell", { name: "Gezählte Abschöpfung", exact: true })
+    .waitFor();
   await press(a.p, "Sammelbetrag buchen");
   await a.p.waitForFunction(
     () => !document.querySelector('[aria-busy="true"]'),
@@ -618,6 +623,9 @@ try {
   await press(a.p, "Kassenbuch");
   await a.p
     .getByRole("cell", { name: "Barabrechnung Kasse Blau", exact: true })
+    .waitFor();
+  await a.p
+    .getByRole("cell", { name: "Gezählte Abschöpfung", exact: true })
     .waitFor();
   // 100.00 opening + 14.25 admission + (16.00 - 4.00 + 30.00) cash revenue.
   await record(
