@@ -450,21 +450,37 @@ func runBackupWorker() error {
 		if _, err = rand.Read(data); err != nil {
 			return err
 		}
-		f, err := os.OpenFile(backupKeyPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		dir := filepath.Dir(backupKeyPath)
+		f, err := os.CreateTemp(dir, ".key-")
 		if err != nil {
 			return err
 		}
+		tmp := f.Name()
 		if _, err = f.Write(data); err == nil {
 			err = f.Sync()
 		}
-		cerr := f.Close()
+		err = errors.Join(err, f.Close())
+		if err == nil {
+			err = os.Link(tmp, backupKeyPath)
+		}
+		removeErr := os.Remove(tmp)
+		if err != nil && !errors.Is(err, os.ErrExist) {
+			return errors.Join(err, removeErr)
+		}
+		if removeErr != nil {
+			return removeErr
+		}
+		directory, err := os.Open(dir)
 		if err != nil {
 			return err
 		}
-		if cerr != nil {
-			return cerr
+		if err = errors.Join(directory.Sync(), directory.Close()); err != nil {
+			return err
 		}
-		b.key = data
+		b.key, err = os.ReadFile(backupKeyPath)
+		if err != nil {
+			return err
+		}
 	} else if err != nil {
 		return err
 	}
