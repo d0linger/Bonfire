@@ -168,6 +168,11 @@ async function record(p, group, type, label, values = {}) {
   if (await by(p, "type").count()) await by(p, "type").selectOption(type);
   await by(p, "Label").fill(label);
   await by(p, "Date").fill(exerciseDay);
+  if (
+    Object.keys(values).some((k) => k.startsWith("coin")) &&
+    (await by(p, "field_countMode").count())
+  )
+    await by(p, "field_countMode").selectOption("pieces");
   for (const [name, value] of Object.entries(values)) {
     if (group === "Geldtaschen" && type === "count" && name === "Phase")
       continue;
@@ -271,7 +276,7 @@ try {
     "contact",
     "Übungsfirma " + eventID.slice(0, 8),
     {
-      Address: "Musterplatz 8",
+      field_street: "Musterplatz 8",
     },
   );
   await record(a.p, "Kontakte & Preise", "sponsorship", "Übungsbanner", {
@@ -648,13 +653,31 @@ try {
   await a.p
     .getByRole("cell", { name: "Gezählte Abschöpfung", exact: true })
     .waitFor();
-  // 100.00 opening + 14.25 admission + (16.00 - 4.00 + 30.00) cash revenue.
+  await record(
+    a.p,
+    "Kontakte & Preise",
+    "payment",
+    "Restzahlung Übungsbanner",
+    { Reference: "Übungsbanner", Method: "Überweisung", amount: "20,00" },
+  );
+  await record(
+    a.p,
+    "Kontakte & Preise",
+    "payment",
+    "Zahlung zur zweiten Forderung",
+    {
+      Reference: "Test ohne weitere Digitalnummer",
+      Method: "Überweisung",
+      amount: "3,00",
+    },
+  );
+  // 100.00 opening + 14.25 admission + 42.00 cash revenue + 23.00 final bank payments.
   await record(
     a.p,
     "Perioden",
     "actual",
     "Unabhängig gezählter Gesamtbestand",
-    { amount: "156,25" },
+    { amount: "179,25" },
   );
   await sync(a.p);
   const reviewDevice = await api("prepare", admin, {
@@ -716,7 +739,7 @@ try {
     "test-results/gesamtfall.json",
     JSON.stringify({
       event: eventID,
-      actual: 15625,
+      actual: 17925,
       originals: archiveRows.length,
     }),
   );

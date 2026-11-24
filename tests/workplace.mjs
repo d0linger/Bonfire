@@ -130,6 +130,7 @@ try {
   await page.context().setOffline(false);
   await page.getByText("Server erreichbar", { exact: true }).waitFor();
   await page.emulateMedia({ colorScheme: "dark" });
+  await page.waitForFunction(()=>document.documentElement.dataset.theme==="dark");
   assert.notEqual(
     await page
       .locator("body")

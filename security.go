@@ -296,10 +296,11 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return nil, err
 	}
 	var q struct {
-		Action, Target, Reason, Start, End string
-		Accounts                           bool
-		Stamp                              string
-		AccountMap                         map[string]string
+		Action, Target, Reason, Start, End, Year string
+		CopyKinds                                []string
+		Accounts                                 bool
+		Stamp                                    string
+		AccountMap                               map[string]string
 	}
 	if err = read(r, &q); err != nil {
 		return nil, err
@@ -341,7 +342,7 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 	case "period", "journal-period":
 		return a.globalPeriod(ctx, tx, d, q.Target, q.Reason, q.Action == "journal-period")
 	case "copy":
-		id, err := a.copyEvent(ctx, tx, d, q.Target, q.Start, q.End)
+		id, err := a.copyEvent(ctx, tx, d, q.Target, q.Start, q.End, q.Year, q.CopyKinds)
 		if err != nil {
 			return nil, err
 		}

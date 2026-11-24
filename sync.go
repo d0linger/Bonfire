@@ -55,8 +55,8 @@ type request struct {
 
 var key = regexp.MustCompile("^[a-zA-Z0-9_.:-]{1,160}$")
 var idPattern = regexp.MustCompile("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
-var kinds = strings.Fields("income expense refund deposit deposit-return transfer outlay reimbursement card fee payout donation sponsorship payment presale price contact bar wallet shift count plan supply skim return opening actual period template attachment attachment-file original dispatch organization handover import-source account paper reserve")
-var money = strings.Fields("income expense refund deposit deposit-return transfer outlay reimbursement card fee payout donation sponsorship payment presale price supply skim return opening actual")
+var kinds = strings.Fields("income expense refund deposit deposit-return transfer outlay reimbursement card fee payout cashback donation sponsorship payment presale price contact bar wallet shift count plan supply skim return opening actual period template attachment attachment-file original dispatch organization handover import-source account paper reserve")
+var money = strings.Fields("income expense refund deposit deposit-return transfer outlay reimbursement card fee payout cashback donation sponsorship payment presale price supply skim return opening actual")
 var denoms = map[string]int64{"20000": 20000, "10000": 10000, "5000": 5000, "2000": 2000, "1000": 1000, "500": 500, "200": 200, "100": 100, "50": 50, "20": 20, "10": 10, "5": 5, "2": 2, "1": 1}
 
 func checkCashAmount(v data) error {
@@ -113,7 +113,7 @@ func validate(o op, accounts bool) error {
 			return err
 		}
 	}
-	if slices.Contains([]string{"supply", "skim", "return"}, o.Kind) && v.Wallet == "" {
+	if slices.Contains([]string{"supply", "skim", "return", "cashback"}, o.Kind) && v.Wallet == "" {
 		return fail("Geldtasche auswählen.")
 	}
 	if o.Kind == "sponsorship" && !slices.Contains([]string{"", "Offen", "Zugesagt", "Zurückgezogen"}, v.Fields["pledge"]) {
@@ -138,7 +138,7 @@ func validate(o op, accounts bool) error {
 	if accounts && slices.Contains(strings.Fields("income expense refund deposit deposit-return reimbursement fee card payout donation payment presale"), o.Kind) && v.Account == "" {
 		return fail("Kontozuordnung fehlt.")
 	}
-	if slices.Contains([]string{"transfer", "payout", "skim", "supply", "return"}, o.Kind) && (v.Account == "" || v.To == "" || v.To == v.Account) {
+	if slices.Contains([]string{"transfer", "payout", "skim", "supply", "return", "cashback"}, o.Kind) && (v.Account == "" || v.To == "" || v.To == v.Account) {
 		return fail("Verschiedene Quell- und Zielkonten angeben.")
 	}
 	if o.Kind == "supply" {
@@ -318,13 +318,23 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 				return "", problem{409, "Belegnummer inzwischen vergeben. Bitte neu laden."}
 			}
 		}
-		var owner string
-		err = tx.QueryRow(ctx, "SELECT device::text FROM entries WHERE event=$1 AND id=$2 AND kind IN ('sponsorship','payment','donation')", d.Event, v.Reference).Scan(&owner)
+		var owner, subjectKind string
+		var subjectData data
+		err = tx.QueryRow(ctx, "SELECT device::text,kind,data FROM entries WHERE event=$1 AND id=$2 AND kind IN ('sponsorship','payment','donation')", d.Event, v.Reference).Scan(&owner, &subjectKind, &subjectData)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "Konflikt", nil
 		}
 		if err != nil || owner != d.ID || v.Number < d.Block*1000 || v.Number >= d.Block*1000+d.DigitalCount {
 			return "", fail("Keine Ausstellungszuständigkeit oder Nummernreserve.")
+		}
+		if v.Fields["series"] == "confirmation" {
+			var snap struct {
+				Profile       string
+				ReceivedCents *int64
+			}
+			if json.Unmarshal([]byte(v.Note), &snap) != nil || snap.Profile != subjectKind+"_confirmation_a4" || snap.ReceivedCents == nil || subjectData.Amount == nil || *snap.ReceivedCents != *subjectData.Amount {
+				return "", fail("Bestätigung passt nicht zum Zahlungseingang.")
+			}
 		}
 		pdf, doc, archiveErr := checkArchive(d, v)
 		if archiveErr != nil {
@@ -610,7 +620,7 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	if _, err = tx.Exec(ctx, "UPDATE devices SET last_seq=$1,sealed=$2,last_seen=now() WHERE id=$3", d.Last, d.Sealed, d.ID); err != nil {
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event=$1 AND kind<>'contact' UNION ALL SELECT id,'contact',device::text,revision,data FROM directory c WHERE $2='Admin' OR EXISTS(SELECT 1 FROM devices d WHERE d.id=c.device AND d.event=$1) OR EXISTS(SELECT 1 FROM entries j WHERE j.event=$1 AND j.data->>'Contact'=c.id) ORDER BY id", d.Event, d.Role)
+	rows, err := tx.Query(ctx, "SELECT j.id,j.kind,j.device::text,j.revision,CASE WHEN a.active IS FALSE THEN j.data||jsonb_build_object('Fields',coalesce(nullif(j.data->'Fields','null'::jsonb),'{}'::jsonb)||jsonb_build_object('masterInactive','ja')) ELSE j.data END FROM entries j LEFT JOIN fire_account_links l ON (j.event,j.id)=(l.event,l.local_id) LEFT JOIN fire_accounts a ON a.id=l.account WHERE j.event=$1 AND j.kind<>'contact' UNION ALL SELECT id,'contact',device::text,revision,data FROM directory c WHERE $2='Admin' OR EXISTS(SELECT 1 FROM devices d WHERE d.id=c.device AND d.event=$1) OR EXISTS(SELECT 1 FROM entries j WHERE j.event=$1 AND j.data->>'Contact'=c.id) ORDER BY id", d.Event, d.Role)
 	if err != nil {
 		return nil, err
 	}
@@ -656,6 +666,15 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		if !year.Closed {
 			if err = checkYearEvents(ctx, tx, year.ID); err != nil {
 				return nil, err
+			}
+			balances, err := yearAccountBalances(ctx, tx, year.ID)
+			if err != nil {
+				return nil, err
+			}
+			for _, b := range balances {
+				if b.Shared && (b.Opening == nil || b.Actual == nil || b.Soll != *b.Actual) {
+					return nil, fail("Jahreskontenabgleich prüfen: " + b.Name)
+				}
 			}
 		}
 	}
@@ -767,7 +786,7 @@ func checkBalance(entries []row, accounts bool) error {
 			balances[account] += n
 		case "expense", "reimbursement", "fee", "deposit-return", "refund":
 			balances[account] -= n
-		case "transfer", "return", "skim", "supply", "payout":
+		case "transfer", "return", "skim", "supply", "payout", "cashback":
 			if accounts {
 				balances[account] -= n
 				balances[v.To] += n

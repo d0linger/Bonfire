@@ -43,6 +43,8 @@ const runtimeGrants = `REVOKE CREATE ON SCHEMA public FROM PUBLIC;
  GRANT INSERT ON users,events,fiscal_years,grants_event,devices,entries,operations,audit,originals,sessions,recovery_codes,event_closures,period_closures,directory,journal_history,print_log,donation_reports,donation_report_steps,price_history TO bonfire_runtime;
  GRANT UPDATE ON entries,events,devices,directory TO bonfire_runtime;
  GRANT UPDATE(name,starts,ends,closed) ON fiscal_years TO bonfire_runtime;
+ GRANT INSERT,UPDATE ON fire_accounts,fire_year_counts TO bonfire_runtime;
+ GRANT INSERT ON fire_account_links TO bonfire_runtime;
  REVOKE INSERT, UPDATE ON event_records FROM bonfire_runtime;
  GRANT UPDATE(deleted_at) ON event_records TO bonfire_runtime;
  GRANT INSERT, DELETE, UPDATE(remaining) ON login_challenges TO bonfire_runtime;

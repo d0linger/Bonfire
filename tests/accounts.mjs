@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
-import { randomUUID, randomInt } from "node:crypto";
+import { createHash, randomUUID, randomInt } from "node:crypto";
 import assert from "node:assert/strict";
-import { summary } from "../web/domain.js";
+import { counted, summary } from "../web/domain.js";
 const pass =
   process.env.BONFIRE_ADMIN_PASSWORD ||
   (await readFile(".env", "utf8"))
@@ -159,6 +159,42 @@ assert.equal(
   "Bestätigt",
 );
 assert.equal(out.entries.find((r) => r.ID === wallet.Target).Revision, 1);
+const observed = (phase, n) =>
+  rec(
+    a,
+    "count",
+    "Zählung " + phase,
+    {
+      Amount: n,
+      Phase: phase,
+      Wallet: wallet.Target,
+      Fields: { countMode: "amount" },
+    },
+    "count:" +
+      createHash("sha256")
+        .update(wallet.Target + "|" + phase)
+        .digest("hex")
+        .slice(0, 32),
+  );
+const checkCash = await send(a, observed("Anfang", 0), observed("Ende", 8000));
+assert.deepEqual(
+  checkCash.conflicts.map((c) => c.Kind),
+  [],
+);
+assert.equal(counted(checkCash.entries, wallet.Target), 0);
+const settlement = rec(
+  a,
+  "income",
+  "Börse abgerechnet",
+  {
+    Wallet: wallet.Target,
+    Method: "Bar",
+    Amount: 0,
+    Reference: "wallet-settlement",
+  },
+  "settlement:" + wallet.Target,
+);
+assert.deepEqual((await send(a, settlement)).conflicts, []);
 const returned = rec(a, "return", "Rückgabe nach bestätigter Übergabe", {
   Wallet: wallet.Target,
   Amount: 8000,

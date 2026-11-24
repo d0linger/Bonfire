@@ -1,4 +1,5 @@
 import { fiscalPicker } from "./fiscal-picker.js";
+import { fireDirectory, balanceTable, balanceLines } from "./fire-accounts.js";
 import { mountAccountSecurity } from "./account-security.js";
 import { supportsPasskeys, usePasskey } from "./personal-passkeys.js";
 import { canOpenConsole } from "./workplace.js";
@@ -28,6 +29,7 @@ import {
   dat,
 } from "./workplace.js";
 import { sponsorshipStatus } from "./sponsorship.js";
+import { festivalPanel } from "./festabrechnung.js";
 import { denominationNeeds } from "./domain.js";
 import { zipSync } from "fflate";
 import { historyPreview } from "./historical.js";
@@ -91,13 +93,19 @@ const field = (n, t, type = "text", req = false, value = "") =>
       (req ? "required" : "") +
       ">",
   );
-const select = (n, t, choices) =>
+const select = (n, t, choices, selected) =>
   label(
     t,
     '<select name="' +
       esc(n) +
       '">' +
-      choices.map(([v, l]) => option(v, l)).join("") +
+      choices
+        .map(([v, l]) =>
+          selected !== undefined && v === selected
+            ? '<option selected value="' + esc(v) + '">' + esc(l) + "</option>"
+            : option(v, l),
+        )
+        .join("") +
       "</select>",
   );
 const button = (act, t, secondary = false) =>
@@ -486,13 +494,17 @@ async function sync(extra = {}) {
 function rows() {
   return visible(s);
 }
-function choices(kinds) {
+function choices(kinds, name) {
   return [
     ["", "—"],
     ...rows()
       .filter(
         (r) =>
           kinds.includes(r.Kind) &&
+          (!["Account", "To", "Wallet"].includes(name) ||
+            !r.Data.Fields?.masterInactive ||
+            ["opening", "actual"].includes(kind) ||
+            edit?.Data?.[name] === r.ID) &&
           (!r.Data.Retired || edit?.Data?.Contact === r.ID),
       )
       .map((r) => [
@@ -506,7 +518,7 @@ function choices(kinds) {
   ];
 }
 function refs(name, title, kinds, alwaysSearch = false) {
-  const dropdown = select(name, title, choices(kinds));
+  const dropdown = select(name, title, choices(kinds, name));
   if (
     name !== "Contact" ||
     (!alwaysSearch && !rows().some((r) => r.Kind === "contact"))
@@ -557,9 +569,16 @@ function table(list, editable = []) {
           "<tr><td>" +
           esc(r.Data.Date) +
           "</td><td>" +
-          esc(types[r.Kind]) +
+          esc(
+            r.Data.Fields?.claimType === "invoice"
+              ? "Ausgangsrechnung"
+              : types[r.Kind],
+          ) +
           "</td><td>" +
           esc(r.Data.Label) +
+          (r.Kind === "expense" && r.Data.Fields?.issuer
+            ? " · " + esc(r.Data.Fields.issuer)
+            : "") +
           (r.Data.Retired ? " · Archiviert" : "") +
           (r.Kind === "attachment"
             ? r.Data.uploadPending
@@ -571,6 +590,18 @@ function table(list, editable = []) {
           "</td><td>" +
           esc(flowAmount(r)) +
           '</td><td><div class="entry-actions">' +
+          (["sponsorship", "donation", "payment"].includes(r.Kind) &&
+          (r.Kind !== "donation" || s.role === "Admin" || s.donorAccess)
+            ? '<button type="button" class="secondary" data-record-document="' +
+              esc(r.ID) +
+              '">' +
+              {
+                donation: "Spendenbeleg",
+                sponsorship: "Rechnung",
+                payment: "Zahlung bestätigen",
+              }[r.Kind] +
+              "</button>"
+            : "") +
           (r.Kind === "attachment" && r.Data.File
             ? '<button type="button" data-attachment="' +
               esc(r.ID) +
@@ -657,6 +688,45 @@ function incidentPanel() {
   }
   return content ? panel("Gerätevorfälle", content) : "";
 }
+function copyForm() {
+  return popupForm(
+    "copy",
+    "Veranstaltung kopieren",
+    "<p>Quelle <strong>" +
+      esc(s.event.Name) +
+      "</strong></p>" +
+      field("name", "Name der neuen Veranstaltung", "text", true) +
+      (years.length
+        ? select(
+            "year",
+            "Zielgeschäftsjahr",
+            years.filter((y) => !y.Closed).map((y) => [y.ID, y.Name]),
+            s.event.Year,
+          )
+        : "") +
+      "<fieldset><legend>Struktur übernehmen</legend>" +
+      [
+        ["bar", "Bars"],
+        ["wallet", "Geldtaschen"],
+        ["shift", "Schichten"],
+        ["price", "Preisentwürfe"],
+        ["template", "Vorlagen"],
+      ]
+        .map(
+          ([k, l]) =>
+            '<label><input type="checkbox" checked name="copy_' +
+            k +
+            '">' +
+            l +
+            "</label>",
+        )
+        .join("") +
+      "</fieldset>" +
+      field("start", "Neuer Beginn", "date", true, s.event.Starts) +
+      field("end", "Neues Ende", "date", true, s.event.Ends),
+    "Struktur und Preisentwürfe kopieren",
+  );
+}
 function devicePage() {
   const conflicts = s.conflicts
     .map((c) => {
@@ -707,9 +777,14 @@ function devicePage() {
                       ])
                     : "") +
                   (s.accounts &&
-                  ["transfer", "payout", "supply", "skim", "return"].includes(
-                    c.Kind,
-                  )
+                  [
+                    "transfer",
+                    "payout",
+                    "supply",
+                    "skim",
+                    "return",
+                    "cashback",
+                  ].includes(c.Kind)
                     ? refs("destination", "Zielkonto für Klärung (optional)", [
                         "account",
                         "wallet",
@@ -811,17 +886,10 @@ function devicePage() {
           )
           .join(""),
     ) +
-    (s.role === "Admin"
+    (s.role === "Admin" && !s.event.General
       ? panel(
           "Veranstaltung verwalten",
-          popupForm(
-            "copy",
-            "Veranstaltung kopieren",
-            field("name", "Name der neuen Veranstaltung", "text", true) +
-              field("start", "Neuer Beginn", "date", true, s.event.Starts) +
-              field("end", "Neues Ende", "date", true, s.event.Ends),
-            "Struktur und Preisentwürfe kopieren",
-          ) +
+          copyForm() +
             esc(syncDetail) +
             (s.closed
               ? popupForm(
@@ -879,7 +947,11 @@ function formFields(k, countPhase = "") {
   let f =
     field(
       "Label",
-      "Bezeichnung",
+      k === "expense"
+        ? "Wofür?"
+        : k === "contact"
+          ? "Name / Firma"
+          : "Bezeichnung",
       "text",
       true,
       walletTopUp
@@ -905,6 +977,22 @@ function formFields(k, countPhase = "") {
       '<input name="amount" inputmode="decimal" required placeholder="0,00">',
     );
   if (k === "period") f += field("To", "Periodenende", "date", true);
+  if (k === "expense") {
+    const issuers = [
+      ...new Set(
+        rows()
+          .filter((r) => r.Kind === "expense")
+          .map((r) => r.Data.Fields?.issuer)
+          .filter(Boolean),
+      ),
+    ].sort();
+    f += label(
+      "Rechnungssteller",
+      '<input name="field_issuer" list="expense-issuers" maxlength="200"><datalist id="expense-issuers">' +
+        issuers.map((v) => option(v, v)).join("") +
+        "</datalist>",
+    );
+  }
   if (
     ![
       "bar",
@@ -930,6 +1018,7 @@ function formFields(k, countPhase = "") {
       "plan",
       "supply",
       "skim",
+      "cashback",
       "return",
       "income",
       "presale",
@@ -987,7 +1076,7 @@ function formFields(k, countPhase = "") {
       (s.donorAccess
         ? field("field_birth", "Geburtsdatum für die Spendenprüfung", "date")
         : "");
-  if (["card", "fee", "payout"].includes(k))
+  if (["card", "fee", "payout", "cashback"].includes(k))
     f += field(
       "field_provider",
       "Kartenanbieter / Abrechnungskreis",
@@ -1032,6 +1121,10 @@ function formFields(k, countPhase = "") {
     );
   if (k === "sponsorship")
     f +=
+      select("field_claimType", "Forderungsart", [
+        ["sponsor", "Sponsoring"],
+        ["invoice", "Ausgangsrechnung"],
+      ]) +
       label(
         "Rechnungspositionen (optional, eine pro Zeile: Menge | Leistung | Einzelpreis)",
         '<textarea name="positions"></textarea>',
@@ -1051,9 +1144,22 @@ function formFields(k, countPhase = "") {
       field("field_unitA", "Einheit laut erster Quelle (bei Klärung)") +
       field("field_unitB", "Abweichende Quellenangabe") +
       field("field_unitReason", "Begründung für die geklärte Ausgabeeinheit");
-  if (k === "contact")
-    f += field("Address", "Anschrift") + field("Category", "Person / Firma");
-  if (monetary.has(k) && k !== "price") {
+  if (k === "contact") {
+    const legacy =
+      edit?.Data.Address &&
+      !edit.Data.Fields?.street &&
+      !edit.Data.Fields?.town &&
+      !edit.Data.Fields?.zip;
+    f +=
+      (legacy
+        ? label("Bisherige Anschrift", '<textarea name="Address"></textarea>')
+        : "") +
+      field("field_street", "Straße und Hausnummer") +
+      field("field_zip", "PLZ") +
+      field("field_town", "Ort") +
+      field("Category", "Person / Firma");
+  }
+  if (monetary.has(k) && k !== "price" && k !== "cashback") {
     const sourceLabel = walletTopUp
       ? "Entnommen aus (Quelle)"
       : "Konto / Quelle";
@@ -1073,11 +1179,20 @@ function formFields(k, countPhase = "") {
   }
   if (
     !walletTopUp &&
-    ["transfer", "payout", "supply", "skim", "return"].includes(k)
+    ["transfer", "payout", "supply", "skim", "return", "cashback"].includes(k)
   )
     f += s.event.Accounts
-      ? refs("To", "Zielkonto", ["account", "wallet"])
-      : field("To", "Zielkonto", "text", true);
+      ? refs(
+          "To",
+          k === "cashback" ? "Terminal-Verrechnungskonto" : "Zielkonto",
+          k === "cashback" ? ["account"] : ["account", "wallet"],
+        )
+      : field(
+          "To",
+          k === "cashback" ? "Terminal-Verrechnungskonto" : "Zielkonto",
+          "text",
+          true,
+        );
   if (
     [
       "income",
@@ -1104,6 +1219,7 @@ function formFields(k, countPhase = "") {
       "card",
       "supply",
       "skim",
+      "cashback",
       "return",
     ].includes(k)
   )
@@ -1366,7 +1482,9 @@ function records() {
           " " +
           (r.Data.Bar || "") +
           " " +
-          (r.Data.Category || "")
+          (r.Data.Category || "") +
+          " " +
+          (r.Data.Fields?.issuer || "")
         )
           .toLowerCase()
           .includes(filter.toLowerCase())),
@@ -1376,11 +1494,11 @@ function records() {
     const balances = new Map();
     for (const r of rows()) {
       const provider = r.Data.Fields?.provider;
-      if (provider && ["card", "fee", "payout"].includes(r.Kind))
+      if (provider && ["card", "fee", "payout", "cashback"].includes(r.Kind))
         balances.set(
           provider,
           (balances.get(provider) || 0) +
-            (r.Kind === "card" ? 1 : -1) * r.Data.Amount,
+            (["card", "cashback"].includes(r.Kind) ? 1 : -1) * r.Data.Amount,
         );
     }
     detail = [...balances]
@@ -1512,6 +1630,33 @@ function records() {
     );
   if (page === "Geldtaschen") {
     const plan = denominationNeeds(rows()).filter((r) => r.need || r.stock);
+    const starts = rows().filter(
+        (r) => r.Kind === "count" && r.Data.Phase === "Anfang",
+      ),
+      plans = rows().filter(
+        (r) => r.Kind === "plan" && r.Data.Phase === "Anfang",
+      );
+    const needed =
+      starts.some((r) => r.Data.Fields?.countScope === "all") && !plans.length
+        ? starts
+        : [
+            ...plans,
+            ...starts.filter(
+              (r) =>
+                r.Data.Fields?.countScope !== "all" &&
+                !plans.some((p) => p.Data.Wallet === r.Data.Wallet),
+            ),
+          ];
+    if (needed.length)
+      detail += panel(
+        "Wechselgeld vorbereiten",
+        "<p>Benötigter Betrag · <strong>" +
+          eur(needed.reduce((sum, r) => sum + (r.Data.Amount ?? 0), 0)) +
+          "</strong></p>" +
+          (needed.some((r) => !r.Data.Pieces)
+            ? "<p>Für einen Teilbetrag sind die Stückzahlen offen.</p>"
+            : ""),
+      );
     if (plan.length)
       detail += panel(
         "Wechselgeld über alle Geldtaschen",
@@ -1551,6 +1696,9 @@ function records() {
     );
   }
   return (
+    (page === "Perioden" && !s.event.General
+      ? festivalPanel(rows()) + walletSettlementSummary(rows())
+      : "") +
     (page === "Geldtaschen" ? walletSettlementSummary(rows()) : "") +
     "<section>" +
     panelHeading(
@@ -2184,73 +2332,259 @@ async function proofDocument(editing) {
     throw err;
   }
 }
+async function openRecordDocument(trigger) {
+  const id = trigger.dataset.recordDocument;
+  let row = rows().find((r) => r.ID === id);
+  if (row.Kind === "donation" && !s.donorAccess) {
+    donorAccess = true;
+    try {
+      await sync();
+    } catch (err) {
+      donorAccess = false;
+      throw err;
+    }
+    row = rows().find((r) => r.ID === id);
+  }
+  const i = { sponsorship: 0, payment: 11, donation: 12 }[row.Kind];
+  const existing = rows()
+    .filter(
+      (r) =>
+        r.Kind === "original" &&
+        r.Data.Reference === id &&
+        (r.Data.Fields?.series === "confirmation") === i >= 11,
+    )
+    .sort((a, b) => b.Data.Number - a.Data.Number)[0];
+  if (existing) {
+    const key = esc(existing.ID);
+    openEditor(
+      trigger,
+      existing.Data.Label + " · Nr. " + existing.Data.Number,
+      '<div class="actions">' +
+        ["PDF", "DOCX"]
+          .map(
+            (ext) =>
+              '<button type="button" data-file="' +
+              key +
+              '" data-format="' +
+              ext +
+              '">' +
+              ext +
+              " speichern</button>",
+          )
+          .join("") +
+        (navigator.canShare?.({
+          files: [new File([""], "Beleg.pdf", { type: "application/pdf" })],
+        })
+          ? '<button type="button" data-share-original="' +
+            key +
+            '">PDF teilen</button>'
+          : "") +
+        "</div>",
+    );
+    return;
+  }
+  const hidden = (name, value) =>
+    '<input type="hidden" name="' +
+    name +
+    '" value="' +
+    esc(String(value)) +
+    '">';
+  const name = trigger.textContent;
+  const content =
+    "<p>" +
+    esc(row.Data.Label) +
+    " · " +
+    esc(row.Data.Date) +
+    " · <strong>" +
+    eur(row.Data.Amount) +
+    "</strong></p>";
+  const inputs =
+    hidden("subject", id) +
+    hidden("profile", i) +
+    hidden("version", "active") +
+    hidden("format", writableWorkspace() ? "Original" : "PDF") +
+    (i === 12 ? refs("recipient", "Empfänger", ["contact"]) : "") +
+    '<div class="document-preview" data-receipt-preview></div>';
+  openEditor(
+    trigger,
+    name,
+    content +
+      form(
+        "export",
+        inputs,
+        writableWorkspace() ? "Original ausstellen" : "PDF-Vorschau speichern",
+      ),
+  );
+  const f = entryDialog.querySelector("form");
+  f.dataset.event = s.event.ID;
+  if (f.elements.recipient) f.elements.recipient.value = row.Data.Contact || "";
+  const preview = () => {
+    const vals = Object.fromEntries(new FormData(f)),
+      snap = snapshot(i, s, rows(), vals);
+    f.querySelector("[data-receipt-preview]").textContent = [
+      ...(snap.tables?.address || []),
+      snap.tables?.intro || snap.title,
+    ].join(" · ");
+  };
+  f.addEventListener("change", preview);
+  const proof = document.createElement("button");
+  proof.type = "button";
+  proof.textContent = "Druckvorschau";
+  const host = document.createElement("div");
+  f.querySelector("[data-receipt-preview]").after(proof, host);
+  proof.onclick = () =>
+    action(async () => {
+      const snap = snapshot(i, s, rows(), Object.fromEntries(new FormData(f)));
+      host.replaceChildren();
+      await displayProof(host, (await renderDocument(snap)).docx);
+    });
+  f.addEventListener("change", () => host.replaceChildren());
+  preview();
+}
+async function libraryDialog(trigger) {
+  const list = await api("template-library");
+  const builtin = profiles.map((label, i) => ({
+    id: "standard-" + i,
+    label,
+    profile: profileID(i),
+    revision: 0,
+    source: "BONFIRE",
+  }));
+  const releases = [...list, ...builtin],
+    opts = releases.map((t) => [
+      String(t.id),
+      t.source +
+        " · " +
+        t.label +
+        " · " +
+        (t.revision ? "Version " + t.revision : "Standard"),
+    ]);
+  const content =
+    select("release", "Vorlagenstand", opts) +
+    refs("subject", "Fachvorgang für Vorschau", [
+      "sponsorship",
+      "payment",
+      "donation",
+      "count",
+      "plan",
+    ]) +
+    "<p>Ziel · " +
+    esc(s.event.Name) +
+    '</p><div class="actions"><button type="button" data-preview-release>Druckvorschau</button></div><div data-library-proof></div>';
+  openEditor(
+    trigger,
+    "Vorlagenbibliothek",
+    form("library", content, "Vorlage übernehmen"),
+  );
+  const f = entryDialog.querySelector("form");
+  const source = async () => {
+    const t = releases.find((v) => String(v.id) === f.elements.release.value);
+    const v = t.revision
+      ? await api("template-library?id=" + encodeURIComponent(t.id))
+      : { Reference: t.profile, Label: t.label, Fields: {} };
+    return {
+      ...v,
+      Date: today(),
+      Fields: {
+        ...v.Fields,
+        sourceRelease: String(t.id),
+        sourceVersion: t.source + " · " + (t.revision || "Standard"),
+      },
+    };
+  };
+  f.librarySource = source;
+  f.dataset.event = s.event.ID;
+  f.querySelector("[data-preview-release]").onclick = () =>
+    action(async () => {
+      const v = await source(),
+        i = profiles.findIndex((_, i) => profileID(i) === v.Reference);
+      const snap = snapshot(i, { ...s, drafts: { [v.Reference]: v } }, rows(), {
+        version: "draft",
+        subject: f.elements.subject.value,
+      });
+      const host = f.querySelector("[data-library-proof]");
+      host.replaceChildren();
+      await displayProof(host, (await renderDocument(snap)).docx);
+    });
+}
 function docs() {
   const originals = rows().filter((r) => r.Kind === "original");
   return (
     panel(
       "Dokument erstellen",
-      form(
-        "export",
-        select(
-          "profile",
-          "Vorlage",
-          profiles.map((p, i) => [i, p]),
-        ) +
-          refs("subject", "Fachvorgang (je nach Vorlage)", [
-            "sponsorship",
-            "payment",
-            "donation",
-            "count",
-            "plan",
-          ]) +
-          refs("bar", "Bar (für Barbericht)", ["bar"]) +
-          refs("period", "Periode (für Journal und Prüfbericht)", ["period"]) +
-          select("paper", "Gästepreisliste Papier", [
-            ["Profil", "Wie im Vorlagenprofil"],
-            ["Letter", "Letter · Quellenformat"],
-            ["A4", "A4 · alternative Fassung"],
-          ]) +
-          field(
-            "organization",
-            "Organisation",
-            "text",
-            true,
-            rows().find((r) => r.Kind === "organization")?.Data.Label || "",
+      (!offlineEnabled && s.role === "Admin" && writableWorkspace()
+        ? '<div class="actions">' +
+          button("library", "Vorlagenbibliothek", true) +
+          "</div>"
+        : "") +
+        form(
+          "export",
+          select(
+            "profile",
+            "Vorlage",
+            profiles.map((p, i) => [i, p]),
           ) +
-          ((s.priceHistory || []).length
-            ? select("priceVersion", "Preisstand für Karten und Gästeliste", [
-                ["", "Aktuelle freigegebene Preise"],
-                ...[
-                  ...new Map(
-                    s.priceHistory.map((p) => [p.Version, p]),
-                  ).values(),
-                ]
-                  .reverse()
-                  .map((p) => [
-                    String(p.Version),
-                    p.At.slice(0, 19) + " · Stand " + p.Version,
-                  ]),
-              ])
-            : "") +
-          select("version", "Vorlagenstand", [
-            ["active", "Freigegebene Fassung"],
-            ["draft", offlineEnabled ? "Lokaler Entwurf" : "Sitzungsentwurf"],
-          ]) +
-          (writableWorkspace()
-            ? field("revisionReason", "Korrekturgrund (für Ersatzbeleg)")
-            : "") +
-          select("format", "Ausgabe", [
-            ["PDF", "PDF-Arbeitsfassung"],
-            ["DOCX", "DOCX-Arbeitsfassung"],
-            ...(writableWorkspace()
-              ? [
-                  ["Original", "Nummeriertes Original archivieren"],
-                  ["Korrektur", "Begründete Korrekturfassung archivieren"],
-                ]
-              : []),
-          ]),
-        "Dokument erzeugen",
-      ),
+            refs("subject", "Fachvorgang (je nach Vorlage)", [
+              "sponsorship",
+              "payment",
+              "donation",
+              "count",
+              "plan",
+            ]) +
+            refs("bar", "Bar (für Barbericht)", ["bar"]) +
+            refs("period", "Periode (für Journal und Prüfbericht)", [
+              "period",
+            ]) +
+            select("guestCopies", "Gästepreisliste je Blatt", [
+              ["1", "Ganzes Blatt"],
+              ["2", "Zwei Exemplare"],
+            ]) +
+            select("paper", "Gästepreisliste Papier", [
+              ["Profil", "Wie im Vorlagenprofil"],
+              ["Letter", "Letter · Quellenformat"],
+              ["A4", "A4 · alternative Fassung"],
+            ]) +
+            field(
+              "organization",
+              "Organisation",
+              "text",
+              true,
+              rows().find((r) => r.Kind === "organization")?.Data.Label || "",
+            ) +
+            ((s.priceHistory || []).length
+              ? select("priceVersion", "Preisstand für Karten und Gästeliste", [
+                  ["", "Aktuelle freigegebene Preise"],
+                  ...[
+                    ...new Map(
+                      s.priceHistory.map((p) => [p.Version, p]),
+                    ).values(),
+                  ]
+                    .reverse()
+                    .map((p) => [
+                      String(p.Version),
+                      p.At.slice(0, 19) + " · Stand " + p.Version,
+                    ]),
+                ])
+              : "") +
+            select("version", "Vorlagenstand", [
+              ["active", "Freigegebene Fassung"],
+              ["draft", offlineEnabled ? "Lokaler Entwurf" : "Sitzungsentwurf"],
+            ]) +
+            (writableWorkspace()
+              ? field("revisionReason", "Korrekturgrund (für Ersatzbeleg)")
+              : "") +
+            select("format", "Ausgabe", [
+              ["PDF", "PDF-Arbeitsfassung"],
+              ["DOCX", "DOCX-Arbeitsfassung"],
+              ...(writableWorkspace()
+                ? [
+                    ["Original", "Nummeriertes Original archivieren"],
+                    ["Korrektur", "Begründete Korrekturfassung archivieren"],
+                  ]
+                : []),
+            ]),
+          "Dokument erzeugen",
+        ),
     ) +
     panel(
       "Dankesbriefe als Serie",
@@ -2737,6 +3071,9 @@ function closingControls() {
       ? "Alle Veranstaltungen müssen abgeschlossen sein. Beim Bestätigen werden das allgemeine Kassenbuch geprüft und das Geschäftsjahr für Änderungen gesperrt."
       : "Bestände und Abrechnung werden geprüft. Nach dem Abschluss ist der Arbeitsbereich schreibgeschützt.";
   return (
+    (year
+      ? '<button type="button" class="secondary" data-act="yearBalances">Kontenabgleich</button>'
+      : "") +
     popupForm(
       "scope-closure",
       title + " " + verb,
@@ -3372,6 +3709,18 @@ const adminViews = {
 };
 let adminSearch = "",
   passwordTicket = "";
+let accountCatalog,
+  balanceItems = [];
+async function openBalances(trigger) {
+  balanceItems = await api(
+    "year-balances?year=" + encodeURIComponent(selectedYear),
+  );
+  openEditor(
+    trigger,
+    "Kontenabgleich · " + fiscalYear().Name,
+    balanceTable(balanceItems, s.yearClosed),
+  );
+}
 function show() {
   document.body.classList.toggle("auth-screen", !s && !logged);
   notice.textContent = "";
@@ -3391,6 +3740,26 @@ function show() {
     mountAccountSecurity(host, { api }).catch((err) => {
       if (host.isConnected) host.textContent = err.message;
     });
+    return;
+  }
+  if (
+    !offlineEnabled &&
+    logged &&
+    page === "Feuerwehrkonten" &&
+    onlineUser.role === "Admin"
+  ) {
+    const host = document.createElement("div");
+    article.replaceChildren(host);
+    Promise.all([api("fire-accounts"), api("events")])
+      .then(([catalog, spaces]) => {
+        if (!host.isConnected) return;
+        accountCatalog = catalog;
+        allSpaces = spaces;
+        host.innerHTML = fireDirectory(catalog, spaces, years);
+      })
+      .catch((e) => {
+        if (host.isConnected) host.textContent = e.message;
+      });
     return;
   }
   if (!offlineEnabled && logged && canOpenConsole(page, onlineUser.role)) {
@@ -3505,6 +3874,7 @@ function show() {
               "CalendarDays",
             ) +
             eventAdminButtons(s.event) +
+            (s.role === "Admin" ? copyForm() : "") +
             "</div>"
           : "")
       : pageHead(
@@ -3646,6 +4016,30 @@ async function action(fn) {
 async function submit(f) {
   const vals = Object.fromEntries(new FormData(f));
   const id = f.id;
+  if (id === "fire-master" || id === "fire-link" || id === "fire-count") {
+    const body = { ...vals };
+    if (id === "fire-master") {
+      body.Active = vals.Active !== "false";
+      body.Revision = Number(f.dataset.revision || 0);
+      body.ID = f.dataset.master;
+      body.Action = body.ID ? "edit" : "create";
+    }
+    if (id === "fire-link") {
+      body.Action = "link";
+      body.ID = f.dataset.master;
+    }
+    if (id === "fire-count") {
+      Object.assign(body, {
+        Year: selectedYear,
+        ID: f.dataset.master,
+        Action: vals.Action,
+        Revision: Number(f.dataset.revision),
+        Opening: vals.Opening ? cents(vals.Opening) : null,
+        Actual: vals.Actual ? cents(vals.Actual) : null,
+      });
+    }
+    await api("fire-accounts", body);
+  }
   if (id === "pooled-settlement") {
     canWrite();
     if (f.dataset.event !== s.event.ID)
@@ -4002,14 +4396,27 @@ async function submit(f) {
     );
   }
   if (id === "copy") {
-    await api(
+    const copied = await api(
       "manage",
-      { Action: "copy", Target: vals.name, Start: vals.start, End: vals.end },
+      {
+        Action: "copy",
+        Target: vals.name,
+        Start: vals.start,
+        End: vals.end,
+        Year: vals.year || "",
+        CopyKinds: Object.keys(vals)
+          .filter((k) => k.startsWith("copy_"))
+          .map((k) => k.slice(5)),
+      },
       bearer(),
     );
     if (!offlineEnabled) {
       allSpaces = await api("events");
-      events = allSpaces.filter((e) => e.Year === selectedYear);
+      const target = allSpaces.find((e) => e.ID === copied);
+      if (target) {
+        await selectFiscalWorkspace(target.Year, target.ID);
+        page = "Veranstaltungen";
+      }
     }
     syncDetail = "Veranstaltungskopie angelegt.";
   }
@@ -4180,6 +4587,16 @@ async function submit(f) {
         "Das Buchungsziel hat sich geändert. Erfassung schließen und im gewünschten Bereich erneut öffnen.",
       );
     const d = { ...vals };
+    if (kind === "cashback") d.Account = d.Wallet;
+    if (kind === "contact") {
+      const address = [
+        vals.field_street?.trim(),
+        [vals.field_zip?.trim(), vals.field_town?.trim()]
+          .filter(Boolean)
+          .join(" "),
+      ].filter(Boolean);
+      if (address.length) d.Address = address.join("\n");
+    }
     if (edit?.Data.Contact && !("Contact" in vals))
       d.Contact = edit.Data.Contact;
     if (kind === "supply" && vals.To === undefined) {
@@ -4307,6 +4724,8 @@ async function submit(f) {
       (!d.Unit?.trim() || !d.Category)
     )
       throw Error("Einheit und Sortiment vor Freigabe klären.");
+    if (kind === "cashback" && !d.Fields?.provider?.trim())
+      throw Error("Terminal angeben.");
     if (kind === "organization" && s.role !== "Admin")
       throw Error("Adminrechte erforderlich.");
     if (kind === "count" && d.Status === "Bestätigt")
@@ -4443,6 +4862,18 @@ async function submit(f) {
     };
     await commit(next);
   }
+  if (id === "library") {
+    canWrite();
+    if (f.dataset.event !== s.event.ID)
+      throw Error("Arbeitsbereich hat gewechselt.");
+    const v = await f.librarySource(),
+      target = "template:" + v.Reference,
+      old = rows().find((r) => r.ID === target);
+    await queue("template", v, target, old?.Revision ?? 0);
+    await sync();
+    if (s.conflicts.some((c) => c.Target === target))
+      throw Error("Vorlagenstand wurde zwischenzeitlich geändert.");
+  }
   if (id === "importTemplate") {
     const text = await importTemplate(vals.file);
     const next = structuredClone(s);
@@ -4539,12 +4970,14 @@ async function submit(f) {
     });
   }
   if (id === "export") {
+    if (f.dataset.event && f.dataset.event !== s.event.ID)
+      throw Error("Arbeitsbereich hat gewechselt.");
     const i = Number(vals.profile),
       original = ["Original", "Korrektur"].includes(vals.format);
     let previous;
     if (original) {
       canWrite();
-      if (i === 2 && !s.donorAccess)
+      if ([2, 12].includes(i) && !s.donorAccess)
         throw Error(
           offlineEnabled
             ? "Für nummerierte Spendenbelege ist ein vorbereitetes Belegprofil erforderlich."
@@ -4554,11 +4987,15 @@ async function submit(f) {
         );
       if (vals.version === "draft")
         throw Error("Originalausgabe verlangt die freigegebene Fassung.");
-      if (i > 2 || !vals.subject)
+      if (![0, 1, 2, 11, 12].includes(i) || !vals.subject)
         throw Error(
           "Ein Original benötigt eine Rechnung oder einen Spendenbeleg mit Fachvorgang.",
         );
-      const old = rows().find((r) => r.ID === "original:" + vals.subject);
+      const old = rows().find(
+        (r) =>
+          r.ID ===
+          "original:" + vals.subject + (i >= 11 ? ":confirmation" : ""),
+      );
       if (vals.format === "Korrektur") {
         if (!old || vals.revisionReason.trim().length < 3)
           throw Error(
@@ -4566,7 +5003,10 @@ async function submit(f) {
           );
         previous = rows()
           .filter(
-            (r) => r.Kind === "original" && r.Data.Reference === vals.subject,
+            (r) =>
+              r.Kind === "original" &&
+              r.Data.Reference === vals.subject &&
+              (r.Data.Fields?.series === "confirmation") === i >= 11,
           )
           .sort((a, b) => b.Data.Number - a.Data.Number)[0].Data.Number;
       }
@@ -4627,12 +5067,16 @@ async function submit(f) {
         DOCX: await b64(blobs.docx),
         Note: JSON.stringify(snap),
       };
+      if (i >= 11) d.Fields.series = "confirmation";
       next.ops.push({
         LocalTime: new Date().toISOString(),
         ID: crypto.randomUUID(),
         Seq: ++next.seq,
         Target:
-          "original:" + vals.subject + (previous ? ":after:" + previous : ""),
+          "original:" +
+          vals.subject +
+          (i >= 11 ? ":confirmation" : "") +
+          (previous ? ":after:" + previous : ""),
         Base: 0,
         Kind: "original",
         Data: d,
@@ -4650,6 +5094,15 @@ async function submit(f) {
   }
   show();
 }
+document.addEventListener("change", (e) => {
+  if (e.target.form?.id === "copy" && e.target.name === "year") {
+    const y = years.find((y) => y.ID === e.target.value);
+    if (y) {
+      e.target.form.elements.start.value = y.Starts;
+      e.target.form.elements.end.value = y.Starts;
+    }
+  }
+});
 document.addEventListener("submit", (e) => {
   if (e.target.closest(".admin-console")) return;
   e.preventDefault();
@@ -4790,13 +5243,122 @@ document.addEventListener("click", (e) => {
   }
   if (
     !b ||
-    (b.type === "submit" &&
+    (b.form &&
+      b.type === "submit" &&
       !b.dataset.page &&
       !b.dataset.edit &&
       !b.dataset.file)
   )
     return;
   if (busy) return;
+  if (b.dataset.masterEdit || b.dataset.masterLink) {
+    const id = b.dataset.masterEdit || b.dataset.masterLink;
+    const master = accountCatalog.accounts.find((a) => a.ID === id);
+    if (b.dataset.masterLink) {
+      const spaces = allSpaces.filter(
+        (e) =>
+          !e.Closed && e.Year && !years.find((y) => y.ID === e.Year)?.Closed,
+      );
+      if (!spaces.length) {
+        notice.textContent = "Kein offener Arbeitsbereich vorhanden.";
+        return;
+      }
+      openEditor(
+        b,
+        "Feuerwehrkonto zuordnen · " + master.Name,
+        form(
+          "fire-link",
+          select(
+            "Event",
+            "Arbeitsbereich",
+            spaces.map((e) => [
+              e.ID,
+              (years.find((y) => y.ID === e.Year)?.Name || "") + " · " + e.Name,
+            ]),
+          ) + select("Local", "Lokales Konto", []),
+          "Zuordnen",
+        ),
+      );
+      const f = entryDialog.querySelector("form");
+      f.dataset.master = id;
+      const refresh = () => {
+        f.elements.Local.innerHTML =
+          option("", "Neues Arbeitsbereichskonto anlegen") +
+          accountCatalog.locals
+            .filter((l) => l.Event === f.elements.Event.value && !l.Master)
+            .map((l) => option(l.ID, l.Name))
+            .join("");
+      };
+      f.elements.Event.onchange = refresh;
+      refresh();
+    } else {
+      openEditor(
+        b,
+        master ? "Feuerwehrkonto bearbeiten" : "Feuerwehrkonto anlegen",
+        form(
+          "fire-master",
+          field("Name", "Kontoname", "text", true, master?.Name || "") +
+            (master
+              ? select("Active", "Status", [
+                  ["true", "Aktiv"],
+                  ["false", "Inaktiv"],
+                ])
+              : ""),
+          "Speichern",
+        ),
+      );
+      const f = entryDialog.querySelector("form");
+      f.dataset.master = master?.ID || "";
+      f.dataset.revision = master?.Revision || 0;
+      if (master) f.elements.Active.value = String(master.Active);
+    }
+    return;
+  }
+  if (b.dataset.balanceLines || b.dataset.yearCount) {
+    const v = balanceItems.find(
+      (x) => x.ID === (b.dataset.balanceLines || b.dataset.yearCount),
+    );
+    if (!v) return;
+    if (b.dataset.balanceLines) {
+      openEditor(
+        b,
+        v.Name,
+        balanceLines(v) +
+          '<button type="button" data-act="yearBalances">Zurück zum Kontenabgleich</button>',
+      );
+      return;
+    }
+    const val = (n) => (n == null ? "" : (n / 100).toFixed(2));
+    openEditor(
+      b,
+      "Jahresbestände · " + v.Name,
+      form(
+        "fire-count",
+        select("Action", "Anfangsbestand", [
+          ["count", "Händisch"],
+          ...(v.PriorActual != null
+            ? [["carry", "Vorjahresstand übernehmen · " + eur(v.PriorActual)]]
+            : []),
+        ]) +
+          field("Opening", "Anfang in EUR", "text", false, val(v.Opening)) +
+          field(
+            "Actual",
+            "Gezählter Iststand / Kontoauszug in EUR",
+            "text",
+            false,
+            val(v.Actual),
+          ),
+        "Bestände speichern",
+      ),
+    );
+    const f = entryDialog.querySelector("form");
+    f.dataset.master = v.ID;
+    f.dataset.revision = v.Revision;
+    f.elements.Action.onchange = () => {
+      f.elements.Opening.disabled = f.elements.Action.value === "carry";
+    };
+    return;
+  }
   if (b.dataset.denomination) {
     const input = b.form.elements["coin" + b.dataset.denomination];
     const next = Number(input.value) + Number(b.dataset.step);
@@ -4965,6 +5527,26 @@ document.addEventListener("click", (e) => {
     return;
   }
   action(async () => {
+    if (b.dataset.recordDocument) {
+      await openRecordDocument(b);
+      return;
+    }
+    if (b.dataset.shareOriginal) {
+      const row = rows().find((r) => r.ID === b.dataset.shareOriginal);
+      const file = new File(
+        [from64(row.Data.PDF, "application/pdf")],
+        "Beleg-" + row.Data.Number + ".pdf",
+        { type: "application/pdf" },
+      );
+      if (!navigator.canShare?.({ files: [file] }))
+        throw Error("PDF speichern und als Anhang öffnen.");
+      try {
+        await navigator.share({ files: [file], title: row.Data.Label });
+      } catch (err) {
+        if (err.name !== "AbortError") throw err;
+      }
+      return;
+    }
     if (b.dataset.claimInvoice && page === "Zahlungen") {
       page = "Dokumente";
       show();
@@ -5108,6 +5690,12 @@ document.addEventListener("click", (e) => {
       return;
     }
     switch (b.dataset.act) {
+      case "library":
+        await libraryDialog(b);
+        return;
+      case "yearBalances":
+        await openBalances(b);
+        return;
       case "viewDonors":
         donorAccess = true;
         try {

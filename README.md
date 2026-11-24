@@ -1,5 +1,14 @@
 # BONFIRE · Feuerwehrfinanzen
 
+### Kassenalltag der beiden Kassiere
+
+- Im **Kassenbuch** oder unter **Veranstaltung → Zahlungen & Kosten** bei einer Ausgabe Rechnungssteller und Einkaufszweck erfassen. Im Filter findet die Suche auch den Rechnungssteller. Die zentrale Kontaktpflege führt Straße und Hausnummer sowie PLZ und Ort. Bestehende Anschriften lassen sich weiterhin verwenden.
+- Unter **Verwaltung → Feuerwehrkonten** legt ein Admin Handkassa, Bank- und Sparkonten an und ordnet ihnen die jeweiligen Konten der Arbeitsbereiche zu. Bei aktivierter Kontozuordnung erscheinen sie im Buchungsdialog. **Kassenbuch → Abschluss → Kontenabgleich** zeigt die Bewegungen je Konto und den Abgleich mit Kassensturz oder Kontoauszug. Unter **Bestände erfassen** lässt sich der bestätigte Vorjahresstand als Anfang übernehmen.
+- Unter **Geldtaschen** erscheint der Wechselgeldbedarf aus Plänen und erfassten Anfangsbeständen. Bei **Zahlungen & Kosten → Bargeld an Gast auszahlen** Geldtasche, Terminal-Verrechnungskonto und Anbieter wählen. Die spätere Anbieterauszahlung auf das Bankkonto und eine Gebühr getrennt erfassen. **Veranstaltung → Abschluss → Festabrechnung** verbindet die Zählungen mit Vorverkauf, bezahlten Forderungen, Spenden und Kosten. Jede Ergebniszeile zeigt ihre Quellen.
+- Bei einer Forderung kann die Forderungsart **Ausgangsrechnung** gewählt werden. In der Buchungszeile **Rechnung**, **Zahlung bestätigen** oder **Spendenbeleg** öffnen. Der allgemeine Spendenbeleg ist eine eigene Bestätigung. Das A6-Profil für die Sammlung bleibt im Dokumentenbereich verfügbar. Nach der Ausgabe öffnet derselbe Knopf das archivierte Original für PDF, DOCX und auf unterstützten Geräten die PDF-Dateifreigabe.
+- Im Dokumentenbereich zeigt **Vorlagenbibliothek** die Standardprofile und gespeicherte Freigaben mit Quelle und Version. Ein Admin kann den ausgewählten Stand im aktuellen Arbeitsbereich übernehmen. Für die Gästepreisliste stehen ein oder zwei Exemplare auf A4 oder Letter zur Wahl. **Veranstaltung kopieren** zeigt das Quellfest und übernimmt die ausgewählten Strukturdaten in das Zielgeschäftsjahr.
+
+
 Lokale Entwicklungsinstallation für eine Feuerwehr mit einer zuständigen PostgreSQL-Datenbank. Der Lieferstand und die Grenzen der Finanz-, Offline- und Vorlagenfunktionen stehen in [der Statusmatrix](docs/IMPLEMENTIERUNGSSTATUS.csv), in der [Einzelprüfung der 111 Akzeptanzkriterien](docs/AKZEPTANZ.csv) und im [Prüfbericht](docs/ABNAHME.md).
 
 ## Lokaler Start

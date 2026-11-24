@@ -13,6 +13,7 @@ export const types = {
   outlay: "Privatauslage",
   reimbursement: "Erstattung",
   card: "Kartenumsatz brutto",
+  cashback: "Bargeld an Gast auszahlen",
   fee: "Anbietergebühr",
   payout: "Anbieterauszahlung",
   presale: "Vorverkauf",
@@ -54,6 +55,7 @@ export const groups = {
     "card",
     "fee",
     "payout",
+    "cashback",
     "presale",
     "attachment",
     "paper",
@@ -83,7 +85,7 @@ export const denom = [
   20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50, 20, 10, 5, 2, 1,
 ];
 export const monetary = new Set(
-  "income expense refund deposit deposit-return transfer outlay reimbursement card fee payout presale opening actual supply skim return sponsorship payment donation price".split(
+  "income expense refund deposit deposit-return transfer outlay reimbursement card fee payout cashback presale opening actual supply skim return sponsorship payment donation price".split(
     " ",
   ),
 );
@@ -177,8 +179,8 @@ export function journalMatches(row, filters) {
 }
 function cashAdjustment({ Kind, Data: v }, includes, pooled = false) {
   if (v.Amount == null || (v.Method && v.Method !== "Bar")) return 0;
-  if (["supply", "skim", "transfer"].includes(Kind)) {
-    const from = Kind === "skim" ? v.Wallet : v.Account;
+  if (["supply", "skim", "transfer", "cashback"].includes(Kind)) {
+    const from = Kind === "skim" || Kind === "cashback" ? v.Wallet : v.Account;
     const to = Kind === "supply" ? v.Wallet : v.To;
     return v.Amount * (Number(includes(from)) - Number(includes(to)));
   }
@@ -260,8 +262,18 @@ export function denominationNeeds(rows) {
   const plans = rows.filter(
     (r) => r.Kind === "plan" && r.Data.Phase === "Anfang",
   );
+  const withCounts = [
+    ...plans,
+    ...rows.filter(
+      (r) =>
+        r.Kind === "count" &&
+        r.Data.Phase === "Anfang" &&
+        !plans.some((p) => p.Data.Wallet === r.Data.Wallet) &&
+        (!plans.length || r.Data.Fields?.countScope !== "all"),
+    ),
+  ];
   return denom.map((cent) => {
-    const need = plans.reduce(
+    const need = withCounts.reduce(
       (sum, r) => sum + (r.Data.Pieces?.[cent] || 0),
       0,
     );

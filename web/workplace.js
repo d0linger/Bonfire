@@ -125,6 +125,7 @@ export const adminTabs = [
   ["Datenaustausch", "Datenaustausch"],
 ];
 export const consolePages = [
+  ["Feuerwehrkonten", "Landmark"],
   ["Backup", "Database"],
   ["Benutzer", "Users"],
   ["Audit-Log", "FileText"],
@@ -260,7 +261,9 @@ export const recordKinds = (p, online = false) =>
     Zahlungen: online
       ? [...groups.Journal, "sponsorship", "payment", "donation"]
       : groups.Journal,
-    Journal: online ? [...groups.Journal, "donation"] : groups.Journal,
+    Journal: online
+      ? [...groups.Journal, "donation", "sponsorship", "payment"]
+      : groups.Journal,
     Verwaltung: ["organization"],
   })[p] ||
   groups[p] ||

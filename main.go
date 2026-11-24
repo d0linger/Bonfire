@@ -385,7 +385,7 @@ func initialize(ctx context.Context, db *pgxpool.Pool) error {
 	if err = applyUpgrade(ctx, tx, 17, "migrations/017.sql"); err != nil {
 		return err
 	}
-	for version := 18; version <= 27; version++ {
+	for version := 18; version <= 28; version++ {
 		if err = applyUpgrade(ctx, tx, version, fmt.Sprintf("migrations/%03d.sql", version)); err != nil {
 			return err
 		}
@@ -434,6 +434,10 @@ func main() {
 	mux.HandleFunc("GET /api/years", route(a.years))
 	mux.HandleFunc("POST /api/years", route(a.years))
 	mux.HandleFunc("POST /api/years/edit", route(a.editYear))
+	mux.HandleFunc("GET /api/template-library", route(a.templateLibrary))
+	mux.HandleFunc("GET /api/fire-accounts", route(a.fireAccounts))
+	mux.HandleFunc("POST /api/fire-accounts", route(a.fireAccounts))
+	mux.HandleFunc("GET /api/year-balances", route(a.yearBalances))
 	mux.HandleFunc("POST /api/years/assign", route(a.assignYear))
 	mux.HandleFunc("POST /api/events", route(a.events))
 	mux.HandleFunc("POST /api/events/edit", route(a.editEvent))

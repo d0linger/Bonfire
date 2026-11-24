@@ -69,12 +69,22 @@ func checkYearEvents(ctx context.Context, tx pgx.Tx, year string) error {
 func checkOpenPayments(entries []row) error {
 	var outlays int64
 	claims := map[string]int64{}
+	providers := map[string]int64{}
+	cashbacks := map[string]bool{}
 	for _, r := range entries {
 		if r.Data.Amount == nil {
 			continue
 		}
 		n := *r.Data.Amount
 		switch r.Kind {
+		case "card", "cashback":
+			provider := r.Data.Fields["provider"]
+			providers[provider] += n
+			if r.Kind == "cashback" {
+				cashbacks[provider] = true
+			}
+		case "payout", "fee":
+			providers[r.Data.Fields["provider"]] -= n
 		case "outlay":
 			outlays += n
 		case "reimbursement":
@@ -87,12 +97,17 @@ func checkOpenPayments(entries []row) error {
 			claims[r.Data.Reference] -= n
 		}
 	}
+	for provider := range cashbacks {
+		if providers[provider] != 0 {
+			return fail("Offene Terminalabrechnung zuerst klären: " + provider)
+		}
+	}
 	if outlays != 0 {
 		return fail("Offene Privatauslagen zuerst abrechnen.")
 	}
 	for _, balance := range claims {
 		if balance > 0 {
-			return fail("Offene Sponsoringforderungen zuerst klären.")
+			return fail("Offene Forderungen zuerst klären.")
 		}
 	}
 	return nil

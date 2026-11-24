@@ -22,11 +22,11 @@ func cashAdjustment(r row, includes func(string) bool, pooled bool) int64 {
 	n := *v.Amount
 	var adjustment int64
 	switch r.Kind {
-	case "supply", "skim", "transfer":
+	case "supply", "skim", "transfer", "cashback":
 		from, to := v.Account, v.To
 		if r.Kind == "supply" {
 			to = v.Wallet
-		} else if r.Kind == "skim" {
+		} else if r.Kind == "skim" || r.Kind == "cashback" {
 			from = v.Wallet
 		}
 		if includes(from) {
@@ -150,8 +150,20 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 			return false, err
 		}
 	}
-	if o.Kind == "card" || o.Kind == "fee" || o.Kind == "payout" {
+	if o.Kind == "card" || o.Kind == "fee" || o.Kind == "payout" || o.Kind == "cashback" {
 		key := strings.TrimSpace(v.Fields["provider"])
+		if o.Kind == "cashback" && (key == "" || v.Wallet == "" || v.Account != v.Wallet || v.Method != "" && v.Method != "Bar") {
+			return false, fail("Terminal, auszahlende Geldtasche und Terminal-Verrechnungskonto angeben.")
+		}
+		if o.Kind == "cashback" && d.Accounts {
+			var terminal bool
+			if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT FROM entries WHERE event=$1 AND id=$2 AND kind='account')", d.Event, v.To).Scan(&terminal); err != nil {
+				return false, err
+			}
+			if !terminal {
+				return false, fail("Ein Konto für die Terminalabrechnung auswählen.")
+			}
+		}
 		var priorKey string
 		if o.Base > 0 {
 			if err := tx.QueryRow(ctx, "SELECT coalesce(data->'Fields'->>'provider','') FROM entries WHERE event=$1 AND id=$2", d.Event, o.Target).Scan(&priorKey); err != nil {
@@ -163,11 +175,11 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 		}
 		if key != "" {
 			var balance int64
-			err := tx.QueryRow(ctx, "SELECT coalesce(sum(CASE kind WHEN 'card' THEN 1 ELSE -1 END*(data->>'Amount')::bigint),0)::bigint FROM entries WHERE event=$1 AND kind IN ('card','fee','payout') AND data->'Fields'->>'provider'=$2 AND id<>$3", d.Event, key, o.Target).Scan(&balance)
+			err := tx.QueryRow(ctx, "SELECT coalesce(sum(CASE WHEN kind IN ('card','cashback') THEN 1 ELSE -1 END*(data->>'Amount')::bigint),0)::bigint FROM entries WHERE event=$1 AND kind IN ('card','fee','payout','cashback') AND data->'Fields'->>'provider'=$2 AND id<>$3", d.Event, key, o.Target).Scan(&balance)
 			if err != nil {
 				return false, err
 			}
-			if o.Kind == "card" {
+			if o.Kind == "card" || o.Kind == "cashback" {
 				balance += *v.Amount
 			} else {
 				balance -= *v.Amount
@@ -346,22 +358,31 @@ func validateSettlement(rows []row) error {
 	return nil
 }
 
-func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name, start, end string) (string, error) {
+func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name, start, end, year string, kinds []string) (string, error) {
 	if d.Role != roleAdmin || len(name) == 0 || len(name) > 160 {
 		return "", fail("Name und Adminrecht erforderlich.")
 	}
 	if (start != "" || end != "") && (!date(start) || !date(end) || end < start) {
 		return "", fail("Gültigen Zielzeitraum angeben.")
 	}
+	allowed := strings.Fields("bar wallet shift price template")
+	if kinds == nil {
+		kinds = allowed
+	}
+	for _, k := range kinds {
+		if !slices.Contains(allowed, k) {
+			return "", fail("Unbekannter Kopierumfang.")
+		}
+	}
 	id := uuid()
 	err := tx.QueryRow(ctx, `WITH source AS (
 		SELECT accounts,fiscal_year,coalesce(nullif($4,'')::date,starts) AS starts,
-		coalesce(nullif($5,'')::date,ends) AS ends FROM events WHERE id=$3
+		coalesce(nullif($5,'')::date,ends) AS ends FROM events WHERE id=$3 AND (NOT general_ledger OR $6)
 	) INSERT INTO events(id,name,starts,ends,accounts,fiscal_year)
 		SELECT $1,$2,s.starts,s.ends,s.accounts,y.id FROM source s LEFT JOIN fiscal_years y
 		ON y.starts<=s.starts AND y.ends>=s.ends
-		WHERE y.id IS NOT NULL OR (s.fiscal_year IS NULL AND $6)
-		RETURNING starts::text`, id, name, d.Event, start, end, offlineEnabled()).Scan(&start)
+		WHERE (y.id IS NOT NULL OR (s.fiscal_year IS NULL AND $6)) AND ($7='' OR y.id::text=$7)
+		RETURNING starts::text`, id, name, d.Event, start, end, offlineEnabled(), year).Scan(&start)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", fail("Für den Zielzeitraum zuerst ein passendes Geschäftsjahr anlegen.")
 	}
@@ -371,7 +392,7 @@ func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name, start, e
 	if err = checkYearSetup(ctx, tx, id); err != nil {
 		return "", err
 	}
-	rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event=$1 AND kind IN ('bar','wallet','price','template','shift') AND NOT coalesce((data->>'Retired')::boolean,false)", d.Event)
+	rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event=$1 AND kind=ANY($2::text[]) AND NOT coalesce((data->>'Retired')::boolean,false)", d.Event, kinds)
 	if err != nil {
 		return "", err
 	}
@@ -436,7 +457,7 @@ func (a *app) globalPeriod(ctx context.Context, tx pgx.Tx, d device, start, end 
 	}
 	rows, err := tx.Query(ctx, `SELECT e.name AS veranstaltung,j.kind AS art,j.data->>'Date' AS datum,j.data->>'Label' AS bezeichnung,(j.data->>'Amount')::bigint AS cent
 		FROM entries j JOIN events e ON e.id=j.event WHERE j.data->>'Date' BETWEEN $1 AND $2
-		AND j.kind IN ('income','expense','refund','deposit','deposit-return','donation','payment','presale','card','fee','reimbursement','outlay','transfer','payout','supply','skim','return')
+		AND j.kind IN ('income','expense','refund','deposit','deposit-return','donation','payment','presale','card','fee','reimbursement','outlay','transfer','payout','supply','skim','return','cashback')
 		AND ($3='Admin' OR e.id IN (SELECT event FROM grants_event WHERE username=$4))
 		AND ($5::uuid IS NULL OR e.fiscal_year=$5) ORDER BY datum,e.name,j.id`, start, end, d.Role, d.User, year)
 	if err != nil {
@@ -445,7 +466,7 @@ func (a *app) globalPeriod(ctx context.Context, tx pgx.Tx, d device, start, end 
 	return pgx.CollectRows(rows, pgx.RowToMap)
 }
 
-var journalKinds = strings.Fields("income expense refund deposit deposit-return transfer payment donation reimbursement card fee payout presale supply skim return")
+var journalKinds = strings.Fields("income expense refund deposit deposit-return transfer payment donation reimbursement card fee payout presale supply skim return cashback")
 
 func retainPrior(ctx context.Context, tx pgx.Tx, d device, o op) error {
 	if !slices.Contains(journalKinds, o.Kind) {

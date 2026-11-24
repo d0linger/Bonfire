@@ -1,3 +1,4 @@
+import { guestSheets } from "./guest-sheets.js";
 import { wordFiles } from "./word-profile.js";
 import { invoiceReference, exportContext } from "./context.js";
 import { t8, t9, t10 } from "bonfire:validators";
@@ -33,7 +34,12 @@ export const profiles = [
   "Abschlussprüfung",
   "Journal und Belegliste",
 ];
-export const profileID = (i) => contracts[i].id;
+export const profileID = (i) =>
+  i === 11
+    ? "payment_confirmation_a4"
+    : i === 12
+      ? "donation_confirmation_a4"
+      : contracts[i].id;
 const fmt = (value) => (value == null ? "Offen" : String(value));
 import { pricesAt } from "./price-history.js";
 export function snapshot(index, s, rows, opts) {
@@ -44,6 +50,61 @@ export function snapshot(index, s, rows, opts) {
   }
   const chosen = rows.find((r) => r.ID === opts.subject);
   const v = chosen?.Data || {};
+  if (index === 11 || index === 12) {
+    if (chosen?.Kind !== (index === 11 ? "payment" : "donation"))
+      throw Error("Passenden Zahlungseingang auswählen.");
+    const org = rows.find((r) => r.Kind === "organization")?.Data;
+    const recipient = rows.find(
+      (r) =>
+        r.Kind === "contact" &&
+        r.ID ===
+          (opts.recipient ||
+            v.Contact ||
+            rows.find((p) => p.ID === v.Reference)?.Data.Contact),
+    )?.Data;
+    if (
+      opts.number &&
+      (!org?.Label || !org.Address || !recipient?.Label || !recipient.Address)
+    )
+      throw Error("Anschrift der Feuerwehr und des Empfängers erforderlich.");
+    const title = index === 11 ? "Zahlungsbestätigung" : "Spendenbestätigung";
+    return {
+      index,
+      profile: profileID(index),
+      title,
+      width: 210,
+      height: 297,
+      organization: org?.Label || "Feuerwehr",
+      event: s.event.Name,
+      subject: chosen.ID,
+      date: today(),
+      number: opts.number || null,
+      status: opts.number ? "Original" : "Arbeitsfassung",
+      font: "helvetica",
+      margin: 20,
+      lines: [],
+      context: {},
+      receivedCents: v.Amount,
+      tables: {
+        letter: true,
+        senderAddress: org?.Address || "",
+        address: [
+          recipient?.Label,
+          ...(recipient?.Address || "").split(/\r?\n/),
+        ].filter(Boolean),
+        meta: [today(), opts.number ? "Beleg " + opts.number : "Vorschau"],
+        intro: "Wir bestätigen den Eingang über " + eur(v.Amount) + ".",
+        blocks: [
+          {
+            headers: ["Datum", "Zahlungsart", "Verwendungszweck", "Erhalten"],
+            widths: [30, 32, 76, 32],
+            rows: [[v.Date, v.Method || "—", v.Label, eur(v.Amount)]],
+          },
+        ],
+        after: [org?.Label || "Feuerwehr"],
+      },
+    };
+  }
   const tpl = (s.pinnedTemplates || rows).find(
     (r) => r.Kind === "template" && r.Data.Reference === profileID(index),
   );
@@ -52,7 +113,10 @@ export function snapshot(index, s, rows, opts) {
     tpl?.Data ||
     {};
   const org = rows.find((r) => r.Kind === "organization")?.Data;
-  const title = config.Label || profiles[index];
+  const title =
+    index === 0 && v.Fields?.claimType === "invoice"
+      ? "Rechnung"
+      : config.Label || profiles[index];
   const [width, height] =
     index === 2
       ? [148, 105]
@@ -280,6 +344,7 @@ export function snapshot(index, s, rows, opts) {
     footer: config.Fields?.footer || "",
     wordLayout: index === 6 ? config.File || null : null,
     cardHeader: config.Fields?.header || s.event.Name,
+    guestCopies: index === 5 && Number(opts.guestCopies) === 2 ? 2 : 1,
     copies: Math.min(
       index === 3 ? 3 : 7,
       Math.max(1, Number(config.Fields?.copies) || (index === 3 ? 3 : 7)),
@@ -306,6 +371,7 @@ export function snapshot(index, s, rows, opts) {
   return result;
 }
 export async function render(s) {
+  if (s.index === 5 && s.guestCopies === 2) return guestSheets(s);
   if (s.wordLayout) return wordFiles(s.wordLayout, s.context);
   if (s.tables) return renderTables(s);
   const pdf = new jsPDF({

@@ -67,6 +67,227 @@ const make = (Kind, Label, Amount) => ({
   Kind,
   Data: { Date: date, Label, Amount },
 });
+{
+  const day = "2393-07-01",
+    fy = await call("years", cash, {
+      Name: "Kontenprüfung",
+      Starts: day,
+      Ends: day,
+    });
+  const fest = await call("events", cash, {
+    Year: fy.ID,
+    Name: "Übungsfest Kasse",
+    Starts: day,
+    Ends: day,
+    Accounts: true,
+  });
+  const post = (Ops, status = 200) =>
+    call("online?event=" + fest.ID, cash, { Ops }, status);
+  const bank = await call("fire-accounts", cash, {
+    Action: "create",
+    Name: "Übungsbank " + suffix,
+  });
+  const till = await call("fire-accounts", cash, {
+    Action: "create",
+    Name: "Übungskassa " + suffix,
+  });
+  for (const ID of [bank, till])
+    await call("fire-accounts", cash, { Action: "link", ID, Event: fest.ID });
+  const catalog = await call("fire-accounts", cash);
+  const local = (id) =>
+    catalog.locals.find((r) => r.Master === id && r.Event === fest.ID).ID;
+  const tx = (kind, label, amount, data) => {
+    const op = make(kind, label, amount);
+    Object.assign(op.Data, data, { Date: day });
+    return op;
+  };
+  await post([
+    tx("income", "Einmaliger Festumsatz", 35000, { Account: local(till) }),
+    tx("transfer", "Einzahlung", 30000, {
+      Account: local(till),
+      To: local(bank),
+    }),
+  ]);
+  for (const [ID, Actual] of [
+    [bank, 30000],
+    [till, 5000],
+  ])
+    await call("fire-accounts", cash, {
+      Action: "count",
+      ID,
+      Year: fy.ID,
+      Opening: 0,
+      Actual,
+      Revision: 0,
+    });
+  const balances = await call("year-balances?year=" + fy.ID, cash);
+  for (const [id, expected] of [
+    [bank, 30000],
+    [till, 5000],
+  ])
+    assert.equal(balances.find((b) => b.ID === id).Soll, expected);
+  assert.equal(
+    balances.reduce((n, b) => n + b.Transfers, 0),
+    0,
+  );
+  assert.equal(
+    balances.reduce((n, b) => n + b.Incoming, 0),
+    35000,
+  );
+  const ledger = (await call("events?year=" + fy.ID, cash)).find(
+    (e) => e.General,
+  );
+  await call("manage", cash, { Action: "accounts", Accounts: true }, 200, {
+    "X-Bonfire-Event": ledger.ID,
+  });
+  await call("fire-accounts", cash, {
+    Action: "link",
+    ID: till,
+    Event: ledger.ID,
+  });
+  const ledgerLocal = (await call("fire-accounts", cash)).locals.find(
+    (r) => r.Master === till && r.Event === ledger.ID,
+  ).ID;
+  await call("online?event=" + ledger.ID, cash, {
+    Ops: [
+      tx("expense", "Material Vereinsheim", 1000, {
+        Account: ledgerLocal,
+        Fields: { issuer: "Übungsmarkt" },
+      }),
+    ],
+  });
+  const joined = (await call("year-balances?year=" + fy.ID, cash)).find(
+    (b) => b.ID === till,
+  );
+  assert.equal(joined.Soll, 4000);
+  assert.equal(new Set(joined.Lines.map((l) => l.Event)).size, 2);
+  const purse = tx("wallet", "Börse Blau", undefined, {}),
+    terminal = tx("account", "Übungsterminal", undefined, {});
+  const cb = tx("cashback", "Bargeld an Gast", 5000, {
+    Wallet: purse.Target,
+    Account: purse.Target,
+    To: terminal.Target,
+    Fields: { provider: "Übungsterminal" },
+  });
+  const fee = tx("fee", "Abrechnungsgebühr", 100, {
+    Account: terminal.Target,
+    Fields: { provider: "Übungsterminal" },
+  });
+  const payout = tx("payout", "Bankgutschrift", 4900, {
+    Account: terminal.Target,
+    To: local(bank),
+    Fields: { provider: "Übungsterminal" },
+  });
+  await post([purse, terminal, cb, fee, payout]);
+  const settled = await call("year-balances?year=" + fy.ID, cash);
+  assert.equal(
+    settled.reduce((n, b) => n + b.Incoming, 0),
+    35000,
+  );
+  assert.equal(
+    settled.reduce((n, b) => n + b.Transfers, 0),
+    0,
+  );
+  assert.equal(settled.find((b) => b.ID === bank).Soll, 34900);
+  await call("fire-accounts", cash, {
+    Action: "edit",
+    ID: bank,
+    Revision: 1,
+    Name: "Inaktiv " + suffix,
+    Active: false,
+  });
+  await post(
+    [tx("income", "Gesperrtes Konto", 100, { Account: local(bank) })],
+    409,
+  );
+  const t = tx("template", "Testschrift", undefined, {
+    Reference: "guest_poster_letter_or_a4",
+    Fields: { font: "times" },
+  });
+  t.Target = "template:" + t.Data.Reference;
+  await post([t]);
+  const lib = await call("template-library", cash);
+  const release = lib.find(
+    (r) => r.source === fest.Name && r.label === "Testschrift",
+  );
+  assert.ok(release);
+  assert.equal(
+    (await call("template-library?id=" + release.id, cash)).Fields.font,
+    "times",
+  );
+  const copy = await call(
+    "manage",
+    cash,
+    {
+      Action: "copy",
+      Target: "Übungsfest B",
+      Start: day,
+      End: day,
+      Year: fy.ID,
+      CopyKinds: ["template"],
+    },
+    200,
+    { "X-Bonfire-Event": fest.ID },
+  );
+  const cloned = await call("online?event=" + copy, cash, {});
+  assert.deepEqual(
+    cloned.entries.filter((r) => r.Kind !== "contact").map((r) => r.Kind),
+    ["template"],
+  );
+}
+{
+  const master = await call("fire-accounts", cash, {
+    Action: "create",
+    Name: "Übertrag " + suffix,
+  });
+  async function annualLedger(start) {
+    const year = await call("years", cash, {
+      Name: "Übernahme " + start.slice(0, 4),
+      Starts: start,
+      Ends: start,
+    });
+    const [ledger] = await call("events?year=" + year.ID, cash);
+    await call("manage", cash, { Action: "accounts", Accounts: true }, 200, {
+      "X-Bonfire-Event": ledger.ID,
+    });
+    await call("fire-accounts", cash, {
+      Action: "link",
+      ID: master,
+      Event: ledger.ID,
+    });
+    const account = (await call("fire-accounts", cash)).locals.find(
+      (l) => l.Master === master && l.Event === ledger.ID,
+    ).ID;
+    return { year: year.ID, endpoint: "online?event=" + ledger.ID, account };
+  }
+  const prev = await annualLedger("2761-12-31"),
+    next = await annualLedger("2762-01-01");
+  const count = (scope, Action, Opening, Actual, Revision, status = 200) =>
+    call(
+      "fire-accounts",
+      cash,
+      { ID: master, Year: scope.year, Action, Opening, Actual, Revision },
+      status,
+    );
+  await count(next, "carry", null, null, 0, 422);
+  const op = (k, n) => {
+    const o = make(k, k, n);
+    Object.assign(o.Data, { Date: "2761-12-31", Account: prev.account });
+    return o;
+  };
+  await call(prev.endpoint, cash, {
+    Ops: [op("opening", 14500), op("income", 300), op("actual", 14800)],
+  });
+  await count(prev, "count", 14500, 14799, 0);
+  await call(prev.endpoint, cash, { Action: "Geschäftsjahr abschließen" }, 422);
+  await count(prev, "count", 14500, 14800, 1);
+  await call(prev.endpoint, cash, { Action: "Geschäftsjahr abschließen" });
+  await count(next, "carry", null, 14800, 0);
+  const [b] = await call("year-balances?year=" + next.year, cash);
+  assert.equal(b.Opening, 14800);
+  assert.equal(b.Actual, 14800);
+  assert.equal(b.PriorActual, 14800);
+}
 const first = make("income", "Barzahlung", 100),
   other = make("income", "Zweite Zahlung", 200);
 {

@@ -17,7 +17,14 @@ async function api(path, body) {
     headers: { Cookie: cookie, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  assert.equal(response.status, 200);
+  if (!response.ok)
+    assert.fail(
+      path +
+        " " +
+        response.status +
+        " " +
+        (await response.text()).slice(0, 220),
+    );
   return response.json();
 }
 const day = "2478-05-14";
@@ -157,7 +164,14 @@ try {
       })
       .click();
     assert.ok(await dialog.evaluate((el) => el.matches(":modal")));
-    await dialog.getByLabel("Bezeichnung").fill(name);
+    await dialog
+      .getByLabel(section === "Kontakte" ? "Name / Firma" : "Bezeichnung")
+      .fill(name);
+    if (section === "Kontakte") {
+      await dialog.getByLabel("Straße und Hausnummer").fill("Übungsplatz 3");
+      await dialog.getByLabel("PLZ").fill("1111");
+      await dialog.getByLabel("Ort", { exact: true }).fill("Probeort");
+    }
     if (section === "Spenden")
       await dialog.getByLabel("Betrag in EUR").fill("5,50");
     await dialog
@@ -169,8 +183,15 @@ try {
       .filter({ hasText: name })
       .getByRole("button", { name: "Bearbeiten" })
       .click();
-    assert.equal(await dialog.getByLabel("Bezeichnung").inputValue(), name);
-    await dialog.getByLabel("Bezeichnung").fill(name + " bestätigt");
+    assert.equal(
+      await dialog
+        .getByLabel(section === "Kontakte" ? "Name / Firma" : "Bezeichnung")
+        .inputValue(),
+      name,
+    );
+    await dialog
+      .getByLabel(section === "Kontakte" ? "Name / Firma" : "Bezeichnung")
+      .fill(name + " bestätigt");
     await dialog.getByLabel("Änderungsgrund").fill("Fiktive Berichtigung");
     await dialog
       .getByRole("button", { name: "Berichtigung speichern" })
@@ -209,6 +230,16 @@ try {
   await check("Veranstaltungsliste");
   await page.locator('[data-space="' + event.ID + '"]').click();
   await check("Veranstaltung");
+  await page
+    .getByRole("button", { name: "Veranstaltung kopieren", exact: true })
+    .click();
+  const copying = page.getByRole("dialog");
+  assert.ok((await copying.innerText()).includes(event.Name));
+  assert.equal(
+    await copying.getByLabel("Zielgeschäftsjahr").inputValue(),
+    year.ID,
+  );
+  await page.keyboard.press("Escape");
   assert.equal(
     await page
       .locator("article .tabs")
@@ -246,7 +277,15 @@ try {
         if (type === "sponsorship") {
           await dialog
             .locator("[name=Contact]")
-            .selectOption({ label: label + " bestätigt" });
+            .selectOption({
+              index: await dialog
+                .locator("select[name=Contact] option")
+                .evaluateAll(
+                  (opts, name) =>
+                    opts.findIndex((opt) => opt.textContent.startsWith(name)),
+                  label + " bestätigt",
+                ),
+            });
         } else {
           assert.equal(await dialog.locator("[name=Contact]").count(), 0);
           if (type === "payment") {
@@ -271,6 +310,7 @@ try {
       );
       const sponsor = entries.find((r) => r.ID === claim.Data.Contact);
       assert.equal(sponsor.Data.Label, label + " bestätigt");
+      assert.equal(sponsor.Data.Address, "Übungsplatz 3\n1111 Probeort");
       assert.equal(
         entries.find((r) => r.Kind === "payment").Data.Reference,
         claim.ID,
@@ -279,7 +319,106 @@ try {
         entries.find((r) => r.Data.Label === "Festspende").Data.Status,
         "Offen",
       );
-      await page.getByRole("button", { name: "Rechnung öffnen" }).click();
+      const endpoint = "online?event=" + event.ID,
+        mk = (Kind, Label, values = {}) => ({
+          ID: randomUUID(),
+          Target: randomUUID(),
+          Kind,
+          Data: { Date: day, Label, ...values },
+        });
+      const contact = mk("contact", "Fiktive Werkstatt", {
+        Address: "Übungsweg 7\n1111 Probemarkt",
+      });
+      await api(
+        "online?event=" +
+          (await api("events?year=" + year.ID)).find((e) => e.General).ID,
+        { Ops: [contact] },
+      );
+      const org = mk("organization", "Übungswehr", {
+        Address: "Testplatz 1",
+        Fields: {
+          holder: "Übungswehr",
+          IBAN: "Übungskonto",
+          legal: "Übungstext",
+        },
+      });
+      org.Target = "organization";
+      const invoice = mk("sponsorship", "Übungsrechnung", {
+        Amount: 10000,
+        Contact: contact.Target,
+        Fields: { claimType: "invoice", service: "Übungstag", due: day },
+      });
+      const receipt = mk("payment", "Teilzahlung Werkstatt", {
+        Amount: 2500,
+        Reference: invoice.Target,
+        Method: "Überweisung",
+      });
+      const donation = mk("donation", "Übungsspende Werkstatt", {
+        Amount: 1500,
+        Contact: contact.Target,
+        Method: "Überweisung",
+      });
+      await api(endpoint, { Ops: [org, invoice, receipt, donation] });
+      await page
+        .getByRole("button", { name: "Serverstand aktualisieren", exact: true })
+        .click();
+      for (const [record, profile, received] of [
+        [invoice, "invoice_transfer_a4", null],
+        [receipt, "payment_confirmation_a4", 2500],
+        [donation, "donation_confirmation_a4", 1500],
+      ]) {
+        const trigger = page.locator(
+          '[data-record-document="' + record.Target + '"]',
+        );
+        await trigger.click();
+        const editor = page.locator("#entry-dialog");
+        if (record === donation)
+          await editor.getByLabel("Empfänger").selectOption(contact.Target);
+        const file = page.waitForEvent("download");
+        await editor
+          .getByRole("button", { name: "Original ausstellen" })
+          .click();
+        const issued = await file.catch(async (err) => {
+          throw Error(
+            profile +
+              " · " +
+              (await editor.locator(".entry-error").innerText()) +
+              " · " +
+              err.message,
+          );
+        });
+        assert.ok(issued.suggestedFilename().endsWith(".pdf"));
+        const response = await fetch(new URL("/api/" + endpoint, url), {
+          method: "POST",
+          headers: {
+            Cookie: cookie,
+            "X-Bonfire-Donor": "true",
+            "Content-Type": "application/json",
+          },
+          body: "{}",
+        });
+        const data = await response.json(),
+          saved = data.entries.find(
+            (r) => r.Kind === "original" && r.Data.Reference === record.Target,
+          );
+        const snap = JSON.parse(saved.Data.Note);
+        assert.equal(snap.profile, profile);
+        if (received != null) assert.equal(snap.receivedCents, received);
+        assert.ok(
+          saved.Data.PDF.startsWith("JVBER") &&
+            saved.Data.DOCX.startsWith("UEs"),
+        );
+        await trigger.click();
+        const again = page.waitForEvent("download");
+        await editor.getByRole("button", { name: "PDF speichern" }).click();
+        const download = await again,
+          stream = await download.createReadStream(),
+          chunks = [];
+        for await (const chunk of stream) chunks.push(chunk);
+        assert.equal(Buffer.concat(chunks).toString("base64"), saved.Data.PDF);
+        await page.keyboard.press("Escape");
+      }
+      await page.locator('[data-claim-invoice="' + claim.ID + '"]').click();
       assert.equal(
         await page.locator("#export [name=profile]").inputValue(),
         "0",
@@ -453,12 +592,34 @@ try {
     "Dokumente",
     "Perioden",
     "Verwaltung",
+    "Feuerwehrkonten",
     "Backup",
     "Benutzer",
     "Audit-Log",
     "Systemstatus",
   ]) {
     await nav(key);
+    if (key === "Feuerwehrkonten") {
+      await page
+        .getByRole("button", { name: "Konto anlegen", exact: true })
+        .click();
+      const editor = page.getByRole("dialog");
+      await editor
+        .getByLabel("Kontoname")
+        .fill("Übungskonto " + event.ID.slice(0, 8));
+      await editor.locator("button:not([type=button])").click();
+      await editor.waitFor({ state: "hidden" });
+      await page
+        .getByRole("heading", { name: "Übungskonto " + event.ID.slice(0, 8) })
+        .waitFor();
+    }
+    if (key === "Dokumente") {
+      await page.getByRole("button", { name: "Vorlagenbibliothek" }).click();
+      const editor = page.getByRole("dialog");
+      await editor.getByLabel("Vorlagenstand").selectOption("standard-5");
+      await editor.getByRole("button", { name: "Vorlage übernehmen" }).click();
+      await editor.waitFor({ state: "hidden" });
+    }
     if (key === "Systemstatus")
       await page.getByRole("heading", { name: "PostgreSQL" }).waitFor();
     if (key === "Audit-Log") await page.locator(".ops-pages").waitFor();

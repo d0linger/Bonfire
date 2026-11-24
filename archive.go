@@ -17,9 +17,13 @@ func checkArchive(d device, v data) ([]byte, []byte, error) {
 	if json.Unmarshal([]byte(v.Note), &snapshot) != nil || snapshot.Subject != v.Reference || snapshot.Number != v.Number || snapshot.Date != v.Date {
 		return nil, nil, fail("Belegdateien und Ausgabestand passen nicht zusammen.")
 	}
+	confirmation := snapshot.Profile == "payment_confirmation_a4" || snapshot.Profile == "donation_confirmation_a4"
+	if (v.Fields["series"] == "confirmation") != confirmation {
+		return nil, nil, fail("Belegreihe passt nicht zum Profil.")
+	}
 	switch snapshot.Profile {
-	case "invoice_cash_a4", "invoice_transfer_a4":
-	case "donation_lfk_a6":
+	case "invoice_cash_a4", "invoice_transfer_a4", "payment_confirmation_a4":
+	case "donation_lfk_a6", "donation_confirmation_a4":
 		if !d.Donor {
 			return nil, nil, problem{403, "Belegprofil fehlt."}
 		}

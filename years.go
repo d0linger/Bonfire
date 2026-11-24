@@ -198,7 +198,7 @@ func (a *app) createEvent(ctx context.Context, user string, e event) (event, err
 	return e, tx.Commit(ctx)
 }
 
-var fiscalDatedKinds = strings.Fields("income expense refund deposit deposit-return transfer outlay reimbursement card fee payout donation sponsorship payment presale supply skim return opening actual count period")
+var fiscalDatedKinds = strings.Fields("income expense refund deposit deposit-return transfer outlay reimbursement card fee payout donation sponsorship payment presale supply skim return cashback opening actual count period")
 
 // Membership must remain stable for an approved fiscal snapshot, including
 // existing entries recorded outside the event dates.

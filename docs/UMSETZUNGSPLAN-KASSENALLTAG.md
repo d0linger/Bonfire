@@ -2,6 +2,10 @@
 
 Planungsstand 24.11.2026, bezogen auf den lokalen Stand `15d2997`. Grundlage sind die fachliche Klärung zu Kassenbuch, Veranstaltungen, Kontakten, Feuerwehrkonten und Dokumenten sowie die später freigegebenen Änderungen. Die genannten Masken sind Vorschläge. Für eine Abnahme werden ausschließlich erfundene Daten verwendet.
 
+## Stand nach Umsetzung
+
+Die fünf Arbeitspakete sind in der Anwendung umgesetzt. Die Bedienwege stehen in der [Anleitung](../README.md). Die folgenden Abschnitte dokumentieren den Ausgangspunkt und den freigegebenen Umfang. Der [Abnahmebericht](ABNAHME.md) und die Statuszeilen BF-045 bis BF-049 enthalten die Nachweise und die ausstehende praktische Abnahme.
+
 ## Bereits nutzbar
 
 Das allgemeine Kassenbuch und die Veranstaltungen haben getrennte Buchungswege innerhalb eines frei definierbaren Geschäftsjahrs. Offene Jahre und Veranstaltungen sind bearbeitbar. Anfangsbestand, Istbestand, Übernahme aus dem Vorjahr, Abschluss und Wiederöffnung sind vorhanden. Sponsoringforderungen, Zahlungen und Festspenden sind unter **Zahlungen & Kosten** zusammengeführt. Das zentrale Kontaktverzeichnis, elf Exportprofile, PDF/DOCX und der Originalbelegablauf bilden die Grundlage.

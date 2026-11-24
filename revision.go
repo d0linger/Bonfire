@@ -9,10 +9,14 @@ import (
 )
 
 func archiveKey(v data) string {
-	if v.Fields["previous"] != "" {
-		return v.Reference + ":after:" + v.Fields["previous"]
+	key := v.Reference
+	if v.Fields["series"] == "confirmation" {
+		key += ":confirmation"
 	}
-	return v.Reference
+	if v.Fields["previous"] != "" {
+		return key + ":after:" + v.Fields["previous"]
+	}
+	return key
 }
 func predecessor(ctx context.Context, tx pgx.Tx, d device, v data) (*int64, bool, error) {
 	text := v.Fields["previous"]

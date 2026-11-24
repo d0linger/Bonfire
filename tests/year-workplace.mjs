@@ -182,10 +182,23 @@ try {
   ]) {
     await button("Veranstaltungsbuchung erfassen").click();
     await eventDialog.locator("select[name=type]").selectOption(type);
-    await eventDialog.getByLabel("Bezeichnung", { exact: true }).fill(label);
+    await eventDialog
+      .getByLabel(type === "expense" ? "Wofür?" : "Bezeichnung", {
+        exact: true,
+      })
+      .fill(label);
+    if (type === "expense")
+      await eventDialog
+        .getByLabel("Rechnungssteller")
+        .fill("Fiktiver Übungsmarkt");
     await eventDialog.getByLabel("Betrag in EUR").fill(amount);
     await submit("record");
-    await page.getByRole("cell", { name: label, exact: true }).waitFor();
+    await page
+      .getByRole("cell", {
+        name: type === "expense" ? label + " · Fiktiver Übungsmarkt" : label,
+        exact: true,
+      })
+      .waitFor();
   }
   await page.locator("#menu-toggle").click();
   const home = page.getByRole("link", { name: "BONFIRE – Zur Übersicht" });

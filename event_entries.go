@@ -74,7 +74,8 @@ func entryChangeAllowed(ctx context.Context, tx pgx.Tx, source device, current r
 		WHEN EXISTS(SELECT FROM originals WHERE event=$1 AND (subject=$2 OR snapshot->>'subject'=$2))
 		  OR EXISTS(SELECT FROM entries WHERE event=$1 AND id<>$2 AND ($2 IN (data->>'Bar',data->>'Wallet',data->>'Account',data->>'To',data->>'Reference',data->'Fields'->>'sale') OR data->'Allocations' ? $2))
 		  THEN 'Andere Einträge oder Originalbelege verweisen auf diesen Vorgang. Zuerst die verknüpften Einträge prüfen.'
-		WHEN $3<>'' AND EXISTS(SELECT FROM entries WHERE event=$1 AND id='settlement:' || $3) THEN 'Die Geldtasche ist bereits abgerechnet.'
+		WHEN EXISTS(SELECT FROM fire_account_links WHERE event=$1 AND local_id=$2) THEN 'Dieses Konto ist einem Feuerwehrkonto zugeordnet.'
+        WHEN $3<>'' AND EXISTS(SELECT FROM entries WHERE event=$1 AND id='settlement:' || $3) THEN 'Die Geldtasche ist bereits abgerechnet.'
 		WHEN ($3<>'' OR $4='count') AND EXISTS(SELECT FROM entries WHERE event=$1 AND id='settlement-total') THEN 'Die Geldtaschen sind gemeinsam abgerechnet.'
 		WHEN $4='period' AND EXISTS(SELECT FROM period_closures WHERE period_id=$2) THEN 'Für diese Periode besteht ein Abschlussnachweis.'
 		WHEN $4='donation' AND EXISTS(SELECT FROM donation_reports WHERE event=$1 AND period=$5) THEN 'Für diesen Meldezeitraum besteht bereits ein Spendenprüflauf.'

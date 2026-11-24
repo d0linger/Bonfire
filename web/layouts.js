@@ -44,7 +44,7 @@ export function tablesFor(i, s, rows, subject, opts) {
       logo: org?.File || "",
       address: [
         contact?.Label || "Empfänger offen",
-        contact?.Address || "Anschrift offen",
+        ...(contact?.Address || "Anschrift offen").split(/\r?\n/),
       ],
       meta: [s.date, s.number ? "Beleg " + s.number : s.status],
       intro: bill.Fields?.service || bill.Label || v.Label,
@@ -122,7 +122,10 @@ export function tablesFor(i, s, rows, subject, opts) {
     const contact = rows.find((r) => r.ID === v.Contact)?.Data;
     return {
       letter: true,
-      address: [contact?.Label, contact?.Address].filter(Boolean),
+      address: [
+        contact?.Label,
+        ...(contact?.Address || "").split(/\r?\n/),
+      ].filter(Boolean),
       meta: [s.date],
       intro: contact?.Fields?.salutation || "Guten Tag,",
       blocks: [],
@@ -257,7 +260,9 @@ export function tablesFor(i, s, rows, subject, opts) {
       if (sign) balance.set(k, (balance.get(k) || 0) + sign * d.Amount);
       if (
         opts.accounts &&
-        ["transfer", "supply", "skim", "return", "payout"].includes(r.Kind)
+        ["transfer", "supply", "skim", "return", "payout", "cashback"].includes(
+          r.Kind,
+        )
       ) {
         balance.set(k, (balance.get(k) || 0) - d.Amount);
         balance.set(d.To, (balance.get(d.To) || 0) + d.Amount);

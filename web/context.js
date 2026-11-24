@@ -48,7 +48,7 @@ export function closure(rows, accounts, approved) {
     if (sign) expected.set(id, (expected.get(id) || 0) + d.Amount * sign);
     if (
       accounts &&
-      ["transfer", "payout", "supply", "skim", "return"].includes(k)
+      ["transfer", "payout", "supply", "skim", "return", "cashback"].includes(k)
     ) {
       expected.set(id, (expected.get(id) || 0) - d.Amount);
       expected.set(d.To, (expected.get(d.To) || 0) + d.Amount);
@@ -212,7 +212,14 @@ export function exportContext(i, s, rows, opts) {
         rows.filter((x) => x.Kind === "price").map((x) => x.Data.Category),
       ),
     ],
-    "print_batch.copies": i === 3 ? 3 : i === 4 ? 7 : 1,
+    "print_batch.copies":
+      i === 3
+        ? 3
+        : i === 4
+          ? 7
+          : i === 5 && Number(opts.guestCopies) === 2
+            ? 2
+            : 1,
     "print_batch.header_label": opts.title,
     "print_batch.header_value": s.event.Name,
     "print_batch.third_column_label": "",
@@ -230,7 +237,9 @@ export function exportContext(i, s, rows, opts) {
     "cash_count.confirmed_at":
       mode === "confirmed" ? v.Fields?.confirmedAt : null,
     cash_movements: selected
-      .filter((x) => ["supply", "skim", "return", "transfer"].includes(x.Kind))
+      .filter((x) =>
+        ["supply", "skim", "return", "cashback", "transfer"].includes(x.Kind),
+      )
       .map((x) => ({ id: x.ID, kind: x.Kind, cents: x.Data.Amount })),
     "report.period": period
       ? { start: period.Date, end: period.To }
