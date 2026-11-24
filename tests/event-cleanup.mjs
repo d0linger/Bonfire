@@ -24,9 +24,14 @@ async function call(path, body, status = 200, extra = {}) {
 }
 const stamp = randomUUID().slice(0, 8);
 const day = "2452-02-02";
+const lastDay = "2452-02-05";
 const year =
   (await call("years")).find((x) => x.Starts === day) ||
-  (await call("years", { Name: "Übungsjahr 2452", Starts: day, Ends: day }));
+  (await call("years", {
+    Name: "Übungsjahr 2452",
+    Starts: day,
+    Ends: lastDay,
+  }));
 const create = (Name) =>
   call("events", {
     Name: Name + " " + stamp,
@@ -134,6 +139,25 @@ assert.equal(cashLogin.status, 200);
 const cashHeaders = {
   Cookie: cashLogin.headers.getSetCookie()[0].split(";")[0],
 };
+const previous = { Name: source.Name, Starts: day, Ends: day };
+const updated = {
+  Name: "Winterfest " + stamp,
+  Starts: "2452-02-03",
+  Ends: lastDay,
+};
+const correction = { Event: source.ID, Previous: previous, Updated: updated };
+await call("events/edit", correction, 403, cashHeaders);
+await call("events/edit", { ...correction, Event: ledger.ID }, 409);
+await call(
+  "events/edit",
+  { ...correction, Updated: { ...updated, Ends: "2452-02-06" } },
+  422,
+);
+await call(
+  "events/edit",
+  { ...correction, Updated: { ...updated, Ends: day } },
+  422,
+);
 await call("events/delete", { Event: source.ID }, 403, cashHeaders);
 await call(
   "events/entries",
@@ -170,9 +194,47 @@ try {
   );
   await openMenu();
   await page.locator('nav [data-page="Veranstaltungen"]').click();
+  await page.locator('[data-event-edit="' + source.ID + '"]').click();
+  const editor = page.getByRole("dialog", { name: "Veranstaltung bearbeiten" });
+  assert.equal(
+    await editor.getByLabel("Veranstaltungsname").inputValue(),
+    source.Name,
+  );
+  await editor.getByLabel("Veranstaltungsname").fill(updated.Name);
+  await editor.getByLabel("Beginn").fill(updated.Starts);
+  await editor.getByLabel("Ende").fill(updated.Ends);
+  await editor.getByRole("button", { name: "Änderungen speichern" }).click();
+  await editor.waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: updated.Name, exact: true }).waitFor();
+  const saved = (await call("events")).find((e) => e.ID === source.ID);
+  await call("events/edit", correction);
+  const audit = await call("manage", { Action: "audit" }, 200, {
+    "X-Bonfire-Event": source.ID,
+  });
+  const changes = audit.filter((r) => r.action === "Veranstaltung bearbeitet");
+  assert.equal(changes.length, 1);
+  assert.ok(
+    changes[0].subject.includes(previous.Name) &&
+      changes[0].subject.includes(updated.Name),
+  );
+  assert.deepEqual(
+    [saved.Name, saved.Starts, saved.Ends],
+    Object.values(updated),
+  );
+  await call(
+    "events/edit",
+    { ...correction, Updated: { ...updated, Name: "Alter Dialog" } },
+    409,
+  );
+  const afterEdit = await post(source, []);
+  assert.ok(
+    afterEdit.entries.some(
+      (r) => r.ID === donation.Target && r.Data.Date === day,
+    ),
+  );
   const trigger = page.locator('[data-event-cleanup="' + source.ID + '"]');
   await trigger.click();
-  const dialog = page.getByRole("dialog", { name: source.Name });
+  const dialog = page.getByRole("dialog", { name: updated.Name });
   assert.ok(await dialog.evaluate((d) => d.matches(":modal")));
   for (const [target, destination, button] of [
     [extra.Target, "remove", "Eintrag entfernen"],
@@ -230,10 +292,10 @@ for (const [r, expected] of [
   );
   assert.ok(
     rows.some(
-      (x) => x.veranstaltung === source.Name && x.richtung === "Storno",
+      (x) => x.veranstaltung === updated.Name && x.richtung === "Storno",
     ),
   );
 }
 console.log(
-  "PASS Mobile Löschmaske, Entfernen, Umbuchen in Veranstaltung und allgemeines Kassenbuch, Wiederholung, Revisionsschutz, Referenzen und Stornojournal nach Löschung.",
+  "PASS Mobile Veranstaltungsbearbeitung mit Namens- und Datumskorrektur, Audit, Revisionsschutz, Umbuchung und Stornojournal nach Löschung.",
 );

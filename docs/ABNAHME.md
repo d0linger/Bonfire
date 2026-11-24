@@ -14,6 +14,8 @@ Die Migration von Schema 25 auf 26 wurde in PostgreSQL mit drei bestehenden Test
 
 ## Veranstaltungen bereinigen
 
+`tests/event-cleanup.mjs` korrigiert den Namen und beide Veranstaltungsdaten in der mobilen Liste und liest die Änderung vom Server zurück. Der Test prüft außerdem das ursprüngliche Datum einer bestehenden Spende, die Ablehnung veralteter Änderungen und die Grenzen des Geschäftsjahrs. `tests/online-api.mjs` prüft die Bearbeitungssperre nach dem Veranstaltungsabschluss.
+
 Ein Admin öffnet im gewählten Geschäftsjahr bei der Veranstaltung **Veranstaltung löschen …**. Bei einer leeren Veranstaltung folgt die Löschbestätigung. Bei vorhandenen Einträgen zeigt das Fenster Typ, Bezeichnung, Datum und Betrag. Einzelne Einträge lassen sich mit Begründung entfernen oder in eine offene Veranstaltung beziehungsweise das allgemeine Kassenbuch desselben Jahres umbuchen. Benötigte Konten und Geldtaschen werden im Ziel ausgewählt. Nach der letzten Bereinigung wird die Löschung separat bestätigt.
 
 Storno und Zielbuchung sind im Jahresjournal nachvollziehbar. Das Audit bewahrt die ursprüngliche Veranstaltung. Abschlussstände, ausgestellte Originale und abhängige Vorgänge sind geschützt. Der Test `tests/event-cleanup.mjs` prüft die mobile Bedienung, beide Umbuchungsziele, konkurrierende Wiederholung, veraltete Revisionen, Rollen, Referenzen und die Journalbeträge nach der Löschung.

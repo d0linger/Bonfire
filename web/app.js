@@ -176,6 +176,7 @@ function closeEditor() {
   entryDialog.replaceChildren();
   edit = null;
   const key = [
+    "data-event-edit",
     "data-event-cleanup",
     "data-edit",
     "data-lifecycle",
@@ -2207,15 +2208,20 @@ function yearSetup() {
       : "")
   );
 }
+function eventFields(name, starts, ends) {
+  return (
+    field("Name", "Veranstaltungsname", "text", true, name) +
+    field("Starts", "Beginn", "date", true, starts) +
+    field("Ends", "Ende", "date", true, ends)
+  );
+}
 function eventForm() {
   const year = fiscalYear(),
     day = defaultDay(year);
   return popupForm(
     "event",
     "Veranstaltung anlegen",
-    field("Name", "Veranstaltungsname", "text", true) +
-      field("Starts", "Beginn", "date", true, day) +
-      field("Ends", "Ende", "date", true, day) +
+    eventFields("", day, day) +
       select("Accounts", "Kontozuordnung", [
         ["", "Aus"],
         ["ja", "Ein"],
@@ -2471,9 +2477,11 @@ function closingControls() {
       : "")
   );
 }
-function eventCleanupButton(event) {
+function eventAdminButtons(event) {
   return onlineUser?.role === "Admin" && !event.Closed && !event.General
-    ? '<button type="button" class="secondary" aria-haspopup="dialog" data-event-cleanup="' +
+    ? '<button type="button" class="secondary" aria-haspopup="dialog" data-event-edit="' +
+        esc(event.ID) +
+        '">Bearbeiten</button><button type="button" class="secondary" aria-haspopup="dialog" data-event-cleanup="' +
         esc(event.ID) +
         '">Veranstaltung löschen …</button>'
     : "";
@@ -2518,7 +2526,7 @@ function eventListRow(e) {
         icon("Plus") +
         "Veranstaltungsbuchung erfassen</button>"
       : "") +
-    eventCleanupButton(e) +
+    eventAdminButtons(e) +
     "</div></li>"
   );
 }
@@ -3201,7 +3209,7 @@ function show() {
               "secondary",
               "CalendarDays",
             ) +
-            eventCleanupButton(s.event) +
+            eventAdminButtons(s.event) +
             "</div>"
           : "")
       : pageHead(
@@ -3466,6 +3474,20 @@ async function submit(f) {
       vals.Event,
     );
     page = s && !s.event.General ? "Veranstaltungen" : "Übersicht";
+  }
+  if (id === "event-edit") {
+    const previous = Object.fromEntries(
+      Object.keys(vals).map((key) => [
+        key,
+        f.elements.namedItem(key).defaultValue,
+      ]),
+    );
+    await api("events/edit", {
+      Event: f.dataset.event,
+      Previous: previous,
+      Updated: vals,
+    });
+    if (s?.event.ID === f.dataset.event) await sync();
   }
   if (id === "event") {
     const created = await api("events", {
@@ -4406,6 +4428,34 @@ document.addEventListener("click", (e) => {
         .querySelector(mobile ? "#menu-toggle" : "#fiscal-switch summary")
         ?.focus();
     });
+    return;
+  }
+  if (b.dataset.eventEdit) {
+    const id = b.dataset.eventEdit;
+    const e =
+      s?.event.ID === id && page === "Veranstaltungen"
+        ? s.event
+        : events.find((item) => item.ID === id);
+    if (!e) return;
+    openEditor(
+      b,
+      "Veranstaltung bearbeiten",
+      form(
+        "event-edit",
+        eventFields(e.Name, e.Starts, e.Ends),
+        "Änderungen speichern",
+        button("cancel", "Abbrechen", true),
+      ),
+    );
+    const editor = entryDialog.querySelector("form");
+    editor.dataset.event = id;
+    const year = years.find((y) => y.ID === e.Year);
+    if (year) {
+      for (const input of editor.querySelectorAll("input[type=date]")) {
+        input.min = year.Starts;
+        input.max = year.Ends;
+      }
+    }
     return;
   }
   if (b.dataset.eventCleanup) {

@@ -187,6 +187,21 @@ for (const scoped of [review, writeSession]) {
   await call("admin/users", scoped, undefined, 403);
 }
 assert.equal((await send({ Action: "Abschluss" })).closed, true);
+const originalDetails = {
+  Name: event.Name,
+  Starts: event.Starts,
+  Ends: event.Ends,
+};
+await call(
+  "events/edit",
+  cash,
+  {
+    Event: event.ID,
+    Previous: originalDetails,
+    Updated: { ...originalDetails, Name: "Nach Abschluss" },
+  },
+  409,
+);
 const scopedEvents = await call("events?overview=1&year=" + year.ID, review);
 assert.deepEqual(
   scopedEvents.map((e) => e.ID),

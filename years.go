@@ -120,7 +120,7 @@ func checkYearSetup(ctx context.Context, tx pgx.Tx, eventID string) error {
 		return err
 	}
 	var frozen bool
-	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM events e JOIN period_closures p ON p.fiscal_year=e.fiscal_year
+	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM events e JOIN period_closures p ON (p.fiscal_year IS NULL OR p.fiscal_year=e.fiscal_year)
 		WHERE e.id=$1 AND p.reopened_at IS NULL AND ((e.starts<=p.ends AND e.ends>=p.starts)
 			OR EXISTS(SELECT 1 FROM entries j WHERE j.event=e.id AND (j.data->>'Date')::date BETWEEN p.starts AND p.ends)))`, eventID).Scan(&frozen)
 	if err != nil {

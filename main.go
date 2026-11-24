@@ -156,7 +156,7 @@ func (a *app) events(ctx context.Context, w http.ResponseWriter, r *http.Request
 			return nil, err
 		}
 		e.Name = strings.TrimSpace(e.Name)
-		if e.Name == "" || len(e.Name) > 160 || !date(e.Starts) || !date(e.Ends) || e.Ends < e.Starts {
+		if !validEventDetails(e.Name, e.Starts, e.Ends) {
 			return nil, fail("Name und Zeitraum prüfen.")
 		}
 		return a.createEvent(ctx, name, e)
@@ -435,6 +435,7 @@ func main() {
 	mux.HandleFunc("POST /api/years", route(a.years))
 	mux.HandleFunc("POST /api/years/assign", route(a.assignYear))
 	mux.HandleFunc("POST /api/events", route(a.events))
+	mux.HandleFunc("POST /api/events/edit", route(a.editEvent))
 	mux.HandleFunc("POST /api/events/delete", route(a.deleteEvent))
 	mux.HandleFunc("GET /api/events/entries", route(a.eventInventory))
 	mux.HandleFunc("POST /api/events/entries", route(a.changeEventEntry))
