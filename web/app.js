@@ -1,4 +1,6 @@
 import { fiscalPicker } from "./fiscal-picker.js";
+import { mountAccountSecurity } from "./account-security.js";
+import { supportsPasskeys, usePasskey } from "./personal-passkeys.js";
 import { canOpenConsole } from "./workplace.js";
 import { mountBackup } from "./admin-backup.js";
 import { mountUsers, mountPasswordChange } from "./admin-users.js";
@@ -200,9 +202,7 @@ let importFile = null,
   imported = [],
   chosenPeriod = "",
   syncDetail = "";
-let mfaSecret = "",
-  mfaCodes = [],
-  auditRows = [],
+let auditRows = [],
   logged = false;
 let s,
   page = "Übersicht",
@@ -2390,21 +2390,8 @@ function onlineAdmin() {
         )
       : "") +
     panel(
-      "Zwei-Faktor-Anmeldung",
-      mfaCodes.length
-        ? "<p>Recoverycodes sicher aufbewahren</p><pre>" +
-            esc(mfaCodes.join("\n")) +
-            "</pre>"
-        : mfaSecret
-          ? "<p>Schlüssel in der Authenticator-App hinterlegen: " +
-            esc(mfaSecret) +
-            "</p>" +
-            form(
-              "mfa",
-              field("Code", "Bestätigungscode", "text", true),
-              "Faktor aktivieren",
-            )
-          : button("mfa", "Authenticator einrichten"),
+      "Persönliches Konto",
+      button("accountSecurity", "Konto und Sicherheit öffnen", true),
     )
   );
 }
@@ -2505,9 +2492,13 @@ function authSurface() {
         ),
       "Anmelden",
     );
-    secondary = offlineEnabled
-      ? button("profileHelp", "Offlineprofile und Sicherungen", true)
-      : "";
+    secondary =
+      (supportsPasskeys()
+        ? button("passkeyLogin", "Mit Passkey anmelden", true)
+        : "") +
+      (offlineEnabled
+        ? button("profileHelp", "Offlineprofile und Sicherungen", true)
+        : "");
   }
   return (
     '<div class="auth-card">' +
@@ -2648,6 +2639,7 @@ function shell() {
     active,
     logged && !offlineEnabled,
     expanded,
+    logged,
   );
   const org = s
     ? rows().find((r) => r.Kind === "organization")?.Data
@@ -2682,7 +2674,9 @@ function shell() {
       : "";
   if (!offlineEnabled && logged) {
     picker.innerHTML =
-      events.length && !canOpenConsole(page, who?.role)
+      events.length &&
+      page !== "Konto und Sicherheit" &&
+      !canOpenConsole(page, who?.role)
         ? select(
             "workspace",
             "Arbeitsbereich",
@@ -2798,6 +2792,14 @@ function show() {
     mountPasswordChange(article.firstElementChild, passwordTicket, () => {
       passwordTicket = "";
       show();
+    });
+    return;
+  }
+  if (logged && page === "Konto und Sicherheit") {
+    article.innerHTML = '<div class="admin-console personal-security"></div>';
+    const host = article.firstElementChild;
+    mountAccountSecurity(host, { api }).catch((err) => {
+      if (host.isConnected) host.textContent = err.message;
     });
     return;
   }
@@ -3128,10 +3130,7 @@ async function submit(f) {
     await onlineStart(await api("workplace"));
     page = destination;
   }
-  if (id === "mfa") {
-    mfaCodes = await api("mfa", { Secret: mfaSecret, ...vals });
-    mfaSecret = "";
-  }
+
   if (id === "fiscal-year" || id === "assign-year") {
     const created = await api(
       id === "fiscal-year" ? "years" : "years/assign",
@@ -4219,10 +4218,24 @@ document.addEventListener("click", (e) => {
         });
         show();
         return;
-      case "mfa":
-        mfaSecret = (await api("mfa", {})).secret;
+      case "accountSecurity":
+        page = "Konto und Sicherheit";
+        document.body.classList.remove("menu-open");
+        document
+          .querySelector("#menu-toggle")
+          .setAttribute("aria-expanded", "false");
         show();
         return;
+      case "passkeyLogin": {
+        const result = await usePasskey(api);
+        if (result.passwordChange) passwordTicket = result.passwordChange;
+        else {
+          await onlineStart(await api("workplace"));
+          page = destination;
+        }
+        show();
+        return;
+      }
       case "lock":
         if (logged) await api("logout", {});
         location.reload();

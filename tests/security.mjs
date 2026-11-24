@@ -36,7 +36,9 @@ const cred = { Authorization: basic(user, pw) };
 const login = await post("login", cred, {});
 const cookie = login.headers.get("set-cookie").split(";")[0],
   session = { Cookie: cookie };
-const { secret } = await (await post("mfa", session, {})).json();
+await post("mfa", session, {}, 403);
+await post("mfa", session, { Secret: "UNREGISTERED", Code: "000000" }, 410);
+const { secret } = await (await post("mfa", session, { Password: pw })).json();
 const bits = [...secret]
   .map((c) =>
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".indexOf(c).toString(2).padStart(5, "0"),

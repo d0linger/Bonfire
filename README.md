@@ -11,7 +11,7 @@ Voraussetzungen sind Docker mit Compose und für die folgenden Betriebsbefehle P
 docker compose up -d --build --wait
 ```
 
-Auf bestehenden Entwicklungsinstallationen die vorhandene `.env` weiterverwenden. Die Oberfläche öffnet unter [127.0.0.1:8137](http://127.0.0.1:8137). Der Dienst `migrate` richtet Schema und Rollen ein und beendet sich anschließend. Der HTTP-Dienst läuft mit der eingeschränkten Datenbankrolle `bonfire_runtime`. `init.ps1` ergänzt deren Zufallskennwort auch bei bestehenden Entwicklungsinstallationen. Die erste Anmeldung verwendet `leitung` und den lokal generierten Wert von `BONFIRE_ADMIN_PASSWORD` aus `.env`. Das Startpasswort wird beim ersten Einrichten der Datenbank gehasht. Die Entwicklungsumgebung bindet den HTTP-Port an die Loopback-Adresse.
+Auf bestehenden Entwicklungsinstallationen die vorhandene `.env` weiterverwenden. Die Oberfläche öffnet unter [localhost:8137](http://localhost:8137). Der Dienst `migrate` richtet Schema und Rollen ein und beendet sich anschließend. Der HTTP-Dienst läuft mit der eingeschränkten Datenbankrolle `bonfire_runtime`. `init.ps1` ergänzt deren Zufallskennwort auch bei bestehenden Entwicklungsinstallationen. Die erste Anmeldung verwendet `leitung` und den lokal generierten Wert von `BONFIRE_ADMIN_PASSWORD` aus `.env`. Das Startpasswort wird beim ersten Einrichten der Datenbank gehasht. Die Entwicklungsumgebung bindet den HTTP-Port an die Loopback-Adresse.
 
 ## Von der Anmeldung zum Finanzarbeitsplatz
 
@@ -23,9 +23,20 @@ Auf bestehenden Entwicklungsinstallationen die vorhandene `.env` weiterverwenden
 
 Der Offlinebetrieb ist vorerst deaktiviert. Bereits vorhandene verschlüsselte Geräteprofile bleiben im jeweiligen Browser erhalten. Ausschließlich dort gespeicherte Altvorgänge erscheinen erst nach einer gesonderten Übernahme im zentralen Kassenbuch. Für die Weiterarbeit das Browserprofil aufbewahren.
 
+## Konto und Sicherheit
+
+Beide Kassiere öffnen ihr eigenes Konto links unter ihrem Namen. Das funktioniert auch vor der Zuweisung eines Arbeitsbereichs.
+
+- **Passwort ändern** verlangt das aktuelle Passwort und bei aktivierter Zwei-Faktor-Anmeldung zusätzlich einen Authenticator- oder Recoverycode. Die aktuelle Sitzung erhält ein neues Cookie. Andere Sitzungen enden.
+- **Authenticator einrichten** zeigt einen lokal erzeugten QR-Code und einen manuellen Schlüssel. Den sechsstelligen Code der App bestätigen und die acht einmal angezeigten Recoverycodes sicher verwahren. Jeder Recoverycode kann einmal verwendet werden. Erneuern ersetzt den gesamten Satz.
+- **Passkey hinzufügen** vergibt einen Namen für den Schlüssel. Anschließend im Browser mit dem Gerät oder einem Sicherheitsschlüssel bestätigen. Bei der nächsten Anmeldung **Mit Passkey anmelden** wählen. Unter **Passkeys** stehen registrierte Schlüssel und ihre letzte Verwendung.
+- **Aktive Sitzungen** zeigt Browser, Beginn, Ablauf und die aktuelle Sitzung. Andere Sitzungen lassen sich einzeln oder zusammen beenden.
+
+Für Passkeys lokal immer dieselbe Adresse verwenden: `http://localhost:8137`. Eine Installation unter eigener HTTPS-Adresse setzt `BONFIRE_PASSKEY_ORIGIN` auf die von den Browsern verwendete Origin einschließlich eines abweichenden Ports. Ein vollständiger Restore stellt auch die registrierten Passkeys des Sicherungszeitpunkts wieder her. Nach dem Restore zwischenzeitlich entfernte Schlüssel prüfen.
+
 ## Verwaltung
 
-Der Eintrag **Verwaltung** in der linken Navigation öffnet die Unterseiten. Die Leitung erreicht **Backup**, **Benutzer**, **Audit-Log** und **Systemstatus** auch vor der Anlage des ersten Geschäftsjahrs. Die Rolle Prüfung kann das Audit der ihr zugewiesenen Arbeitsbereiche lesen. Eigene MFA-Einstellungen, fachliche Organisationseinstellungen und Datenaustausch bleiben unter **Organisation** erreichbar.
+Der Eintrag **Verwaltung** in der linken Navigation öffnet die Unterseiten. Die Leitung erreicht **Backup**, **Benutzer**, **Audit-Log** und **Systemstatus** auch vor der Anlage des ersten Geschäftsjahrs. Die Rolle Prüfung kann das Audit der ihr zugewiesenen Arbeitsbereiche lesen. Fachliche Organisationseinstellungen und Datenaustausch stehen unter **Organisation**.
 
 Die Sicherungen umfassen den gesamten Serverbestand mit seinen Geschäftsjahren. Eine Restore-Probe läuft in einer getrennten Datenbank. Die [Anleitung für Backup und Wiederherstellung](docs/VERWALTUNG-BACKUP.md) beschreibt Verschlüsselung, Schlüsselverwahrung und S3-Konfiguration. Die [Anleitung für Audit und Systemstatus](docs/VERWALTUNG-AUDIT.md) erklärt Filter, Rechte und Integritätsprüfungen.
 

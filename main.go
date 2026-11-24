@@ -359,7 +359,7 @@ func initialize(ctx context.Context, db *pgxpool.Pool) error {
 	if err = applyUpgrade(ctx, tx, 17, "migrations/017.sql"); err != nil {
 		return err
 	}
-	for version := 18; version <= 23; version++ {
+	for version := 18; version <= 25; version++ {
 		if err = applyUpgrade(ctx, tx, version, fmt.Sprintf("migrations/%03d.sql", version)); err != nil {
 			return err
 		}
@@ -395,6 +395,8 @@ func main() {
 	mux := http.NewServeMux()
 	a.registerBackup(mux)
 	a.registerUsers(mux)
+	a.registerAccountSecurity(mux)
+	a.registerPasskeys(mux)
 	a.registerAdminAudit(mux)
 	mux.HandleFunc("POST /api/donation-reports", route(a.donationReports))
 	mux.HandleFunc("POST /api/login", route(a.login))

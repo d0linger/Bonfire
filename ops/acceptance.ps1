@@ -1,7 +1,7 @@
 # Runs the synthetic fixture suite on a disposable PostgreSQL volume.
 $ErrorActionPreference = 'Stop'
 $project = 'bonfire-abnahme-'+[guid]::NewGuid().ToString('N')
-$variables = 'COMPOSE_PROJECT_NAME','BONFIRE_URL','BONFIRE_PORT','BONFIRE_OFFLINE_ENABLED'
+$variables = 'COMPOSE_PROJECT_NAME','BONFIRE_ADMIN_PASSWORD','BONFIRE_URL','BONFIRE_PORT','BONFIRE_OFFLINE_ENABLED'
 $original = @{}
 foreach($key in $variables){$original[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
 Push-Location (Join-Path $PSScriptRoot '..')
@@ -9,6 +9,7 @@ try {
   & ./ops/accept-online.ps1
   $env:BONFIRE_OFFLINE_ENABLED='true'
   $env:COMPOSE_PROJECT_NAME=$project
+  $env:BONFIRE_ADMIN_PASSWORD = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24))
   $env:BONFIRE_PORT='0'
   docker compose up -d --build --wait
   if($LASTEXITCODE){throw 'Compose-Erststart der Prüfinstallation fehlgeschlagen.'}

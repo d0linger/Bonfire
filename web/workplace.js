@@ -150,6 +150,7 @@ export function navigation(
   active,
   online = false,
   expanded = false,
+  personal = online,
 ) {
   const main = modules.map(
     ([p, t, i]) =>
@@ -199,6 +200,13 @@ export function navigation(
     "<small>" +
     esc(role || "Lokaler Arbeitsplatz") +
     "</small></span></div>" +
+    (personal
+      ? '<button type="button" data-act="accountSecurity"' +
+        (page === "Konto und Sicherheit" ? ' aria-current="page"' : "") +
+        ">" +
+        icon("Settings2") +
+        "Konto und Sicherheit</button>"
+      : "") +
     (active
       ? '<button type="button" data-act="lock">' +
         icon("LogOut") +

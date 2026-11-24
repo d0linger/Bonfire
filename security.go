@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha1"
 	"crypto/subtle"
 	"encoding/base32"
@@ -113,8 +112,8 @@ func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		return nil, err
 	}
-	token = secret()
 	if pendingFactor {
+		token = secret()
 		if _, err = tx.Exec(ctx, "DELETE FROM login_challenges WHERE expires<=now()"); err != nil {
 			return nil, err
 		}
@@ -125,6 +124,7 @@ func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request)
 		return map[string]string{"challenge": token}, tx.Commit(ctx)
 	}
 	if change {
+		token = secret()
 		if _, err = tx.Exec(ctx, "DELETE FROM password_changes WHERE expires<=now()"); err != nil {
 			return nil, err
 		}
@@ -134,16 +134,14 @@ func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request)
 		}
 		return map[string]string{"passwordChange": token}, tx.Commit(ctx)
 	}
-	if _, err = tx.Exec(ctx, "INSERT INTO sessions(token,username,expires) VALUES($1,$2,now()+interval '30 minutes')", hash(token), candidate); err != nil {
-		return nil, err
-	}
-	if _, err = tx.Exec(ctx, "UPDATE users SET last_login_at=now() WHERE name=$1", candidate); err != nil {
+	token, err = createAccountSession(ctx, tx, r, candidate)
+	if err != nil {
 		return nil, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	http.SetCookie(w, &http.Cookie{Name: "bonfire_session", Value: token, Path: "/api", MaxAge: 1800, HttpOnly: true, Secure: r.TLS != nil || strings.HasPrefix(r.Header.Get("Origin"), "https://"), SameSite: http.SameSiteStrictMode})
+	setAccountSessionCookie(w, r, token)
 	return role, nil
 }
 
@@ -155,14 +153,21 @@ func (a *app) completeLogin(ctx context.Context, token, code string) (string, st
 	}
 	defer tx.Rollback(ctx)
 	var name, role, otpSecret string
-	err = tx.QueryRow(ctx, `UPDATE login_challenges c SET remaining=c.remaining-1 FROM users u
-		WHERE c.username=u.name AND c.token=$1 AND c.expires>now() AND c.remaining>0
-		AND u.active AND u.otp_secret IS NOT NULL RETURNING u.name,u.role,u.otp_secret`, hash(token)).Scan(&name, &role, &otpSecret)
+	err = tx.QueryRow(ctx, `SELECT u.name,u.role,u.otp_secret FROM login_challenges c JOIN users u ON c.username=u.name
+		WHERE c.token=$1 AND c.expires>now() AND c.remaining>0 AND u.active AND u.otp_secret IS NOT NULL
+		FOR UPDATE OF u`, hash(token)).Scan(&name, &role, &otpSecret)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", expired
 	}
 	if err != nil {
 		return "", "", err
+	}
+	tag, err := tx.Exec(ctx, "UPDATE login_challenges SET remaining=remaining-1 WHERE token=$1 AND expires>clock_timestamp() AND remaining>0", hash(token))
+	if err != nil {
+		return "", "", err
+	}
+	if tag.RowsAffected() != 1 {
+		return "", "", expired
 	}
 	if err = verifyCode(ctx, tx, name, otpSecret, code); err != nil {
 		var denied problem
@@ -184,42 +189,58 @@ func (a *app) completeLogin(ctx context.Context, token, code string) (string, st
 	a.mu.Unlock()
 	return name, role, nil
 }
+
+// Older clients receive the recovery list directly. Both entry points use
+// the same server-issued setup and require a fresh password before enrollment.
 func (a *app) mfa(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
-	name, _, err := a.auth(ctx, r)
-	if err != nil {
+	var q struct{ Secret, Code, Password string }
+	if err := read(r, &q); err != nil {
 		return nil, err
-	}
-	var q struct{ Secret, Code string }
-	if err = read(r, &q); err != nil {
-		return nil, err
-	}
-	if q.Secret == "" {
-		var b [20]byte
-		rand.Read(b[:])
-		return map[string]string{"secret": base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b[:])}, nil
-	}
-	step, ok := otpMatch(q.Secret, q.Code, time.Now())
-	if !ok {
-		return nil, fail("Bestätigungscode ungültig.")
 	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, "UPDATE users SET otp_secret=$1,otp_last=$2 WHERE name=$3 AND otp_secret IS NULL", q.Secret, step, name)
-	if err != nil || tag.RowsAffected() != 1 {
-		return nil, fail("Zweiter Faktor bereits eingerichtet.")
-	}
-	codes := []string{}
-	for range 8 {
-		code := secret()[:16]
-		if _, err = tx.Exec(ctx, "INSERT INTO recovery_codes VALUES($1,$2)", name, hash(code)); err != nil {
+	var u selfAccount
+	if login, password, ok := r.BasicAuth(); ok {
+		err = tx.QueryRow(ctx, `SELECT name,coalesce(login_alias,name),password,otp_secret,account_revision
+			FROM users WHERE coalesce(login_alias,name)=$1 AND active AND NOT password_change_required FOR UPDATE`,
+			loginName(login)).Scan(&u.ID, &u.Login, &u.Password, &u.OTP, &u.Revision)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, problem{401, "Anmeldung fehlgeschlagen."}
+		}
+		if err != nil {
 			return nil, err
 		}
-		codes = append(codes, code)
+		u.SessionID = "basic"
+		if err = a.verifySelfPassword(ctx, tx, u, password, r.Header.Get("X-Bonfire-OTP")); err != nil {
+			var denied problem
+			if errors.As(err, &denied) && denied.code == 403 {
+				return nil, problem{401, "Anmeldung fehlgeschlagen."}
+			}
+			return nil, err
+		}
+	} else {
+		u, err = lockSelfAccount(ctx, tx, r)
+		if err != nil {
+			return nil, err
+		}
+		if q.Secret == "" {
+			if err = a.verifySelfPassword(ctx, tx, u, q.Password, ""); err != nil {
+				return nil, err
+			}
+		}
 	}
-	if _, err = tx.Exec(ctx, "INSERT INTO audit(username,action,subject) VALUES($1,'TOTP eingerichtet','Konto')", name); err != nil {
+	if q.Secret == "" {
+		setup, err := beginAuthenticator(ctx, tx, u)
+		if err != nil {
+			return nil, err
+		}
+		return setup, tx.Commit(ctx)
+	}
+	codes, err := a.confirmAuthenticator(ctx, tx, u, q.Code, q.Secret)
+	if err != nil {
 		return nil, err
 	}
 	return codes, tx.Commit(ctx)

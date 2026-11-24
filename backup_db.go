@@ -338,7 +338,7 @@ func (b *backupWorker) promote(ctx context.Context, c *pgx.Conn, stage, user str
 	if err != nil {
 		return err
 	}
-	_, err = dest.Exec(ctx, "DELETE FROM sessions; DELETE FROM password_changes; DELETE FROM login_challenges; UPDATE devices SET secret=sha256(uuid_send(gen_random_uuid())) WHERE NOT online_actor")
+	_, err = dest.Exec(ctx, "DELETE FROM sessions; DELETE FROM password_changes; DELETE FROM login_challenges; DELETE FROM mfa_enrollments; DELETE FROM passkey_challenges; UPDATE devices SET secret=sha256(uuid_send(gen_random_uuid())) WHERE NOT online_actor")
 	dest.Close(ctx)
 	if err != nil {
 		return err
