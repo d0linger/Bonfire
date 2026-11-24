@@ -18,6 +18,7 @@ import {
   navigation,
   tabs,
   eventTabs,
+  onlineEventTabs,
   adminTabs,
   recordKinds,
   overview,
@@ -171,6 +172,7 @@ function openReasonEditor(trigger, title, subject, saveReason) {
 function closeEditor() {
   if (!entryDialog.open) return;
   entryDialog.close();
+  delete entryDialog.dataset.recordWorkspace;
   entryDialog.replaceChildren();
   edit = null;
   const key = [
@@ -1176,13 +1178,16 @@ function journalFilterFields() {
   }
   return fields;
 }
+function isBookingList() {
+  return page === "Journal" || (!offlineEnabled && page === "Zahlungen");
+}
 function records() {
   const kinds = recordKinds(page);
   if (!kinds.includes(kind)) kind = kinds[0];
   const set = rows().filter(
     (r) =>
       kinds.includes(r.Kind) &&
-      (page !== "Journal" || journalMatches(r, journalFilters)) &&
+      (!isBookingList() || journalMatches(r, journalFilters)) &&
       (!filter ||
         (
           r.Data.Label +
@@ -1195,7 +1200,7 @@ function records() {
           .includes(filter.toLowerCase())),
   );
   let detail = "";
-  if (page === "Journal") {
+  if (isBookingList()) {
     const balances = new Map();
     for (const r of rows()) {
       const provider = r.Data.Fields?.provider;
@@ -1411,7 +1416,7 @@ function records() {
         "search",
         false,
         filter,
-      ) + (page === "Journal" ? journalFilterFields() : ""),
+      ) + (isBookingList() ? journalFilterFields() : ""),
       "Filtern",
     ) +
     "</details>" +
@@ -1436,6 +1441,9 @@ function entryLabel(page) {
   return (
     {
       Journal: "Buchung erfassen",
+      Zahlungen: offlineEnabled
+        ? "Eintrag erfassen"
+        : "Veranstaltungsbuchung erfassen",
       Kontakte: "Kontakt anlegen",
       Spenden: "Spende erfassen",
       Preise: "Preis anlegen",
@@ -1460,8 +1468,13 @@ function openRecord(trigger, item = null) {
     trigger,
     item ? types[kind] + " berichtigen" : entryLabel(page),
     recordForm(),
-    selector,
+    (offlineEnabled
+      ? ""
+      : '<p class="booking-target">Buchungsziel <strong>' +
+        esc(workspaceLabel()) +
+        "</strong></p>") + selector,
   );
+  if (!offlineEnabled) entryDialog.dataset.recordWorkspace = s.event.ID;
   const type = entryDialog.querySelector("[name=type]");
   if (type) {
     type.value = kind;
@@ -2030,7 +2043,7 @@ function yearSetup() {
           years
             .map(
               (y) =>
-                '<p><button class="secondary" data-year="' +
+                '<p><button type="button" class="secondary" data-year="' +
                 esc(y.ID) +
                 '">' +
                 esc(y.Name) +
@@ -2049,7 +2062,7 @@ function yearSetup() {
     (old.length
       ? panel(
           "Bisherige Arbeitsbereiche",
-          '<button class="secondary" data-year="unassigned">Ohne Jahreszuordnung öffnen</button>' +
+          '<button type="button" class="secondary" data-year="unassigned">Ohne Jahreszuordnung öffnen</button>' +
             (onlineUser.role === "Admin" && years.length
               ? popupForm(
                   "assign-year",
@@ -2301,7 +2314,7 @@ function eventsOfYear() {
         ? list
             .map(
               (e) =>
-                '<p class="actions"><button class="secondary" data-space="' +
+                '<p class="actions"><button type="button" class="secondary" data-space="' +
                 esc(e.ID) +
                 '">' +
                 esc(e.Name) +
@@ -2317,16 +2330,41 @@ function eventsOfYear() {
     )
   );
 }
+function defaultLedger(spaces) {
+  const ledgers = spaces.filter((e) => e.General);
+  return ledgers.length === 1 ? ledgers[0] : null;
+}
+function workspaceLabel() {
+  const label = s.event.General
+    ? s.event.Name
+    : "Veranstaltung · " + s.event.Name;
+  return (
+    label +
+    " · " +
+    (fiscalYear()
+      ? "Geschäftsjahr " + fiscalYear().Name
+      : "Ohne Jahreszuordnung")
+  );
+}
+function isOnlineEventPage() {
+  return (
+    !offlineEnabled &&
+    s &&
+    !s.event.General &&
+    onlineEventTabs.some(([key]) => key === page)
+  );
+}
 async function selectFiscalWorkspace(yearID, eventID) {
   const spaces = yearID
     ? allSpaces.filter((e) =>
         yearID === legacyGroup ? !e.Year : e.Year === yearID,
       )
     : [];
-  const chosen =
-    spaces.find((e) => e.ID === eventID) ||
-    spaces.find((e) => e.General) ||
-    spaces[0];
+  const chosen = eventID
+    ? spaces.find((e) => e.ID === eventID)
+    : defaultLedger(spaces);
+  if (eventID && !chosen)
+    throw Error("Dieser Arbeitsbereich ist im Geschäftsjahr nicht verfügbar.");
   const out = chosen ? await workspaceRequest(chosen.ID, {}) : null;
   selectedYear = yearID;
   events = spaces;
@@ -2346,7 +2384,7 @@ async function selectFiscalWorkspace(yearID, eventID) {
   syncDetail = "";
   sessionStorage.setItem(
     "bonfire-selection-" + onlineUser.user,
-    JSON.stringify([selectedYear, preferredEvent]),
+    JSON.stringify([selectedYear]),
   );
 }
 function onlineAdmin() {
@@ -2539,7 +2577,7 @@ let onlineUser = null,
   preferredEvent = "",
   destination = "Übersicht";
 const pageDescriptions = {
-  Journal: "Zahlungen, Belege und Berichtigungen im gewählten Arbeitsbereich.",
+  Journal: "Zahlungen, Belege und Berichtigungen.",
   Kontakte: "Personen und Firmen für Sponsoring und Spenden.",
   Spenden: "Spendeneingänge und Meldedaten im gewählten Arbeitsbereich.",
   Dokumente: "Belege ausstellen, Originale nachdrucken und Vorlagen anpassen.",
@@ -2572,7 +2610,7 @@ async function onlineStart(user) {
   onlineUser = user;
   if (!offlineEnabled) {
     [years, allSpaces] = await Promise.all([api("years"), api("events")]);
-    const [lastYear, lastEvent] = JSON.parse(
+    const [lastYear] = JSON.parse(
       sessionStorage.getItem("bonfire-selection-" + user.user) || "[]",
     );
     const yearID =
@@ -2582,7 +2620,7 @@ async function onlineStart(user) {
         : years.find((y) => y.Starts <= today() && y.Ends >= today())?.ID ||
           years[0]?.ID ||
           "");
-    await selectFiscalWorkspace(yearID, lastEvent);
+    await selectFiscalWorkspace(yearID);
     logged = true;
     return;
   }
@@ -2654,7 +2692,7 @@ function shell() {
     document.querySelector("#admin-navigation")?.open ||
     sectionOf(page) === "Verwaltung";
   nav.innerHTML = navigation(
-    page,
+    isOnlineEventPage() ? "Veranstaltungen" : page,
     who?.user,
     who?.role,
     active,
@@ -2694,15 +2732,15 @@ function shell() {
         )
       : "";
   if (!offlineEnabled && logged) {
-    picker.innerHTML =
-      events.length &&
-      page !== "Konto und Sicherheit" &&
+    picker.textContent =
+      s &&
+      ![
+        "Veranstaltungsliste",
+        "Geschäftsjahre",
+        "Konto und Sicherheit",
+      ].includes(page) &&
       !canOpenConsole(page, who?.role)
-        ? select(
-            "workspace",
-            "Arbeitsbereich",
-            events.map((e) => [e.ID, e.Name]),
-          )
+        ? workspaceLabel()
         : "";
   }
   document.querySelector("#sidebar-year").innerHTML =
@@ -2782,7 +2820,7 @@ function onlineView() {
             "Laptop",
           ),
     ) +
-    (isEvent ? tabs(eventTabs, page) : "") +
+    (isEvent ? tabs(offlineEnabled ? eventTabs : onlineEventTabs, page) : "") +
     panel(
       page === "Dokumente"
         ? "Vorlagenprofile"
@@ -2842,17 +2880,41 @@ function show() {
     article.innerHTML = pageHead("Organisation") + onlineAdmin();
     return;
   }
-  if (
-    !offlineEnabled &&
-    logged &&
-    (!s ||
-      page === "Geschäftsjahre" ||
+  if (!offlineEnabled && logged) {
+    if (page === "Geschäftsjahre" || !selectedYear) {
+      article.innerHTML = yearSetup();
+      return;
+    }
+    if (
       page === "Veranstaltungsliste" ||
-      (page === "Veranstaltungen" && s.event.General))
-  ) {
-    article.innerHTML =
-      !s || page === "Geschäftsjahre" ? yearSetup() : eventsOfYear();
-    return;
+      (page === "Veranstaltungen" && !isOnlineEventPage()) ||
+      (!s && page === "Übersicht")
+    ) {
+      article.innerHTML = eventsOfYear();
+      return;
+    }
+    if (!s) {
+      const ledgers = events.filter((e) => e.General);
+      article.innerHTML =
+        pageHead(
+          titleOf(page),
+          ledgers.length
+            ? "Kassenbuch auswählen."
+            : "Für diesen Bereich ist kein allgemeines Kassenbuch freigegeben.",
+        ) +
+        ledgers
+          .map(
+            (e) =>
+              '<button type="button" class="secondary" data-space="' +
+              esc(e.ID) +
+              '">' +
+              esc(e.Name) +
+              "</button>",
+          )
+          .join(" ") +
+        route("Veranstaltungsliste", "Veranstaltungen öffnen");
+      return;
+    }
   }
   if (!s) {
     article.innerHTML = logged ? onlineView() : authSurface();
@@ -2882,7 +2944,7 @@ function show() {
     s.ops.length +
     " ausstehend";
   if (!offlineEnabled) state.textContent = s.closed ? "Abgeschlossen" : "";
-  const isEvent = sectionOf(page) === "Veranstaltungen",
+  const isEvent = isOnlineEventPage() || sectionOf(page) === "Veranstaltungen",
     isAdmin = sectionOf(page) === "Verwaltung";
   article.innerHTML =
     page === "Übersicht" || page === "Veranstaltungen"
@@ -2909,12 +2971,19 @@ function show() {
             "</div>"
           : "")
       : pageHead(
-          isEvent ? s.event.Name : titleOf(page),
-          pageDescriptions[page] || s.event.Name,
+          isEvent
+            ? offlineEnabled
+              ? s.event.Name
+              : onlineEventTabs.find(([key]) => key === page)?.[1] ||
+                s.event.Name
+            : titleOf(page),
+          isOnlineEventPage()
+            ? s.event.Name
+            : pageDescriptions[page] || s.event.Name,
           editableKinds().length ? button("focusEntry", entryLabel(page)) : "",
         ) +
         (isEvent
-          ? tabs(eventTabs, page)
+          ? tabs(offlineEnabled ? eventTabs : onlineEventTabs, page)
           : isAdmin
             ? tabs(
                 offlineEnabled
@@ -3158,7 +3227,7 @@ async function submit(f) {
       id === "fiscal-year" ? created.ID : vals.Year,
       vals.Event,
     );
-    page = "Übersicht";
+    page = s && !s.event.General ? "Veranstaltungen" : "Übersicht";
   }
   if (id === "event") {
     const created = await api("events", {
@@ -3469,9 +3538,19 @@ async function submit(f) {
     if (vals.from && vals.until && vals.from > vals.until)
       throw Error("Datumsbereich prüfen.");
     filter = vals.filter;
-    if (page === "Journal") journalFilters = vals;
+    if (isBookingList()) journalFilters = vals;
   }
   if (id === "record") {
+    if (
+      !offlineEnabled &&
+      (!s ||
+        entryDialog.dataset.recordWorkspace !== s.event.ID ||
+        (page === "Journal" && !s.event.General) ||
+        (page === "Zahlungen" && s.event.General))
+    )
+      throw Error(
+        "Das Buchungsziel hat sich geändert. Erfassung schließen und im gewünschten Bereich erneut öffnen.",
+      );
     const d = { ...vals };
     delete d.amount;
     delete d.file;
@@ -4059,7 +4138,11 @@ document.addEventListener("click", (e) => {
         b.dataset.year || selectedYear,
         b.dataset.space,
       );
-      page = b.dataset.space ? "Veranstaltungen" : "Übersicht";
+      page = b.dataset.space
+        ? s.event.General
+          ? "Journal"
+          : "Veranstaltungen"
+        : "Übersicht";
       show();
     });
     return;
@@ -4073,15 +4156,33 @@ document.addEventListener("click", (e) => {
     }
     if (b.dataset.page === "Einrichtung")
       destination = page === "Verwaltung" ? "Übersicht" : page;
-    page = b.dataset.page;
+    const requested = b.dataset.page;
+    const sidebar = !!b.closest("nav");
+    const target =
+      !offlineEnabled && sidebar && requested === "Veranstaltungen"
+        ? "Veranstaltungsliste"
+        : requested;
     document.body.classList.remove("menu-open");
     document
       .querySelector("#menu-toggle")
       .setAttribute("aria-expanded", "false");
-    filter = "";
-    journalFilters = {};
-    edit = null;
-    show();
+    action(async () => {
+      if (
+        !offlineEnabled &&
+        logged &&
+        s &&
+        !s.event.General &&
+        (sidebar || target === "Journal" || target === "Veranstaltungsliste")
+      ) {
+        donorAccess = false;
+        await selectFiscalWorkspace(selectedYear);
+      }
+      page = target;
+      filter = "";
+      journalFilters = {};
+      edit = null;
+      show();
+    });
     return;
   }
   action(async () => {
@@ -4504,13 +4605,6 @@ document.addEventListener("keydown", (e) => {
 document.querySelector("#workspace-picker").addEventListener("change", (e) =>
   action(async () => {
     try {
-      if (!offlineEnabled) {
-        donorAccess = false;
-        await selectFiscalWorkspace(selectedYear, e.target.value);
-        page = s?.event.General ? "Übersicht" : "Veranstaltungen";
-        show();
-        return;
-      }
       const fresh = await api(
         "workplace?event=" + encodeURIComponent(e.target.value),
       );

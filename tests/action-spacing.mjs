@@ -126,7 +126,7 @@ try {
   await check("Übersicht");
   await page.locator("#fiscal-switch summary").click();
   await page.locator('#fiscal-switch [data-fiscal="' + year.ID + '"]').click();
-  await page.locator("select[name=workspace]").selectOption(event.ID);
+
   await page.waitForFunction(
     () => !document.querySelector('article[aria-busy="true"]'),
   );
@@ -190,13 +190,10 @@ try {
   await page.locator(".record-extra summary").click();
   await check("Erfassung mit Zusatzfeldern", page.getByRole("dialog"));
   await page.locator("#record [data-act=cancel]").click();
-  for (const key of [
-    "Veranstaltungen",
-    "Geldtaschen",
-    "Zahlungen",
-    "Preise",
-    "Sponsoring",
-  ]) {
+  await nav("Veranstaltungen");
+  await page.locator('[data-space="' + event.ID + '"]').click();
+  await check("Veranstaltung");
+  for (const key of ["Geldtaschen", "Zahlungen", "Preise", "Sponsoring"]) {
     await page
       .locator(
         'article .tabs [data-page="' +

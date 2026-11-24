@@ -106,6 +106,13 @@ export const eventTabs = [
   ["Preise", "Preise & Druck"],
   ["Sponsoring", "Sponsoren & Rechnungen"],
 ];
+export const onlineEventTabs = [
+  ...eventTabs,
+  ["Kontakte", "Kontakte"],
+  ["Spenden", "Spenden"],
+  ["Dokumente", "Dokumente"],
+  ["Perioden", "Abschluss"],
+];
 export const adminTabs = [
   ["Verwaltung", "Organisation"],
   ["Gerät & Sync", "Gerät & Sync"],
@@ -551,14 +558,22 @@ export function overview(
     (!device && e.Closed
       ? ""
       : route(
-          device ? "Journal" : "Einrichtung",
-          device ? "Kassenbuch öffnen" : setupAction,
+          device
+            ? online && !e.General
+              ? "Zahlungen"
+              : "Journal"
+            : "Einrichtung",
+          device
+            ? online && !e.General
+              ? "Veranstaltungsbuchungen öffnen"
+              : "Kassenbuch öffnen"
+            : setupAction,
           "primary",
           device ? "BookOpen" : "Laptop",
         )) +
     "</div>" +
     (eventMode
-      ? tabs(eventTabs, "Veranstaltungen") +
+      ? tabs(online ? onlineEventTabs : eventTabs, "Veranstaltungen") +
         eventCounts(rows, device, pending, conflicts, online)
       : "") +
     scope +
@@ -643,7 +658,11 @@ export function overview(
     "<section>" +
     head(
       "Letzte Buchungen",
-      route("Journal", "Alle Buchungen", "text-button"),
+      route(
+        online && !e.General ? "Zahlungen" : "Journal",
+        "Alle Buchungen",
+        "text-button",
+      ),
     ) +
     ledger(bookings(rows).slice(0, 6)) +
     "</section>"

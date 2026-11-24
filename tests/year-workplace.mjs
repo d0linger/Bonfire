@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { chromium } from "playwright";
-import { admin } from "./local-api.mjs";
+import { admin, api } from "./local-api.mjs";
 
 const url = process.env.BONFIRE_URL;
 if (!url || !["localhost", "127.0.0.1"].includes(new URL(url).hostname))
@@ -69,10 +69,12 @@ try {
     await page
       .getByRole("heading", { name: "Finanzen im Überblick" })
       .waitFor();
-    assert.equal(
-      await page.locator("[name=workspace] option:checked").textContent(),
-      "Allgemeines Kassenbuch",
+    assert.ok(
+      (await page.locator("#workspace-picker").innerText()).includes(
+        "Allgemeines Kassenbuch",
+      ),
     );
+    assert.equal(await page.locator("select[name=workspace]").count(), 0);
     return page
       .locator("#fiscal-switch [aria-current=true]")
       .getAttribute("data-fiscal");
@@ -86,10 +88,38 @@ try {
   await event.locator("[name=Starts]").fill("2046-08-20");
   await event.locator("[name=Ends]").fill("2046-08-21");
   await submit("event");
+  const eventName = "Übung Sommerfest";
+  await button("Veranstaltungsbuchungen öffnen").click();
+  await button("Veranstaltungsbuchung erfassen").click();
+  const eventBooking = "Festkassa " + randomUUID();
+  const eventDialog = page.getByRole("dialog");
+  assert.match(
+    await eventDialog.locator(".booking-target").innerText(),
+    /Veranstaltung · Übung Sommerfest · Geschäftsjahr 2046/,
+  );
+  await eventDialog
+    .getByLabel("Bezeichnung", { exact: true })
+    .fill(eventBooking);
+  await eventDialog.getByLabel("Betrag in EUR").fill("12,34");
+  await eventDialog
+    .getByRole("button", { name: "Speichern", exact: true })
+    .click();
+  await page.getByRole("cell", { name: eventBooking, exact: true }).waitFor();
   await go("Kassenbuch");
+  await page
+    .getByRole("heading", { name: "Kassenbuch", exact: true })
+    .waitFor();
+  assert.equal(
+    await page.getByRole("cell", { name: eventBooking, exact: true }).count(),
+    0,
+  );
   await button("Buchung erfassen").click();
   const modal = page.getByRole("dialog", { name: "Buchung erfassen" });
   await modal.waitFor();
+  assert.match(
+    await modal.locator(".booking-target").innerText(),
+    /Allgemeines Kassenbuch · Geschäftsjahr 2046/,
+  );
   assert.ok(
     await modal.evaluate(
       (d) => d.matches(":modal") && d.contains(document.activeElement),
@@ -177,16 +207,16 @@ try {
     "01.11.2046 – 31.12.",
   );
   await chooseYear(yearA);
-  await page
-    .locator("[name=workspace] option")
-    .filter({ hasText: "Übung Sommerfest" })
-    .waitFor({ state: "attached" });
-  await page
-    .locator("[name=workspace]")
-    .selectOption({ label: "Übung Sommerfest" });
-  await page
-    .getByRole("heading", { name: "Übung Sommerfest", exact: true })
-    .waitFor();
+  await go("Veranstaltungen");
+  const eventID = await button(eventName).getAttribute("data-space");
+  await button(eventName).click();
+  await page.getByRole("heading", { name: eventName, exact: true }).waitFor();
+  await button("Veranstaltungsbuchungen öffnen").click();
+  await page.getByRole("cell", { name: eventBooking, exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole("cell", { name: booking, exact: true }).count(),
+    0,
+  );
   assert.equal(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
@@ -200,8 +230,51 @@ try {
     [],
   );
   assert.deepEqual(errors, []);
+  const writerName = "fest-" + randomUUID();
+  const writerPassword = randomUUID();
+  await api("users", admin, {
+    Name: writerName,
+    Password: writerPassword,
+    Role: "Write",
+    Event: eventID,
+  });
+  const restricted = await browser.newContext();
+  const writer = await restricted.newPage();
+  await writer.goto(url);
+  await writer.locator("#login [name=user]").fill(writerName);
+  await writer.locator("#login [name=pass]").fill(writerPassword);
+  await writer
+    .locator("#login button[type=submit], #login button:not([type])")
+    .click();
+  await writer
+    .locator("nav")
+    .getByRole("button", { name: "Kassenbuch", exact: true })
+    .click();
+  await writer
+    .getByText(
+      "Für diesen Bereich ist kein allgemeines Kassenbuch freigegeben.",
+    )
+    .waitFor();
+  assert.equal(
+    await writer.getByRole("button", { name: "Buchung erfassen" }).count(),
+    0,
+  );
+  await writer.getByRole("button", { name: "Veranstaltungen öffnen" }).click();
+  await writer.getByRole("button", { name: eventName, exact: true }).click();
+  await writer
+    .getByRole("button", { name: "Veranstaltungsbuchungen öffnen" })
+    .click();
+  await writer.getByRole("cell", { name: eventBooking, exact: true }).waitFor();
+  await writer
+    .getByRole("button", { name: "Veranstaltungsbuchung erfassen" })
+    .click();
+  assert.match(
+    await writer.getByRole("dialog").locator(".booking-target").innerText(),
+    /Übung Sommerfest · Geschäftsjahr 2046/,
+  );
+  await restricted.close();
   console.log(
-    "PASS Zwei freie Geschäftsjahre, eigenes Kassenbuch, Veranstaltung im Jahr, Onlinebuchung nach Verbindungsabbruch, Reload und mobile Jahresauswahl.",
+    "PASS Getrennte Kassenbuch- und Veranstaltungsbuchungen, explizite Veranstaltungswahl bei eingeschränkten Schreibrechten, Jahreswechsel, Verbindungsabbruch und mobile Ansicht.",
   );
 } finally {
   await browser.close();

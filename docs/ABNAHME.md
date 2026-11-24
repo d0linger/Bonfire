@@ -111,6 +111,10 @@ Die Ausführung auf dem normalen lokalen Port 8137 wurde separat geprüft. Anmel
 | Historische Vorschau und Umbruch | Synthetische XLSX-Tests unterscheiden leere Betragszelle und Null, lassen eine Globalbudget-Spalte aus und zeigen bei einer einfachen Summenformel 5,15 EUR Differenz zum Cache. `tests/layout-limits.mjs` und `ops/export-check.py` prüfen das neunseitige Journal mit 160 Zeilen und Kopf/Fuß auf jeder Seite, angepasste DOCX-Ränder und den Stopp bei überlanger Anschrift. |
 | Sicherheit und Wiederanlauf | Lokale Läufe von govulncheck und npm audit ohne Funde. Ein verschlüsseltes Archiv mit 923 Fachdatensätzen, 1229 Operationen und 2496 Auditereignissen wurde in eine neue Datenbank eingespielt. 48 Originale, sieben Konfliktfassungen und 48 Schritte in Spendenprüfläufen stimmten überein, die wiederholte Synchronisation wirkte genau einmal. |
 
+## Getrennte Buchungswege im Onlinebetrieb
+
+Der Browsertest `tests/year-workplace.mjs` erfasst bei 390 Pixeln Breite eine Einnahme im ausgewählten Fest und eine zweite im allgemeinen Kassenbuch desselben Geschäftsjahrs. Er prüft das angezeigte Ziel in beiden Dialogen, lädt die Anwendung neu und öffnet das Fest nach einem Jahreswechsel erneut. Jede Einnahme erscheint ausschließlich in ihrer vorgesehenen Liste. Ein Schreibkonto mit alleiniger Freigabe für das Fest kann die Veranstaltungserfassung ausdrücklich öffnen. Im allgemeinen Kassenbuch zeigt die Anwendung die fehlende Freigabe und bietet keine Erfassung an. `tests/online-api.mjs` prüft die entsprechenden Schreibrechte am Server. Beide Tests liefen im isolierten Docker-Prüfstack mit erfundenen Daten erfolgreich.
+
 ## Aussagegrenzen
 
 Die strukturelle Dateiprüfung belegt lesbare Formate und Seitenmaße. Fachlich vollständige Datenverträge, Druckertreiber, Falzung, Schnittpositionen, alle langen Texte und Übereinstimmung sämtlicher Seiten mit D2–D7 benötigen separate Abnahme. Für T3 ist ein freigegebener Formularhintergrund vorgesehen. Im Browserprüflauf wurde ausschließlich eine fiktive Arbeitsfassung ausgegeben.

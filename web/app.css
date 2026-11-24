@@ -564,6 +564,22 @@ main {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px 20px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.booking-target {
+  display: grid;
+  gap: .2rem;
+  margin: .75rem 0;
+  padding: .65rem .85rem;
+  border-radius: 6px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: .88rem;
+}
+.booking-target strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
 }
 #workspace-picker label {
   display: flex;
