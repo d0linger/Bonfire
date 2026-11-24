@@ -148,6 +148,17 @@ try {
     .getByRole("button", { name: "Speichern", exact: true })
     .click();
   await page.getByRole("cell", { name: eventBooking, exact: true }).waitFor();
+  for (const [type, label, amount] of [
+    ["expense", "Geschirr", "3,34"],
+    ["outlay", "Privat bezahlte Getränke", "10,00"],
+  ]) {
+    await button("Veranstaltungsbuchung erfassen").click();
+    await eventDialog.locator("select[name=type]").selectOption(type);
+    await eventDialog.getByLabel("Bezeichnung", { exact: true }).fill(label);
+    await eventDialog.getByLabel("Betrag in EUR").fill(amount);
+    await submit("record");
+    await page.getByRole("cell", { name: label, exact: true }).waitFor();
+  }
   await page.locator("#menu-toggle").click();
   const home = page.getByRole("link", { name: "BONFIRE – Zur Übersicht" });
   await home.focus();
@@ -194,6 +205,7 @@ try {
   );
   await button("Buchung erfassen").click();
   const booking = "Eintritt " + randomUUID();
+  await modal.locator("select[name=type]").selectOption("income");
   const editor = page.locator("#record");
   const details = editor.locator(".record-extra > summary");
   assert.ok(await editor.locator("[name=Method]").isVisible());
@@ -272,10 +284,29 @@ try {
   );
   await chooseYear(yearA);
   await go("Veranstaltungen");
-  assert.match(await eventRow.locator(".event-receipts").innerText(), /12,34/);
+  const figures = eventRow.locator(".event-figures");
+  await figures.waitFor();
+  assert.deepEqual(await figures.locator("dt").allTextContents(), [
+    "Einnahmen",
+    "Ausgaben",
+    "Ergebnis",
+  ]);
+  assert.match(await figures.locator("dd").nth(0).innerText(), /12,34/);
+  assert.match(await figures.locator("dd").nth(1).innerText(), /3,34/);
+  const listedResult = await figures.locator("dd.deficit").innerText();
+  assert.match(listedResult, /[-−].*1,00/);
+  assert.match(await figures.locator("small").innerText(), /10,00/);
   const eventID = await button(eventName).getAttribute("data-space");
   await button(eventName).click();
   await page.getByRole("heading", { name: eventName, exact: true }).waitFor();
+  assert.equal(
+    await page
+      .locator(".kpi")
+      .filter({ hasText: "Veranstaltungsergebnis" })
+      .locator("strong")
+      .innerText(),
+    listedResult,
+  );
   await button("Veranstaltungsbuchungen öffnen").click();
   await page.getByRole("cell", { name: eventBooking, exact: true }).waitFor();
   assert.equal(

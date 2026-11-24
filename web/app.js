@@ -2319,6 +2319,8 @@ function eventCleanupButton(event) {
 function eventListRow(e) {
   const book = !e.Closed && ["Admin", "Write"].includes(onlineUser.role);
   const date = dat(e.Starts) + (e.Ends === e.Starts ? "" : " – " + dat(e.Ends));
+  const result = e.ReceiptsCents - e.PaidCents - e.OutstandingCents;
+  const resultClass = result < 0 ? "deficit" : result > 0 ? "surplus" : "";
   return (
     '<li class="event-row"><div class="event-info"><button type="button" class="event-name" data-space="' +
     esc(e.ID) +
@@ -2331,9 +2333,22 @@ function eventListRow(e) {
     (e.Closed ? " is-closed" : "") +
     '">' +
     (e.Closed ? "Abgeschlossen" : "Buchung offen") +
-    '</span><div class="event-receipts"><small>Einnahmen</small><strong>' +
+    '</span><div class="event-figures"><dl>' +
+    "<div><dt>Einnahmen</dt><dd>" +
     eur(e.ReceiptsCents) +
-    '</strong></div><div class="event-actions">' +
+    "</dd></div>" +
+    "<div><dt>Ausgaben</dt><dd>" +
+    eur(e.PaidCents) +
+    "</dd></div>" +
+    '<div><dt>Ergebnis</dt><dd class="' +
+    resultClass +
+    '">' +
+    eur(result) +
+    "</dd></div></dl>" +
+    (e.OutstandingCents
+      ? "<small>Offene Privatauslagen: " + eur(e.OutstandingCents) + "</small>"
+      : "") +
+    '</div><div class="event-actions">' +
     (book
       ? '<button type="button" data-book-event="' +
         esc(e.ID) +

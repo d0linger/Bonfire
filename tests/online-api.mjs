@@ -154,14 +154,26 @@ assert.equal(posted.role, "Write");
 assert.ok(posted.entries.some((row) => row.ID === payment.Target));
 const transfer = make("transfer", "Wechselgeld intern", 75);
 Object.assign(transfer.Data, { Account: "Tresor", To: "Festkassa" });
+const outlay = make("outlay", "Privater Einkauf", 50);
 await send({
   Ops: [
     transfer,
+    outlay,
+    make("expense", "Material", 40),
     make("refund", "Rückzahlung", 15),
     make("opening", "Anfang", 0),
-    make("actual", "Istbestand", 300),
+    make("actual", "Istbestand", 210),
   ],
 });
+const [beforeReimbursement] = await call(
+  "events?overview=1&year=" + year.ID,
+  review,
+);
+assert.equal(beforeReimbursement.PaidCents, 40);
+assert.equal(beforeReimbursement.OutstandingCents, 50);
+const reimbursement = make("reimbursement", "Einkauf erstattet", 50);
+reimbursement.Data.Reference = outlay.Target;
+await send({ Ops: [reimbursement] });
 for (const scoped of [review, writeSession]) {
   await call(path, scoped, { Action: "Abschluss" }, 403);
   await call("admin/users", scoped, undefined, 403);
@@ -173,6 +185,8 @@ assert.deepEqual(
   [event.ID],
 );
 assert.equal(scopedEvents[0].ReceiptsCents, 300);
+assert.equal(scopedEvents[0].PaidCents, 90);
+assert.equal(scopedEvents[0].OutstandingCents, 0);
 assert.equal(scopedEvents[0].Closed, true);
 await send({ Ops: [make("income", "Verspätet", 10)] }, 403);
 await call("logout", cash, {});

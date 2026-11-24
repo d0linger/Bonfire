@@ -137,7 +137,9 @@ type event struct {
 
 type listedEvent struct {
 	event
-	ReceiptsCents *int64 `json:",omitempty"`
+	ReceiptsCents    *int64 `json:",omitempty"`
+	PaidCents        *int64 `json:",omitempty"`
+	OutstandingCents *int64 `json:",omitempty"`
 }
 
 func (a *app) events(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
@@ -165,11 +167,18 @@ func (a *app) events(ctx context.Context, w http.ResponseWriter, r *http.Request
 	}
 	overview := r.URL.Query().Get("overview") == "1"
 	rows, err := a.db.Query(ctx, `SELECT e.id::text,name,starts::text,ends::text,closed,accounts,general_ledger,coalesce(fiscal_year::text,''),
-		CASE WHEN $4 AND NOT general_ledger THEN (
-			SELECT coalesce(sum((CASE WHEN kind='refund' THEN -1 ELSE 1 END) * (data->>'Amount')::bigint),0)::bigint
-			FROM entries WHERE event=e.id AND kind IN ('income','donation','payment','presale','card','refund')
-		) END
-	    FROM events e WHERE ($1='Admin' OR e.id IN (SELECT event FROM grants_event WHERE username=$2))
+		t.receipts,t.paid,t.outstanding
+	    FROM events e LEFT JOIN LATERAL (
+			SELECT coalesce(sum(CASE WHEN kind='refund' THEN -amount ELSE amount END)
+					FILTER (WHERE kind IN ('income','donation','payment','presale','card','refund')),0)::bigint AS receipts,
+				coalesce(sum(amount) FILTER (WHERE kind IN ('expense','reimbursement','fee')),0)::bigint AS paid,
+				coalesce(sum(CASE WHEN kind='outlay' THEN amount ELSE -amount END)
+					FILTER (WHERE kind IN ('outlay','reimbursement')),0)::bigint AS outstanding
+			FROM (SELECT kind,(data->>'Amount')::bigint AS amount FROM entries
+				WHERE event=e.id AND $4 AND NOT e.general_ledger
+				AND kind IN ('income','donation','payment','presale','card','refund','expense','reimbursement','fee','outlay')) AS amounts
+		) t ON $4 AND NOT e.general_ledger
+	    WHERE ($1='Admin' OR e.id IN (SELECT event FROM grants_event WHERE username=$2))
 	    AND (($3='' AND NOT $4) OR fiscal_year IS NOT DISTINCT FROM nullif($3,'')::uuid)
 	    ORDER BY general_ledger DESC,starts DESC,name,e.id`, role, name, year, overview)
 	if err != nil {
@@ -177,7 +186,8 @@ func (a *app) events(ctx context.Context, w http.ResponseWriter, r *http.Request
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (listedEvent, error) {
 		var e listedEvent
-		err := row.Scan(&e.ID, &e.Name, &e.Starts, &e.Ends, &e.Closed, &e.Accounts, &e.General, &e.Year, &e.ReceiptsCents)
+		err := row.Scan(&e.ID, &e.Name, &e.Starts, &e.Ends, &e.Closed, &e.Accounts, &e.General, &e.Year,
+			&e.ReceiptsCents, &e.PaidCents, &e.OutstandingCents)
 		return e, err
 	})
 }

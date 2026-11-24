@@ -579,7 +579,7 @@ main {
   padding: 18px 22px;
 }
 .event-row + .event-row { border-top: 1px solid var(--line); }
-.event-info, .event-receipts { display: grid; gap: 4px; min-width: 0; }
+.event-info { display: grid; gap: 4px; min-width: 0; }
 .event-name {
   justify-self: start;
   padding: 0;
@@ -597,17 +597,21 @@ main {
   align-items: center;
   gap: 7px;
 }
-.event-date, .event-receipts small { color: var(--muted); font-size: .84rem; }
+.event-date, .event-figures dt, .event-figures small { color: var(--muted); font-size: .84rem; }
 .event-date svg { width: 15px; }
 .event-status { color: var(--ok); font-size: .84rem; font-weight: 600; }
 .event-status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .event-status.is-closed { color: var(--muted); }
-.event-receipts { text-align: right; font-variant-numeric: tabular-nums; }
-.event-receipts strong { font-size: 1.1rem; }
+.event-figures { min-width: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.event-figures dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; }
+.event-figures dd { margin: 3px 0 0; font-size: 1.05rem; font-weight: 650; overflow-wrap: anywhere; }
+.event-figures .surplus { color: var(--ok); }
+.event-figures .deficit { color: var(--red); }
+.event-figures small { display: block; margin-top: 5px; }
 .event-actions { flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .event-actions [data-event-cleanup] { background: transparent; color: var(--muted); }
 .event-actions [data-event-cleanup]:hover { background: var(--soft); color: var(--ink); }
-@media (max-width: 1250px) {
+@media (max-width: 1450px) {
   .event-row { grid-template-columns: minmax(0, 1fr) auto auto; }
   .event-actions { grid-column: 1 / -1; justify-content: flex-start; }
   .event-actions:empty { display: none; }
@@ -615,6 +619,7 @@ main {
 @media (max-width: 600px) {
   .event-row { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 16px; }
   .event-info { grid-column: 1 / -1; }
+  .event-figures { grid-column: 1 / -1; text-align: left; }
   .event-actions button { max-width: 100%; }
 }
 .workspace-line {
