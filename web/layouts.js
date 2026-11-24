@@ -402,7 +402,7 @@ export async function renderTables(s) {
       width,
     );
     if (headerLines.length > 4)
-      throw Error("Kopfzeile zu lang für die Folgeseite.");
+      throw Error("The header exceeds the space on the following page.");
     pdf.text(headerLines, left, y);
     y += 5 * headerLines.length + 5;
     pdf.setFont(face.fontName, face.fontStyle);
@@ -450,7 +450,7 @@ export async function renderTables(s) {
       10,
       true,
     );
-    if (y > 78) throw Error("Absender passt nicht in das Adressfenster.");
+    if (y > 78) throw Error("The sender address exceeds the address window.");
     const metaX = s.width - left - 60;
     pdf.setFont(family, "normal");
     pdf.setFontSize(12);
@@ -459,7 +459,7 @@ export async function renderTables(s) {
     );
     if (addressLines.length > 6)
       throw Error(
-        "Empfängeranschrift passt nicht in das Adressfenster. Zeilen und Länge vor Ausgabe prüfen.",
+        "The recipient address exceeds the address window. Check its length and line breaks.",
       );
     pdf.text(addressLines, left, 79, { lineHeightFactor: 1.13 });
     for (const line of spec.address) word.push(point(12, line));
@@ -468,7 +468,7 @@ export async function renderTables(s) {
       pdf.splitTextToSize(String(line), 60),
     );
     if (metaLines.length > 7)
-      throw Error("Belegangaben überschreiten das Adressfenster.");
+      throw Error("The receipt details exceed the address window.");
     pdf.text(metaLines, metaX, 79);
     word.push(point(10, spec.meta.join(" · ")));
     y = Math.max(
@@ -503,14 +503,14 @@ export async function renderTables(s) {
         Math.max(...lines.map((l) => l.length)) * lh + 3,
       );
       if (height > s.height - 55)
-        throw Error("Tabellenzeile überschreitet die Seitenhöhe.");
+        throw Error("A table row exceeds the page height.");
       if (y + height > s.height - bottom) {
         page();
         if (!header) grid(block.headers, true, false);
       }
       if (y + height > s.height - bottom)
         throw Error(
-          "Tabellenzeile passt mit dem wiederholten Tabellenkopf auf keine Folgeseite.",
+          "The table row and repeated header exceed the available page height.",
         );
       pdf.setFont(family, header ? "bold" : "normal");
       pdf.setFontSize(font);
@@ -563,7 +563,7 @@ export async function renderTables(s) {
       width,
     );
     if (footerLines.length > 2)
-      throw Error("Fußzeile überschreitet den verfügbaren Platz.");
+      throw Error("The footer exceeds the available space.");
     pdf.text(footerLines, left, s.height - 6 - (footerLines.length - 1) * 3.4);
   }
   const wide = s.width > s.height;

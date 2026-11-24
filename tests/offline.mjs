@@ -562,6 +562,7 @@ try {
   const archiveRows = (await (await secondPull).json()).entries
     .filter((r) => r.Kind === "original")
     .sort((a, b) => a.Data.Number - b.Data.Number);
+  assert.equal(archiveRows.length,2);
   const snapshots = archiveRows.map((r) => JSON.parse(r.Data.Note));
   assert.equal(snapshots[0].templateVersionID, "invoice_transfer_a4@standard");
   assert.equal(snapshots[1].templateVersionID, "invoice_transfer_a4@1");
@@ -737,9 +738,9 @@ try {
   await writeFile(
     "test-results/gesamtfall.json",
     JSON.stringify({
-      event: eventID,
+      eventName,
       actual: 17925,
-      originals: archiveRows.length,
+      originals: 2,
     }),
   );
   console.log(

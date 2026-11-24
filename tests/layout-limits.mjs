@@ -73,7 +73,7 @@ await assert.rejects(
       address: ["Erfundener sehr langer Empfänger ".repeat(40)],
     },
   }),
-  /Adressfenster/,
+  /address window/,
 );
 await assert.rejects(
   renderTables({
@@ -89,7 +89,7 @@ await assert.rejects(
       ],
     },
   }),
-  /Seitenhöhe/,
+  /page height/,
 );
 console.log(
   "PASS mehrseitiges Journal, wiederholte Tabellenköpfe, benutzerdefinierter Rand, Fußzeile und explizite Überlaufprüfung",
