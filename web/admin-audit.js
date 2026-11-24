@@ -83,11 +83,11 @@ export function mountAudit(host, { api, identity, search = "" }) {
     year: "",
   };
   const cursors = [""];
+  const expanded = new Set();
   let years = [],
     events = [],
     items = [],
     more = false,
-    selected = null,
     proof = null,
     loaded = false,
     revision = 0;
@@ -152,10 +152,14 @@ export function mountAudit(host, { api, identity, search = "" }) {
                 .map(
                   (e) =>
                     "<tr" +
-                    (e.ID === selected ? ' class="ops-selected"' : "") +
+                    (expanded.has(e.ID) ? ' class="ops-selected"' : "") +
                     "><td>" +
                     esc(when(e.At)) +
                     '</td><td><button type="button" class="ops-record" data-entry="' +
+                    e.ID +
+                    '" aria-expanded="' +
+                    expanded.has(e.ID) +
+                    '" aria-controls="audit-detail-' +
                     e.ID +
                     '">' +
                     esc(e.Action) +
@@ -163,6 +167,12 @@ export function mountAudit(host, { api, identity, search = "" }) {
                     esc(e.User) +
                     "</td><td>" +
                     esc(e.Event || "Installation") +
+                    '</td></tr><tr class="ops-detail" id="audit-detail-' +
+                    e.ID +
+                    '"' +
+                    (expanded.has(e.ID) ? "" : " hidden") +
+                    '><td colspan="4">' +
+                    (expanded.has(e.ID) ? details(e) : "") +
                     "</td></tr>",
                 )
                 .join("") +
@@ -175,8 +185,7 @@ export function mountAudit(host, { api, identity, search = "" }) {
               (cursors.length > 1 ? button("prev", "Neuere") : "") +
               (more ? button("next", "Ältere") : "") +
               "</div></div>",
-      ) +
-      details();
+      );
   }
   function eventOptions(year, value) {
     return (
@@ -187,9 +196,7 @@ export function mountAudit(host, { api, identity, search = "" }) {
         .join("")
     );
   }
-  function details() {
-    const e = items.find((i) => i.ID === selected);
-    if (!e) return "";
+  function details(e) {
     const cols = [
       ["Aktion", e.Action],
       ["Benutzer", e.User],
@@ -227,7 +234,9 @@ export function mountAudit(host, { api, identity, search = "" }) {
     items = reply.rows;
     more = reply.more;
     loaded = true;
-    selected = items.find((e) => "#" + e.ID === filters.q)?.ID ?? null;
+    expanded.clear();
+    const match = items.find((e) => "#" + e.ID === filters.q);
+    if (match) expanded.add(match.ID);
     render();
   }
   async function run(fn) {
@@ -258,9 +267,20 @@ export function mountAudit(host, { api, identity, search = "" }) {
     if (!b || b.type === "submit") return;
     e.stopPropagation();
     if (b.dataset.entry) {
-      selected = Number(b.dataset.entry);
-      render();
-      root.lastElementChild?.scrollIntoView({ block: "nearest" });
+      const id = Number(b.dataset.entry);
+      const entryRow = b.closest("tr");
+      const detailRow = entryRow.nextElementSibling;
+      const opening = detailRow.hidden;
+      if (opening) {
+        expanded.add(id);
+        if (!detailRow.cells[0].hasChildNodes())
+          detailRow.cells[0].innerHTML = details(
+            items.find((item) => item.ID === id),
+          );
+      } else expanded.delete(id);
+      detailRow.hidden = !opening;
+      entryRow.classList.toggle("ops-selected", opening);
+      b.setAttribute("aria-expanded", String(opening));
       return;
     }
     run(async () => {

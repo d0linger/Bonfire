@@ -50,6 +50,47 @@ try {
         .filter({ hasNotText: "geladen" })
         .first()
         .waitFor();
+      for (const width of [1360, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        const entry = view.locator("button[data-entry]").first();
+        await entry.focus();
+        const before = await entry.boundingBox();
+        await entry.press("Enter");
+        const detail = view.locator(
+          "#" + (await entry.getAttribute("aria-controls")),
+        );
+        await detail
+          .getByRole("heading", {
+            name: "Ereignis " + (await entry.getAttribute("data-entry")),
+            exact: true,
+          })
+          .waitFor();
+        assert.ok(
+          await entry.evaluate(
+            (b) =>
+              document.activeElement === b &&
+              b.closest("tr").nextElementSibling.id ===
+                b.getAttribute("aria-controls"),
+          ),
+        );
+        assert.ok(Math.abs((await entry.boundingBox()).y - before.y) < 2);
+        await entry.press("Space");
+        assert.equal(await entry.getAttribute("aria-expanded"), "false");
+        assert.equal(await detail.isVisible(), false);
+      }
+      await page.setViewportSize({ width: 1360, height: 900 });
+      const entry = view.locator("button[data-entry]").first();
+      const id = await entry.getAttribute("data-entry");
+      await view.getByLabel("Suche", { exact: true }).fill("#" + id);
+      await view.getByRole("button", { name: "Filtern", exact: true }).click();
+      await view.locator("#audit-detail-" + id).waitFor();
+      assert.equal(
+        await view
+          .locator('[data-entry="' + id + '"]')
+          .getAttribute("aria-expanded"),
+        "true",
+      );
+      await view.getByLabel("Suche", { exact: true }).fill("");
       await view
         .getByLabel("Ergebnis", { exact: true })
         .selectOption("Konflikt");

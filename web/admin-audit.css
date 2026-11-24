@@ -94,6 +94,28 @@
 .ops-admin .ops-selected {
   background: #f8efef;
 }
+.ops-record[data-entry]::before {
+  content: "";
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-inline: 0.15rem 0.55rem;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(-45deg);
+  vertical-align: 0.12em;
+}
+.ops-record[aria-expanded="true"]::before {
+  transform: rotate(45deg);
+}
+.ops-detail > td {
+  padding: 0;
+}
+.ops-detail .ops-panel {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+}
 .ops-panel .list {
   margin: 0;
   overflow-x: auto;
