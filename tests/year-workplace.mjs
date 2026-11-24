@@ -273,6 +273,51 @@ try {
   assert.equal(await page.locator("#record").count(), 0);
   const yearB = await createYear("2047", "2046-11-01", "2047-12-31");
   assert.notEqual(yearA, yearB);
+  await opening.click();
+  const priorMode = page.getByRole("radio", { name: "Aus Vorjahr übernehmen" });
+  await priorMode.check();
+  await page.getByText(/kein bestätigter Schlussbestand vor/).waitFor();
+  await page.getByRole("radio", { name: "Händisch erfassen" }).check();
+  assert.ok(await page.getByLabel("Betrag in EUR").isVisible());
+  await page.keyboard.press("Escape");
+  const previousSpaces = await (
+    await page.request.get(url + "/api/events?year=" + yearA)
+  ).json();
+  const previousLedger = previousSpaces.find((e) => e.General);
+  const finish = await page.request.post(
+    url + "/api/online?event=" + previousLedger.ID,
+    {
+      data: {
+        Ops: [
+          {
+            ID: randomUUID(),
+            Target: randomUUID(),
+            Kind: "actual",
+            Data: {
+              Date: "2046-10-31",
+              Label: "Bestätigte Zählung",
+              Amount: 22850,
+            },
+          },
+        ],
+        Action: "Abschluss",
+      },
+    },
+  );
+  assert.equal(finish.status(), 200, await finish.text());
+  await opening.click();
+  await priorMode.check();
+  const carryForm = page.locator("#year-carry");
+  await carryForm.waitFor();
+  assert.match(await page.locator(".year-carry-preview").innerText(), /228,50/);
+  await submit("year-carry");
+  await page
+    .getByText("Mit erfasstem Anfangsbestand", { exact: true })
+    .waitFor();
+  assert.match(
+    await page.locator(".kpi.featured strong").innerText(),
+    /228,50/,
+  );
   await go("Veranstaltungen");
   await page
     .getByText("Für dieses Geschäftsjahr gibt es noch keine Veranstaltung.")

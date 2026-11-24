@@ -92,7 +92,7 @@ const select = (n, t, choices) =>
   label(
     t,
     '<select name="' +
-      n +
+      esc(n) +
       '">' +
       choices.map(([v, l]) => option(v, l)).join("") +
       "</select>",
@@ -1495,8 +1495,114 @@ function openRecord(trigger, item = null) {
     fields.Date.min = period?.Data.Date || s.event.Starts;
     fields.Date.max = period?.Data.To || s.event.Ends;
     fields.Date.value = fields.Date.min;
+    if (!offlineEnabled && s.event.Year && fields.Date.min === s.event.Starts)
+      addYearCarryChoice(entryDialog.querySelector("#record"));
     fields.amount.focus();
   }
+}
+function addYearCarryChoice(manual) {
+  manual.insertAdjacentHTML(
+    "beforebegin",
+    '<fieldset class="opening-method"><legend>Anfangsbestand</legend>' +
+      '<label><input type="radio" name="openingMethod" value="manual" checked> Händisch erfassen</label>' +
+      '<label><input type="radio" name="openingMethod" value="prior"> Aus Vorjahr übernehmen</label></fieldset>',
+  );
+  const choice = manual.previousElementSibling;
+  const preview = document.createElement("div");
+  manual.after(preview);
+  preview.hidden = true;
+  const workspace = s.event;
+  let sources;
+  choice.addEventListener("change", async () => {
+    const prior = choice.querySelector(":checked").value === "prior";
+    manual.hidden = prior;
+    preview.hidden = !prior;
+    if (!prior || sources || preview.getAttribute("aria-busy") === "true")
+      return;
+    preview.setAttribute("aria-busy", "true");
+    preview.textContent = "Vorjahresabschluss wird geladen …";
+    try {
+      sources = await api("manage", { Action: "year-carry" });
+      if (!preview.isConnected) return;
+      if (!sources.length) {
+        preview.textContent =
+          "Für diesen Arbeitsbereich liegt im vorherigen Geschäftsjahr kein bestätigter Schlussbestand vor. Du kannst den Anfangsbestand händisch erfassen.";
+        return;
+      }
+      const sourceOptions = new Map(
+        sources.map((l) => [l.Source, l.Name + " · " + l.Year]),
+      );
+      preview.innerHTML =
+        select("source", "Quelle im Vorjahr", [
+          ["", "Bitte wählen"],
+          ...sourceOptions,
+        ]) + '<div class="year-carry-preview"></div>';
+      const picker = preview.querySelector("select");
+      if (workspace.General && sourceOptions.size === 1)
+        picker.value = sources[0].Source;
+      const targetAccounts = workspace.Accounts
+        ? choices(["account", "wallet"])
+        : [];
+      const render = () => {
+        const lines = sources.filter((l) => l.Source === picker.value);
+        const box = preview.querySelector(".year-carry-preview");
+        if (!lines.length) {
+          box.replaceChildren();
+          return;
+        }
+        box.innerHTML =
+          "<p>Bestätigter Schlussbestand zum " +
+          dat(lines[0].End) +
+          " · <strong>" +
+          eur(lines.reduce((sum, l) => sum + l.Amount, 0)) +
+          "</strong></p>" +
+          form(
+            "year-carry",
+            '<input type="hidden" name="source" value="' +
+              esc(picker.value) +
+              '">' +
+              '<input type="hidden" name="stamp" value="' +
+              esc(lines[0].Stamp) +
+              '">' +
+              lines
+                .map((l) =>
+                  workspace.Accounts
+                    ? select(
+                        "account:" + l.Account,
+                        l.Label + " · " + eur(l.Amount) + " → Zielkonto",
+                        targetAccounts,
+                      )
+                    : lines.length > 1
+                      ? "<p>" + esc(l.Label) + " · " + eur(l.Amount) + "</p>"
+                      : "",
+                )
+                .join("") +
+              "<p>Eröffnung zum " +
+              dat(workspace.Starts) +
+              "</p>",
+            "Anfangsbestand übernehmen",
+            button("cancel", "Abbrechen", true),
+          );
+        for (const account of box.querySelectorAll("select"))
+          account.required = true;
+        if (workspace.Accounts && targetAccounts.length === 1) {
+          box
+            .querySelector("form")
+            .replaceWith(
+              document.createTextNode(
+                "Lege unter Abschluss zuerst ein Zielkonto an.",
+              ),
+            );
+        }
+      };
+      picker.addEventListener("change", render);
+      render();
+    } catch (err) {
+      preview.textContent = err.message;
+    } finally {
+      preview.removeAttribute("aria-busy");
+    }
+  });
 }
 let donorReview;
 const donorRequest = (body) => api("donation-reports", body, bearer());
@@ -3446,6 +3552,22 @@ async function submit(f) {
         old?.Revision || 0,
       );
     }
+  }
+  if (id === "year-carry") {
+    if (entryDialog.dataset.recordWorkspace !== s?.event.ID)
+      throw Error("Arbeitsbereich erneut öffnen.");
+    const accountMap = Object.fromEntries(
+      Object.entries(vals)
+        .filter(([k]) => k.startsWith("account:"))
+        .map(([k, v]) => [k.slice(8), v]),
+    );
+    await api("manage", {
+      Action: "year-carry",
+      Target: vals.source,
+      Stamp: vals.stamp,
+      AccountMap: accountMap,
+    });
+    await sync();
   }
   if (id === "globalPeriod") {
     globalRows = await api(

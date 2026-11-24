@@ -110,7 +110,7 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 			return false, err
 		}
 		var used bool
-		err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM entries WHERE kind='opening' AND data->'Fields'->>'previous'=$1 AND data->>'Account'=$2 AND (event<>$3 OR id<>$4))", p.ID, v.Account, d.Event, o.Target).Scan(&used)
+		err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM entries WHERE kind='opening' AND (data->'Fields'->>'yearPeriod'=$1 OR (data->'Fields'->>'previous'=$1 AND data->>'Account'=$2 AND (event<>$3 OR id<>$4))))", p.ID, v.Account, d.Event, o.Target).Scan(&used)
 		if err != nil || used {
 			return false, err
 		}

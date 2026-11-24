@@ -30,6 +30,7 @@ type data struct {
 	PDF, DOCX                                                                                                                                string
 }
 type op struct {
+	yearCarry        bool
 	LocalTime        string `json:",omitempty"`
 	ID, Target, Kind string
 	Seq, Base        int64
@@ -354,6 +355,9 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 	return "Übernommen", err
 }
 func accept(ctx context.Context, tx pgx.Tx, d *device, o op) error {
+	if !o.yearCarry && (o.Data.Fields["yearSource"] != "" || o.Data.Fields["yearPeriod"] != "" || o.Data.Fields["yearStamp"] != "") {
+		return fail("Vorjahresquelle über die bestätigte Übernahme auswählen.")
+	}
 	var old []byte
 	var owner string
 	if !idPattern.MatchString(o.ID) {

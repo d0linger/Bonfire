@@ -197,6 +197,137 @@ await api(
   { Ops: [booking("income", "Nach Abschluss", { Amount: 10 })] },
   409,
 );
+const following = await api("years", manager, {
+  Name: "2028",
+  Starts: "2028-01-01",
+  Ends: "2028-12-31",
+});
+const [dest] = await api("events?year=" + following.ID, manager);
+const sources = await api(
+  "manage",
+  manager,
+  { Action: "year-carry" },
+  200,
+  dest.ID,
+);
+assert.equal(sources.length, 1);
+assert.equal(sources[0].Source, nextLedger.ID);
+assert.equal(sources[0].Amount, 120);
+assert.ok(sources[0].Period);
+const take = {
+  Action: "year-carry",
+  Target: nextLedger.ID,
+  Stamp: sources[0].Stamp,
+};
+await api("manage", manager, { ...take, Stamp: "outdated" }, 422, dest.ID);
+await api(
+  "manage",
+  manager,
+  { ...take, AccountMap: { "": "geändertes Konto" } },
+  422,
+  dest.ID,
+);
+await api("manage", manager, take, 200, dest.ID);
+await api("manage", manager, take, 200, dest.ID);
+const imported = (
+  await api("online?event=" + dest.ID, manager, {})
+).entries.filter((r) => r.Kind === "opening");
+assert.equal(imported.length, 1);
+assert.equal(imported[0].Data.Amount, 120);
+assert.equal(imported[0].Data.Fields.yearSource, nextLedger.ID);
+await api("manage", cashier, { Action: "year-carry" }, 403, event.ID);
+const createFest = (Year, Name, date) =>
+  api("events", manager, {
+    Year,
+    Name,
+    Starts: date,
+    Ends: date,
+    Accounts: true,
+  });
+const sourceFest = await createFest(
+  following.ID,
+  "Musterfest Vorjahr",
+  following.Starts,
+);
+const later = await api("years", manager, {
+  Name: "2029",
+  Starts: "2029-01-01",
+  Ends: "2029-12-31",
+});
+const destFest = await createFest(
+  later.ID,
+  "Musterfest Folgejahr",
+  later.Starts,
+);
+const sourceAccount = randomUUID(),
+  destAccount = randomUUID();
+const line = (event, Kind, Target, extra) => ({
+  ID: randomUUID(),
+  Kind,
+  Target,
+  Data: { Label: "Musterkassa", Date: event.Starts, ...extra },
+});
+await api("online?event=" + sourceFest.ID, manager, {
+  Ops: [
+    line(sourceFest, "account", sourceAccount, {}),
+    line(sourceFest, "opening", randomUUID(), {
+      Amount: 0,
+      Account: sourceAccount,
+    }),
+    line(sourceFest, "actual", randomUUID(), {
+      Amount: 0,
+      Account: sourceAccount,
+    }),
+  ],
+  Action: "Abschluss",
+});
+await api("online?event=" + destFest.ID, manager, {
+  Ops: [line(destFest, "account", destAccount, {})],
+});
+const [festPreview] = await api(
+  "manage",
+  manager,
+  { Action: "year-carry" },
+  200,
+  destFest.ID,
+);
+assert.equal(festPreview.Source, sourceFest.ID);
+assert.equal(festPreview.Amount, 0);
+const festTransfer = {
+  Action: "year-carry",
+  Target: sourceFest.ID,
+  Stamp: festPreview.Stamp,
+};
+const manualFest = await api("events", manager, {
+  Year: later.ID,
+  Name: "Manuell eröffnetes Fest",
+  Starts: later.Starts,
+  Ends: later.Starts,
+});
+await api("online?event=" + manualFest.ID, manager, {
+  Ops: [line(manualFest, "opening", randomUUID(), { Amount: 9400 })],
+});
+await api("manage", manager, festTransfer, 422, manualFest.ID);
+const afterRefusal = await api("online?event=" + manualFest.ID, manager, {});
+assert.deepEqual(
+  afterRefusal.entries
+    .filter((r) => r.Kind === "opening")
+    .map((r) => r.Data.Amount),
+  [9400],
+);
+await api("manage", manager, festTransfer, 422, destFest.ID);
+await api(
+  "manage",
+  manager,
+  { ...festTransfer, AccountMap: { [sourceAccount]: destAccount } },
+  200,
+  destFest.ID,
+);
+const festOpening = (
+  await api("online?event=" + destFest.ID, manager, {})
+).entries.find((r) => r.Kind === "opening");
+assert.equal(festOpening.Data.Amount, 0);
+assert.equal(festOpening.Data.Account, destAccount);
 console.log(
   "PASS Freie Geschäftsjahre 2026/2027, allgemeine Kassenbücher, Jahreswechsel, Geldbuchungen an beiden Grenzen, Veranstaltungsfilter, Zugriffsrechte, Jahresauswertung und Abschluss mit Schreibschutz.",
 );

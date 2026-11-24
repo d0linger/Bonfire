@@ -113,6 +113,8 @@ Die Ausführung auf dem normalen lokalen Port 8137 wurde separat geprüft. Anmel
 
 ## Getrennte Buchungswege im Onlinebetrieb
 
+`tests/year-workplace.mjs` prüft beim Jahreswechsel den Wechsel zwischen manueller Eingabe und Vorjahresübernahme, die Rückmeldung bei fehlendem Abschluss sowie Vorschau und Übernahme eines bestätigten Istbestands von 228,50 EUR. `tests/years.mjs` prüft zusätzlich die Übernahme aus einer freigegebenen Ganzjahresperiode, eine veraltete Quellkennung, wiederholtes Bestätigen, Adminrechte und einen Veranstaltungsübertrag von 0,00 EUR auf ein neues Zielkonto.
+
 Die Veranstaltungsliste zeigt Zeitraum, Buchungsstatus, Einnahmen, Ausgaben und Ergebnis je Fest. `tests/year-workplace.mjs` prüft nach dem Jahreswechsel 12,34 EUR Einnahmen, 3,34 EUR Ausgaben und 10,00 EUR offene Privatauslagen. Liste und Festübersicht müssen dasselbe Ergebnis von −1,00 EUR zeigen. `tests/online-api.mjs` prüft Rückzahlungen, interne Transfers, die Erstattung einer Privatauslage und die Sicht eines Kontos mit eingeschränkter Freigabe.
 
 `tests/year-workplace.mjs` öffnet über **Anfangsbestand fehlt** den Erfassungsdialog in beiden Übersichten und prüft Buchungsziel und vorgeschlagenen Stichtag. Im allgemeinen Kassenbuch speichert der Test 175,50 EUR und im Fest 0,00 EUR. In beiden Ansichten verschwindet der Hinweis. Nach der Rückkehr aus dem Fest zeigt die Jahresübersicht weiterhin 175,50 EUR.

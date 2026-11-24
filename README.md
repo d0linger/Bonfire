@@ -25,6 +25,8 @@ Der halb gefüllte Kreis oben rechts schaltet mit einem Klick zwischen Hell- und
 
 Auf der Jahresübersicht oder der Übersicht einer geöffneten Veranstaltung können Admins **Anfangsbestand fehlt** anklicken. Der Dialog zeigt das Buchungsziel und schlägt den ersten Tag des angezeigten Zeitraums vor. Auch ein bestätigter Anfangsbestand von 0,00 EUR ist möglich.
 
+Am Beginn eines Arbeitsbereichs bietet der Dialog **Händisch erfassen** und **Aus Vorjahr übernehmen** an. Die Übernahme verwendet bestätigte Istbestände aus einem abgeschlossenen Vorjahreskassenbuch bzw. einer ausdrücklich ausgewählten Vorjahresveranstaltung. Auch eine freigegebene Abrechnungsperiode, die das gesamte Vorjahr umfasst, kann die Istbestände des jeweiligen Arbeitsbereichs bestätigen. Bei Kontozuordnung wählst du die Zielkonten. Prüfe Quelle und Summe und klicke auf **Anfangsbestand übernehmen**.
+
 Der Offlinebetrieb ist vorerst deaktiviert. Bereits vorhandene verschlüsselte Geräteprofile bleiben im jeweiligen Browser erhalten. Ausschließlich dort gespeicherte Altvorgänge erscheinen erst nach einer gesonderten Übernahme im zentralen Kassenbuch. Für die Weiterarbeit das Browserprofil aufbewahren.
 
 ## Konto und Sicherheit

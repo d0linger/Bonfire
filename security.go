@@ -298,11 +298,15 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 	var q struct {
 		Action, Target, Reason, Start, End string
 		Accounts                           bool
+		Stamp                              string
+		AccountMap                         map[string]string
 	}
 	if err = read(r, &q); err != nil {
 		return nil, err
 	}
 	switch q.Action {
+	case "year-carry":
+		return carryYear(ctx, tx, d, q.Target, q.Stamp, q.AccountMap)
 	case "period-close", "period-open":
 		return periodAction(ctx, tx, d, q.Action, q.Target, q.Reason)
 	case "prior":

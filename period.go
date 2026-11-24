@@ -135,8 +135,8 @@ func periodAction(ctx context.Context, tx pgx.Tx, d device, action, id, reason s
 	}
 	var downstream bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM period_closures p CROSS JOIN LATERAL jsonb_array_elements(p.snapshot) j
-      WHERE p.reopened_at IS NULL AND j->>'Kind'='opening' AND j->'Data'->'Fields'->>'previous'=$1)
-      OR EXISTS(SELECT 1 FROM entries j JOIN events e ON e.id=j.event WHERE e.closed AND j.kind='opening' AND j.data->'Fields'->>'previous'=$1)`, source).Scan(&downstream)
+      WHERE p.reopened_at IS NULL AND j->>'Kind'='opening' AND $1 IN (j->'Data'->'Fields'->>'previous',j->'Data'->'Fields'->>'yearPeriod'))
+      OR EXISTS(SELECT 1 FROM entries j JOIN events e ON e.id=j.event WHERE e.closed AND j.kind='opening' AND $1 IN (j.data->'Fields'->>'previous',j.data->'Fields'->>'yearPeriod'))`, source).Scan(&downstream)
 	if err != nil {
 		return nil, err
 	}

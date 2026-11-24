@@ -15,6 +15,15 @@ func validateCarry(ctx context.Context, tx pgx.Tx, rows []row) error {
 	sources := map[string]priorPeriod{}
 	for _, r := range rows {
 		v := r.Data
+		if source := v.Fields["yearPeriod"]; r.Kind == "opening" && source != "" {
+			var active bool
+			if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT FROM period_closures WHERE id=$1 AND reopened_at IS NULL)", source).Scan(&active); err != nil {
+				return err
+			}
+			if !active {
+				return fail("Der übernommene Jahresabschluss wurde wieder geöffnet. Anfangsbestand vor der Freigabe prüfen.")
+			}
+		}
 		if r.Kind != "opening" || v.Fields["previous"] == "" {
 			continue
 		}

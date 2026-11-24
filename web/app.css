@@ -654,6 +654,10 @@ main {
   color: var(--ink);
   overflow-wrap: anywhere;
 }
+.opening-method { display: flex; flex-wrap: wrap; gap: 8px 20px; border: 0; padding: 0; margin: 14px 0; }
+.opening-method legend { font-weight: 600; margin-bottom: 6px; }
+.opening-method label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.opening-method input { width: auto; min-height: auto; accent-color: var(--red); }
 #workspace-picker label {
   display: flex;
   align-items: center;
