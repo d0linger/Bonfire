@@ -38,6 +38,11 @@ test("Centbeträge und Stückelung", () => {
   assert.equal(totalPieces({ 5000: 1, 2: 3 }), 5006);
   assert.throws(() => totalPieces({ 5: 0.1 }));
 });
+test("Later top-ups do not change an earlier closing count", () => {
+  const rows = [r("count", 1000, "Anfang"), r("count", 1500, "Ende"), r("supply", 200)];
+  rows.forEach((entry,i) => {entry.Data.Date = i === 2 ? "2026-05-02" : "2026-05-01";});
+  assert.equal(counted(rows,"Nord"),500);
+});
 test("Geldtasche mit Rückgabe und bereits erfasster Spende", () => {
   const list = [
     r("count", 30000, "Anfang"),
