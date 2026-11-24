@@ -97,10 +97,13 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 	if err = validateCarry(ctx, tx, entries); err != nil {
 		return "", err
 	}
-	if err = checkBalance(entries, accountMode); err != nil {
-		return "", err
+	if len(byEvent) == 0 {
+		return "", fail("No workspace balances in this period.")
 	}
 	for _, eventRows := range byEvent {
+		if err = checkBalance(eventRows, accountMode); err != nil {
+			return "", err
+		}
 		if err = validateSettlement(eventRows); err != nil {
 			return "", fail(err.Error())
 		}
@@ -152,7 +155,7 @@ func periodAction(ctx context.Context, tx pgx.Tx, d device, action, id, reason s
 	if downstream {
 		return nil, fail("Zuerst den abhängigen Folgeabschluss mit Begründung wieder öffnen.")
 	}
-	tag, err := tx.Exec(ctx, "UPDATE period_closures SET reopened_by=$1,reopened_reason=$2,reopened_at=now() WHERE period_id=$3 AND reopened_at IS NULL", d.User, reason, id)
+	tag, err := tx.Exec(ctx, "UPDATE period_closures SET reopened_by=$1,reopened_reason=$2,reopened_at=now() WHERE id=$3 AND reopened_at IS NULL", d.User, reason, source)
 	if err != nil {
 		return nil, err
 	}

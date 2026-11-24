@@ -35,7 +35,11 @@ type accountBalance struct {
 }
 
 func (a *app) fireAccounts(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
-	tx, err := a.db.Begin(ctx)
+	opts := pgx.TxOptions{}
+	if r.Method == "GET" {
+		opts = pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}
+	}
+	tx, err := a.db.BeginTx(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +175,7 @@ func (a *app) fireAccounts(ctx context.Context, w http.ResponseWriter, r *http.R
 		tag, e := tx.Exec(ctx, `INSERT INTO fire_year_counts(year,account,opening,actual,revision)
    SELECT $1,$2,$3::bigint,$4::bigint,1 WHERE EXISTS(SELECT FROM fire_account_links l JOIN events e ON e.id=l.event WHERE e.fiscal_year=$1 AND l.account=$2 AND e.accounts)
     AND ($5::integer=0 OR EXISTS(SELECT FROM fire_year_counts WHERE year=$1 AND account=$2 AND revision=$5))
-   ON CONFLICT(year,account) DO UPDATE SET opening=excluded.opening,actual=excluded.actual,revision=fire_year_counts.revision+1 WHERE fire_year_counts.revision=$5`, q.Year, q.ID, q.Opening, q.Actual, q.Revision)
+   ON CONFLICT(year,account) DO UPDATE SET opening=excluded.opening,actual=CASE WHEN $6 AND excluded.actual IS NULL THEN fire_year_counts.actual ELSE excluded.actual END,revision=fire_year_counts.revision+1 WHERE fire_year_counts.revision=$5`, q.Year, q.ID, q.Opening, q.Actual, q.Revision, q.Action == "carry")
 		if e != nil {
 			return nil, e
 		}
@@ -286,7 +290,7 @@ func yearAccountBalances(ctx context.Context, tx pgx.Tx, year string) ([]account
 		}
 		src.Lines = append(src.Lines, b.cashLine)
 	}
-	rows, err = tx.Query(ctx, "SELECT account::text,opening,actual,revision FROM fire_year_counts WHERE year=$1", year)
+	rows, err = tx.Query(ctx, "SELECT c.account::text,c.opening,c.actual,c.revision,a.name FROM fire_year_counts c JOIN fire_accounts a ON a.id=c.account WHERE c.year=$1", year)
 	if err != nil {
 		return nil, err
 	}
@@ -295,10 +299,15 @@ func yearAccountBalances(ctx context.Context, tx pgx.Tx, year string) ([]account
 		var id string
 		var opening, actual *int64
 		var rev int
-		if err = rows.Scan(&id, &opening, &actual, &rev); err != nil {
+		var name string
+		if err = rows.Scan(&id, &opening, &actual, &rev, &name); err != nil {
 			return nil, err
 		}
-		if v := balances[id]; v != nil {
+		if balances[id] == nil {
+			balances[id] = &accountBalance{ID: id, Name: name, Shared: true}
+		}
+		{
+			v := balances[id]
 			if opening != nil {
 				v.Opening = opening
 			}
