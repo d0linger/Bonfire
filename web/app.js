@@ -898,7 +898,7 @@ function formFields(k, countPhase = "") {
       true,
       offlineEnabled ? today() : defaultDay(s.event),
     );
-  if (monetary.has(k))
+  if (monetary.has(k) && k !== "supply")
     f += label(
       "Betrag in EUR",
       '<input name="amount" inputmode="decimal" required placeholder="0,00">',
@@ -1182,41 +1182,61 @@ function formFields(k, countPhase = "") {
       ["Unbestätigt", "Erfasste Beobachtung"],
       ["Bestätigt", "Zählung bestätigen"],
     ]);
-  if (["count", "plan", "reserve"].includes(k)) {
+  if (["count", "plan", "reserve", "supply"].includes(k)) {
     if (countPhase)
       f += '<input type="hidden" name="Phase" value="' + esc(countPhase) + '">';
-    else if (k !== "reserve")
+    else if (k === "count" || k === "plan")
       f += select(
         "Phase",
         "Phase",
         ["Anfang", "Zwischenstand", "Ende"].map((p) => [p, p]),
       );
-    if (k === "count")
+    if (k === "count" || k === "supply")
       f +=
         select("field_countMode", "Betrag erfassen", [
           ["amount", "Gesamtbetrag eingeben"],
           ["pieces", "Münzen und Scheine zählen"],
         ]) +
         label(
-          "Gezählter Betrag in EUR",
+          k === "supply" ? "Betrag in EUR" : "Gezählter Betrag in EUR",
           '<input name="amount" inputmode="decimal" placeholder="0,00">',
         );
     f +=
       '</div><div class="count-pieces"><h3>Stückelung</h3><div class="pieces">' +
       denom
-        .map((c) =>
-          label(
-            eur(c),
-            '<input name="coin' +
-              c +
-              '" aria-label="Stückzahl ' +
-              esc(eur(c)) +
-              '" min="0" max="1000000" inputmode="numeric" type="number" value="0" step="1"><small data-piece="' +
-              c +
-              '">' +
-              esc(eur(0)) +
-              "</small>",
-          ),
+        .map(
+          (c) =>
+            '<div class="piece-row">' +
+            label(
+              eur(c),
+              '<input name="coin' +
+                c +
+                '" aria-label="Stückzahl ' +
+                esc(eur(c)) +
+                '" min="0" max="1000000" inputmode="numeric" type="number" value="0" step="1"><small data-piece="' +
+                c +
+                '">' +
+                esc(eur(0)) +
+                "</small>",
+            ) +
+            '<div class="piece-steps">' +
+            [1, 2, 5, 10]
+              .map(
+                (step) =>
+                  '<button type="button" class="secondary" data-denomination="' +
+                  c +
+                  '" data-step="' +
+                  step +
+                  '" aria-label="' +
+                  step +
+                  " Stück zu " +
+                  esc(eur(c)) +
+                  ' hinzufügen">+' +
+                  step +
+                  "</button>",
+              )
+              .join("") +
+            "</div></div>",
         )
         .join("") +
       '</div><p class="count-total">Gezählter Betrag <output id="count-total" aria-live="polite">' +
@@ -1714,7 +1734,7 @@ function openRecord(trigger, item = null) {
   }
   const record = entryDialog.querySelector("#record");
   if (item) fillRecord(record);
-  if (kind === "count") {
+  if (record.elements.field_countMode) {
     const fields = record.elements;
     if (fields.field_countScope) {
       if (
@@ -4174,7 +4194,7 @@ async function submit(f) {
       throw Error(
         "Dieser Kontaktname ist vorhanden. Bestehenden Kontakt wählen oder getrennte Person/Firma im Feld Abgrenzung begründen.",
       );
-    if (monetary.has(kind)) d.Amount = cents(vals.amount);
+    if (monetary.has(kind) && kind !== "supply") d.Amount = cents(vals.amount);
     if (kind === "organization") {
       if (vals.logo?.size) {
         if (vals.logo.type !== "image/png" || vals.logo.size > 300000)
@@ -4278,6 +4298,17 @@ async function submit(f) {
         confirmedBy: s.user,
         confirmedAt: new Date().toISOString(),
       };
+    if (["plan", "count", "reserve", "supply"].includes(kind)) {
+      if (d.Fields?.countMode === "amount") d.Amount = cents(vals.amount);
+      else {
+        d.Pieces = {};
+        for (const n of denom) {
+          d.Pieces[n] = Number(d["coin" + n]);
+          delete d["coin" + n];
+        }
+        d.Amount = totalPieces(d.Pieces);
+      }
+    }
     if (["plan", "count", "reserve"].includes(kind)) {
       const pooled = kind === "count" && d.Fields?.countScope === "all";
       if (kind !== "reserve" && !pooled && !d.Wallet)
@@ -4291,16 +4322,6 @@ async function submit(f) {
         throw Error(
           "Gesamtzählung und Einzelzählungen würden sich überschneiden. Den vorhandenen Zählumfang verwenden.",
         );
-      if (kind === "count" && d.Fields?.countMode === "amount")
-        d.Amount = cents(vals.amount);
-      else {
-        d.Pieces = {};
-        for (const n of denom) {
-          d.Pieces[n] = Number(d["coin" + n]);
-          delete d["coin" + n];
-        }
-        d.Amount = totalPieces(d.Pieces);
-      }
       let phaseKey = d.Phase;
       if (kind === "count" && d.Phase === "Zwischenstand") {
         const observation = edit
@@ -4731,6 +4752,7 @@ document.addEventListener("change", (e) => {
     kind = e.target.value;
     previous.outerHTML = recordForm();
     const current = entryDialog.querySelector("#record");
+    if (current.elements.field_countMode) updateCountOptions(current);
     loadSponsorChoices(current);
     for (const name of ["Label", "Date", "amount", "Method", "Note"]) {
       if (values.has(name) && current.elements.namedItem(name))
@@ -4758,6 +4780,22 @@ document.addEventListener("click", (e) => {
   )
     return;
   if (busy) return;
+  if (b.dataset.denomination) {
+    const input = b.form.elements["coin" + b.dataset.denomination];
+    const next = Number(input.value) + Number(b.dataset.step);
+    if (!input.validity.valid || next > Number(input.max)) {
+      input.focus();
+      input.setCustomValidity(
+        "Bitte eine gültige Stückzahl bis 1.000.000 eingeben.",
+      );
+      input.reportValidity();
+      input.setCustomValidity("");
+      return;
+    }
+    input.value = String(next);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    return;
+  }
   if (
     b.dataset.adminRoute &&
     logged &&

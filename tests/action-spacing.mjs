@@ -331,16 +331,45 @@ try {
         .click();
       await dialog.locator("[name=Wallet]").selectOption({ label: wallet });
       await dialog.locator("[name=Account]").fill("Handkassa");
-      await dialog.getByLabel("Betrag in EUR").fill("25,00");
+      const mode = dialog.getByLabel("Betrag erfassen");
+      const quick = (cent, step) =>
+        dialog.locator(
+          '[data-denomination="' + cent + '"][data-step="' + step + '"]',
+        );
+      await dialog.getByLabel("Betrag in EUR").fill("99,00");
+      await mode.selectOption("pieces");
+      await quick(1000, 2).click();
+      await quick(100, 5).click();
+      assert.match(await dialog.locator("#count-total").innerText(), /25,00/);
+      await check("Stückelung beim Nachlegen", dialog);
       assert.equal(await dialog.locator("[name=To]").count(), 0);
       await dialog
         .getByRole("button", { name: "Speichern", exact: true })
         .click();
       await dialog.waitFor({ state: "hidden" });
-      for (const [name, phase, coins] of [
-        ["Anfangsbestand zählen", "Anfang", "2"],
-        ["Zwischenstand zählen", "Zwischenstand", "15"],
-        ["Endbestand zählen", "Ende", "17"],
+      const endpoint = "online?event=" + event.ID;
+      const supply = (await api(endpoint, {})).entries.find(
+        (r) => r.Kind === "supply",
+      );
+      assert.equal(supply.Data.Amount, 2500);
+      assert.equal(supply.Data.Pieces[1000], 2);
+      assert.equal(supply.Data.Pieces[100], 5);
+      await page.locator('[data-edit="' + supply.ID + '"]').click();
+      assert.equal(await mode.inputValue(), "pieces");
+      assert.equal(await dialog.locator("[name=coin1000]").inputValue(), "2");
+      await mode.selectOption("amount");
+      await dialog.getByLabel("Betrag in EUR").fill("25,00");
+      await dialog
+        .getByLabel("Änderungsgrund")
+        .fill("Als Gesamtbetrag geprüft");
+      await dialog
+        .getByRole("button", { name: "Berichtigung speichern" })
+        .click();
+      await dialog.waitFor({ state: "hidden" });
+      for (const [name, phase] of [
+        ["Anfangsbestand zählen", "Anfang"],
+        ["Zwischenstand zählen", "Zwischenstand"],
+        ["Endbestand zählen", "Ende"],
       ]) {
         await actions.getByRole("button", { name, exact: true }).click();
         await dialog.getByRole("heading", { name, exact: true }).waitFor();
@@ -355,7 +384,12 @@ try {
           await dialog.getByLabel("Gezählter Betrag in EUR").fill("30,00");
         } else {
           await dialog.getByLabel("Betrag erfassen").selectOption("pieces");
-          await dialog.locator("[name=coin200]").fill(coins);
+          if (phase === "Anfang") {
+            await quick(200, 1).click();
+            await quick(200, 1).click();
+          } else {
+            for (const step of [10, 5, 2]) await quick(200, step).click();
+          }
         }
         await dialog
           .getByRole("button", { name: "Speichern", exact: true })
@@ -364,6 +398,7 @@ try {
       }
       const { entries } = await api("online?event=" + event.ID, {});
       const topUp = entries.find((r) => r.Kind === "supply").Data;
+      assert.equal(topUp.Pieces, null);
       assert.deepEqual(
         [topUp.Account, topUp.To, topUp.Amount],
         ["Handkassa", wallet, 2500],

@@ -59,6 +59,27 @@ var kinds = strings.Fields("income expense refund deposit deposit-return transfe
 var money = strings.Fields("income expense refund deposit deposit-return transfer outlay reimbursement card fee payout donation sponsorship payment presale price supply skim return opening actual")
 var denoms = map[string]int64{"20000": 20000, "10000": 10000, "5000": 5000, "2000": 2000, "1000": 1000, "500": 500, "200": 200, "100": 100, "50": 50, "20": 20, "10": 10, "5": 5, "2": 2, "1": 1}
 
+func checkCashAmount(v data) error {
+	if v.Amount == nil || *v.Amount < 0 || *v.Amount > 999999999999 {
+		return fail("Gültigen Centbetrag angeben.")
+	}
+	if v.Pieces == nil {
+		return nil
+	}
+	var total int64
+	for k, n := range v.Pieces {
+		c, ok := denoms[k]
+		if !ok || n < 0 || n > 1000000 {
+			return fail("Ungültige Stückelung.")
+		}
+		total += c * n
+	}
+	if *v.Amount != total {
+		return fail("Zählsumme stimmt nicht.")
+	}
+	return nil
+}
+
 func validate(o op, accounts bool) error {
 	v := o.Data
 	if v.Retired && (o.Base == 0 || o.Kind != "contact" && (o.Kind != "price" || v.Status == "Freigegeben")) {
@@ -120,6 +141,15 @@ func validate(o op, accounts bool) error {
 	if slices.Contains([]string{"transfer", "payout", "skim", "supply", "return"}, o.Kind) && (v.Account == "" || v.To == "" || v.To == v.Account) {
 		return fail("Verschiedene Quell- und Zielkonten angeben.")
 	}
+	if o.Kind == "supply" {
+		mode := v.Fields["countMode"]
+		if !slices.Contains([]string{"", "amount", "pieces"}, mode) || (mode == "pieces") != (v.Pieces != nil) {
+			return fail("Betragseingabe und Stückelung der Nachversorgung prüfen.")
+		}
+		if err := checkCashAmount(v); err != nil {
+			return err
+		}
+	}
 	if o.Kind == "count" || o.Kind == "plan" || o.Kind == "reserve" {
 		if o.Kind == "reserve" && (o.Target != "coinreserve" || v.Wallet != "" || v.Bar != "") {
 			return fail("Wechselgeldbestand wird zentral erfasst.")
@@ -136,16 +166,8 @@ func validate(o op, accounts bool) error {
 		if o.Kind != "reserve" && ((!pooled && v.Wallet == "") || !slices.Contains([]string{"Anfang", "Zwischenstand", "Ende"}, v.Phase)) || (v.Pieces == nil) != manual {
 			return fail("Geldtasche, Zählphase und Stückelung angeben.")
 		}
-		var total int64
-		for k, n := range v.Pieces {
-			c, ok := denoms[k]
-			if !ok || n < 0 || n > 1000000 {
-				return fail("Ungültige Stückelung.")
-			}
-			total += c * n
-		}
-		if v.Amount == nil || *v.Amount < 0 || *v.Amount > 999999999999 || !manual && *v.Amount != total {
-			return fail("Zählsumme stimmt nicht.")
+		if err := checkCashAmount(v); err != nil {
+			return err
 		}
 		phase := v.Phase
 		if observation := v.Fields["observation"]; observation != "" {

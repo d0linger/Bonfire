@@ -51,3 +51,30 @@ func TestDenominations(t *testing.T) {
 		t.Fatal("negative Stückelung")
 	}
 }
+
+func TestSupplyCashInput(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode string
+		pieces     map[string]int64
+		valid      bool
+	}{
+		{"existing amount", "", nil, true},
+		{"manual amount", "amount", nil, true},
+		{"counted amount", "pieces", map[string]int64{"1000": 2, "100": 5}, true},
+		{"wrong sum", "pieces", map[string]int64{"1000": 1}, false},
+		{"unsupported denomination", "pieces", map[string]int64{"2500": 1}, false},
+		{"stale pieces", "amount", map[string]int64{"500": 5}, false},
+		{"missing pieces", "pieces", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := op{ID: uuid(), Seq: 1, Target: uuid(), Kind: "supply", Data: data{
+				Label: "Übung", Date: "2026-07-01", Account: "Kassa", To: "Tasche", Wallet: "Tasche",
+				Amount: amount(2500), Pieces: tc.pieces, Fields: map[string]string{"countMode": tc.mode},
+			}}
+			err := validate(o, false)
+			if (err == nil) != tc.valid {
+				t.Fatalf("validate: %v", err)
+			}
+		})
+	}
+}

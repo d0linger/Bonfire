@@ -197,8 +197,22 @@ th {
 }
 .pieces {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(85px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 205px), 1fr));
+  gap: 16px;
+}
+.piece-row {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.piece-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+.piece-steps button {
+  padding-inline: 0;
+  font-variant-numeric: tabular-nums;
 }
 .muted {
   color: #626a75;
