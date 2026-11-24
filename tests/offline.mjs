@@ -20,15 +20,35 @@ import {
 } from "docx";
 const upstream = process.env.BONFIRE_URL || "http://127.0.0.1:8137";
 let connected = true;
+let dropOriginalAck;
 const proxy = http.createServer((req, res) => {
   if (!connected) {
     req.socket.destroy();
     return;
   }
+  const body = [];
+  if (dropOriginalAck && req.url === "/api/sync")
+    req.on("data", (chunk) => body.push(chunk));
   const out = http.request(
     new URL(req.url, upstream),
     { method: req.method, headers: req.headers },
     (r) => {
+      if (
+        dropOriginalAck &&
+        r.statusCode === 200 &&
+        body.length &&
+        JSON.parse(Buffer.concat(body)).Ops?.some((o) => o.Kind === "original")
+      ) {
+        const done = dropOriginalAck;
+        dropOriginalAck = null;
+        r.once("end", () => {
+          connected = false;
+          res.destroy();
+          done();
+        });
+        r.resume();
+        return;
+      }
       res.writeHead(r.statusCode, r.headers);
       r.pipe(res);
     },
@@ -84,6 +104,7 @@ async function ready(p, name) {
   await press(p, "Anmelden");
   await by(p, "event").selectOption(eventID);
   await by(p, "name").fill(name);
+  await by(p, "digitalCount").fill(name === "Nord" ? "2" : "0");
   await p.locator("#prepare [name=pass]").fill(pin);
   await press(p, "Offlineprofil speichern");
   await p.getByRole("heading", { name: "Übersicht", exact: true }).waitFor();
@@ -103,9 +124,18 @@ async function record(p, group, type, label, values = {}) {
 }
 async function sync(p) {
   await press(p, "Gerät & Sync");
+  const completed = p.waitForResponse(
+    (r) =>
+      r.ok() &&
+      r.url().endsWith("/api/sync") &&
+      Array.isArray(r.request().postDataJSON()?.Prints),
+  );
   await press(p, "Jetzt abgleichen");
-  await p.waitForFunction(() =>
-    document.querySelector("#state")?.textContent.endsWith("0 ausstehend"),
+  await completed;
+  await p.waitForFunction(
+    () =>
+      !document.querySelector('[aria-busy="true"]') &&
+      /·\s+0 ausstehend$/.test(document.querySelector("#state")?.textContent),
   );
 }
 async function artifact(p, profile, subject, format, version = "active") {
@@ -117,7 +147,11 @@ async function artifact(p, profile, subject, format, version = "active") {
   if (format === "Korrektur")
     await by(p, "revisionReason").fill("Begründete Übungsberichtigung");
   const dl = p.waitForEvent("download");
-  await press(p, "Dokument erzeugen");
+  if (format === "Original")
+    await p
+      .getByRole("button", { name: "Dokument erzeugen", exact: true })
+      .dblclick();
+  else await press(p, "Dokument erzeugen");
   const path = await (await dl).path();
   return readFile(path);
 }
@@ -163,7 +197,37 @@ try {
   await record(b.p, "Journal", "income", "Eintritt Sammelbetrag", {
     amount: "14,25",
   });
+  await press(a.p, "Dokumente");
+  await by(a.p, "profile").selectOption("0");
+  await by(a.p, "subject").selectOption({ label: "Übungsbanner" });
+  await by(a.p, "format").selectOption("Original");
+  await by(a.p, "version").selectOption("active");
+  const before = await a.p.locator("#state").innerText();
+  let outputs = 0;
+  const countOutput = () => outputs++;
+  a.p.on("download", countOutput);
+  try {
+    await a.p.evaluate(() => {
+      Object.defineProperty(navigator.storage, "estimate", {
+        configurable: true,
+        value: async () => ({ quota: 1, usage: 1 }),
+      });
+    });
+    await press(a.p, "Dokument erzeugen");
+    await a.p
+      .getByRole("alert")
+      .filter({ hasText: /Speichergrenze/ })
+      .waitFor();
+    assert.equal(await a.p.locator("#state").innerText(), before);
+    assert.equal(outputs, 0);
+  } finally {
+    await a.p.evaluate(() => delete navigator.storage.estimate);
+    a.p.off("download", countOutput);
+  }
   const pdf = await artifact(a.p, 0, "Übungsbanner", "Original");
+  console.log(
+    "PASS Speichergrenze vor Offlineausgabe sichtbar, keine Ausgabe oder Änderung der Warteschlange, ursprüngliches Original nach Freigabe erzeugt",
+  );
   assert.equal(pdf.subarray(0, 5).toString(), "%PDF-");
   const dl = a.p.waitForEvent("download");
   await press(a.p, "DOCX");
@@ -178,10 +242,42 @@ try {
   const repeat = a.p.waitForEvent("download");
   await press(a.p, "PDF");
   assert.deepEqual(await readFile(await (await repeat).path()), pdf);
+  const lost = new Promise((resolve) => {
+    dropOriginalAck = resolve;
+  });
+  connected = true;
+  await press(a.p, "Gerät & Sync");
+  await press(a.p, "Jetzt abgleichen");
+  let timer;
+  try {
+    await Promise.race([
+      lost,
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(Error("Original-Sync ohne erwartete Bestätigung")),
+          30000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+  await a.ctx.close();
+  contexts.delete(a.ctx);
+  a = await start("A", true);
+  await by(a.p, "pass").fill(pin);
+  await press(a.p, "Entsperren");
+  await press(a.p, "Dokumente");
+  const afterLoss = a.p.waitForEvent("download");
+  await press(a.p, "PDF");
+  assert.deepEqual(await readFile(await (await afterLoss).path()), pdf);
   connected = true;
   await sync(a.p);
   await sync(b.p);
   await b.p.getByRole("heading", { name: "Konflikt · Südzählung" }).waitFor();
+  console.log(
+    "PASS Original serverseitig gespeichert, Bestätigung gezielt unterbrochen, Kaltstart und bytegleicher Nachdruck vor erfolgreicher Wiederholung",
+  );
   await b.p
     .getByRole("textbox", { name: "Begründung", exact: true })
     .fill("Gegenzählung des Übungsteams");
@@ -303,6 +399,44 @@ try {
   assert.equal(
     await b.p.getByRole("button", { name: "PDF", exact: true }).count(),
     2,
+  );
+  await press(b.p, "Dokumente");
+  await b.p
+    .getByText("Freie Nummern dieses Geräts: 0", { exact: true })
+    .waitFor();
+  await record(
+    a.p,
+    "Kontakte & Preise",
+    "sponsorship",
+    "Test ohne weitere Digitalnummer",
+    { amount: "3,00", Contact: "Übungsfirma " + eventID.slice(0, 8) },
+  );
+  await press(a.p, "Dokumente");
+  await a.p
+    .getByText("Freie Nummern dieses Geräts: 0", { exact: true })
+    .waitFor();
+  await by(a.p, "profile").selectOption("0");
+  await by(a.p, "subject").selectOption({
+    label: "Test ohne weitere Digitalnummer",
+  });
+  await by(a.p, "format").selectOption("Original");
+  await press(a.p, "Dokument erzeugen");
+  await a.p
+    .getByText("Ausstellungsrecht oder Nummernreserve fehlt.", { exact: true })
+    .waitFor();
+  const draft = await artifact(
+    a.p,
+    0,
+    "Test ohne weitere Digitalnummer",
+    "PDF",
+  );
+  assert.equal(draft.subarray(0, 5).toString(), "%PDF-");
+  assert.equal(
+    await a.p.getByRole("button", { name: "PDF", exact: true }).count(),
+    2,
+  );
+  console.log(
+    "PASS Doppelklick vergibt ein Original; zwei reservierte Nummern verbraucht, Nullreserve sichtbar, weiterer PDF-Entwurf ohne neue Nummer",
   );
   console.log(
     "PASS: immutable original and separately numbered replacement after offline correction",

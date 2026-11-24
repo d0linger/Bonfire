@@ -17,7 +17,25 @@ Die Leitung richtet Arbeitsbereiche, Benutzer, Kontenoption und Nummern ein. Zur
 
 Jedes beteiligte Gerät übermittelt nach Ende der Erfassung seine ausstehenden Daten und bestätigt das Erfassungsende. Die Leitung klärt Konflikte mit Gegenüberstellung und Begründung. Die Prüfrolle vergleicht unabhängig erhobene Istwerte und gibt den passenden Zeitraum frei. Eine Wiederöffnung benötigt einen dokumentierten Grund. Das Nummernregister zeigt die reservierten Digital- und Papierbereiche je Gerät. Papierbelege auf bereits erfasste Zahlungen beziehen.
 
-Bei Geräteverlust den Vorfall im zugehörigen Arbeitsbereich dokumentieren, den letzten Abgleich prüfen und die Rechte am Server entziehen. Eine getrennte PWA erfährt den Entzug erst bei erneuter Verbindung. Mit einem vorhandenen Gerätearchiv kann der geschützte Lesemodus die lokalen Daten und Originale prüfen. Die Wiederherstellung vergibt keine neue Schreib- oder Ausstellungsbefugnis und ersetzt keine Bestätigung des fehlenden Geräts. Die verantwortliche Stelle muss den Umgang mit der verbleibenden Lücke entscheiden.
+Bei Geräteverlust den Vorfall im zugehörigen Arbeitsbereich dokumentieren, den letzten Abgleich prüfen und die Rechte am Server entziehen. Eine getrennte PWA erfährt den Entzug erst bei erneuter Verbindung. Mit einem vorhandenen Gerätearchiv kann der geschützte Lesemodus die lokalen Daten und Originale prüfen. Die Wiederherstellung vergibt keine neue Schreib- oder Ausstellungsbefugnis und ersetzt keine Bestätigung des fehlenden Geräts. Unter **Gerät & Sync** meldet die Leitung das betroffene Gerät als vermisst. Die Prüfrolle kann die Rekonstruktion und verbleibende Lücke dokumentieren. Der Bereich bleibt bis zur Rückmeldung unvollständig. Bei physischer Rückkehr gibt die Leitung das Gerät zur Einzelprüfung frei. Die zugehörige Person meldet sich auf demselben Profil erneut an. Der neue Geräteschlüssel ersetzt den bisherigen. Nachgereichte Vorgänge bleiben bis zur begründeten Entscheidung der Leitung in der Konfliktliste. Anschließend bestätigt das zurückgekehrte Gerät seinen letzten Sequenzstand.
+
+## Spenden prüfen und exportieren
+
+Im vorbereiteten Meldedatenprofil unter **Datenaustausch → Spendenmeldedaten** den Meldezeitraum laden. Die Vorschau nennt meldbare Einzelbeträge und ausgeschlossene Vorgänge. Anonyme Spenden erscheinen dort nur mit Kennung und Ausschlussgrund. Die Leitung prüft die Liste, dokumentiert einen Prüfvermerk und gibt den Export frei. Beim Abruf verifiziert der Browser die SHA-256-Prüfsumme der gespeicherten JSON-Datei. Für eine extern erfolgte Übermittlung oder Bestätigung einen separaten Nachweis hinterlegen. Änderungen erfordern einen begründeten Korrekturlauf. Frühere freigegebene Dateien bleiben unter ihrem Prüflauf abrufbar.
+
+## Belegübertragung und Gerätereserve
+
+Bei der Vorbereitung lässt sich die benötigte Zahl digitaler Belegnummern zwischen 0 und 1000 wählen. Der Papierkreis bleibt getrennt. Unter **Dokumente** zeigt jedes Profil die noch verfügbaren Digitalnummern. Nach Verbrauch des Bereichs sind weiter Arbeitsfassungen und Nachdrucke möglich.
+
+Neue PDF-, JPEG- und PNG-Anhänge werden lokal zusammen mit ihren Metadaten gespeichert. Der Server bestätigt die Metadaten und anschließend die mit Länge und SHA-256 geprüfte Datei. Andere Geräte sehen während der Unterbrechung den ausständigen Dateistand. Der nächste Abgleich setzt die Übertragung fort. Ein fehlender Anhang verhindert den vollständigen Abschluss.
+
+## Strittige Originalbelege und frühere Preisstände
+
+Bei doppelten Belegen die Zahlungsreferenz und beide Fassungen unter **Gerät & Sync** prüfen. Die Leitung entscheidet über die finanzielle Wirkung. Über **Strittige Originalfassungen laden** können berechtigte Personen PDF und DOCX anhand der Vorgangskennung erneut abrufen. Spendenoriginale benötigen ein Meldedatenprofil. Das Nummernregister enthält auch die Nummern geklärter Konfliktfassungen.
+
+Für Karten und Gästepreislisten steht im Dokumentformular der beim letzten Abgleich übernommene Preisverlauf zur Auswahl. Bei Widersprüchen zwischen zwei Portionsangaben die Quellangaben separat erhalten, die zutreffende Ausgabeeinheit eintragen und die Entscheidung begründen. Die erste Migration archiviert den vorhandenen Preisstand. Frühere Ausgaben bleiben als vorhandene Dateien belegt.
+
+Bei einer freigegebenen Importzeile sichert der Server die Quellenstelle über alle Veranstaltungen gegen Doppelübernahme. Die Leitung kann die Quelldatei im eigenen Arbeitsbereich prüfen. Ein Kassenprofil erhält die Quellenreferenz. Formeln, Summenzeilen und Folgevorlagen bleiben in der historischen Vorschau Vergleichsdaten.
 
 ## Wiederanlauf aus einer Sicherung
 

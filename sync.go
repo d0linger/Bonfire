@@ -12,12 +12,14 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type data struct {
+	Retired                                                                                                                                  bool              `json:",omitempty"`
 	Lines                                                                                                                                    []position        `json:",omitempty"`
 	Allocations                                                                                                                              map[string]int64  `json:",omitempty"`
 	Fields                                                                                                                                   map[string]string `json:",omitempty"`
@@ -28,6 +30,7 @@ type data struct {
 	PDF, DOCX                                                                                                                                string
 }
 type op struct {
+	LocalTime        string `json:",omitempty"`
 	ID, Target, Kind string
 	Seq, Base        int64
 	Data             data
@@ -43,20 +46,23 @@ type clash struct {
 	Base             int64
 }
 type request struct {
-	Prints                          []printLog
-	Ops                             []op
-	Resolve, Choice, Reason, Action string
-	Last                            int64
+	Prints                                                []printLog
+	Ops                                                   []op
+	Resolve, Choice, Reason, Action, Account, Destination string
+	Last                                                  int64
 }
 
 var key = regexp.MustCompile("^[a-zA-Z0-9_.:-]{1,160}$")
 var idPattern = regexp.MustCompile("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
-var kinds = strings.Fields("income expense transfer outlay reimbursement card fee payout donation sponsorship payment presale price contact bar wallet shift count plan supply skim return opening actual period template attachment original organization handover import-source account paper reserve")
-var money = strings.Fields("income expense transfer outlay reimbursement card fee payout donation sponsorship payment presale price supply skim return opening actual")
+var kinds = strings.Fields("income expense refund deposit deposit-return transfer outlay reimbursement card fee payout donation sponsorship payment presale price contact bar wallet shift count plan supply skim return opening actual period template attachment attachment-file original organization handover import-source account paper reserve")
+var money = strings.Fields("income expense refund deposit deposit-return transfer outlay reimbursement card fee payout donation sponsorship payment presale price supply skim return opening actual")
 var denoms = map[string]int64{"20000": 20000, "10000": 10000, "5000": 5000, "2000": 2000, "1000": 1000, "500": 500, "200": 200, "100": 100, "50": 50, "20": 20, "10": 10, "5": 5, "2": 2, "1": 1}
 
 func validate(o op, accounts bool) error {
 	v := o.Data
+	if v.Retired && (o.Base == 0 || o.Kind != "contact" && (o.Kind != "price" || v.Status == "Freigegeben")) {
+		return fail("Nur ein vorhandener Kontakt oder Preisentwurf kann archiviert werden.")
+	}
 	if len(v.Lines) > 0 {
 		amount, err := amountPositions(v.Lines)
 		if err != nil {
@@ -80,8 +86,10 @@ func validate(o op, accounts bool) error {
 	if o.Kind == "price" && v.Status != "" && v.Status != "Entwurf" && v.Status != "Freigegeben" {
 		return fail("Preisstatus ungültig.")
 	}
-	if o.Kind == "price" && v.Status == "Freigegeben" && (strings.TrimSpace(v.Unit) == "" || v.Category == "") {
-		return fail("Einheit und Sortiment vor Freigabe klären.")
+	if o.Kind == "price" {
+		if err := validatePrice(v); err != nil {
+			return err
+		}
 	}
 	if o.Kind == "organization" && o.Target != "organization" {
 		return fail("Organisationsprofil ungültig.")
@@ -92,10 +100,10 @@ func validate(o op, accounts bool) error {
 	if slices.Contains(money, o.Kind) && (v.Amount == nil || *v.Amount < 0 || *v.Amount > 999999999999) {
 		return fail("Gültigen Centbetrag angeben.")
 	}
-	if o.Base > 0 && len(strings.TrimSpace(v.Note)) < 3 {
+	if o.Base > 0 && len(strings.TrimSpace(v.Note)) < 3 && !((o.Kind == "price" || o.Kind == "contact") && len(strings.TrimSpace(v.Fields["lifecycleReason"])) >= 3) {
 		return fail("Änderung begründen.")
 	}
-	if accounts && slices.Contains(strings.Fields("income expense reimbursement fee card payout donation payment presale"), o.Kind) && v.Account == "" {
+	if accounts && slices.Contains(strings.Fields("income expense refund deposit deposit-return reimbursement fee card payout donation payment presale"), o.Kind) && v.Account == "" {
 		return fail("Kontozuordnung fehlt.")
 	}
 	if slices.Contains([]string{"transfer", "payout", "skim", "supply", "return"}, o.Kind) && (v.Account == "" || v.To == "" || v.To == v.Account) {
@@ -138,7 +146,7 @@ func validate(o op, accounts bool) error {
 	}
 	if o.Kind == "import-source" {
 		b, err := base64.StdEncoding.DecodeString(v.File)
-		if err != nil || len(b) == 0 || len(b) > 4<<20 || fmt.Sprintf("%x", hash(string(b))) != v.Reference || o.Target != "source:"+v.Reference || o.Base != 0 || v.Status == "D8" {
+		if err != nil || len(b) == 0 || len(b) > 4<<20 || fmt.Sprintf("%x", hash(string(b))) != v.Reference || o.Target != "source:"+v.Reference || o.Base != 0 || !slices.Contains([]string{"Journal", "D1"}, v.Status) {
 			return fail("Importquelle oder Herkunft ungültig.")
 		}
 	}
@@ -148,11 +156,8 @@ func validate(o op, accounts bool) error {
 			return fail("Organisationslogo ungültig.")
 		}
 	}
-	if o.Kind == "attachment" {
-		b, e := base64.StdEncoding.DecodeString(v.File)
-		if e != nil || len(b) > 4<<20 || !(bytes.HasPrefix(b, []byte("%PDF-")) || bytes.HasPrefix(b, []byte{0xff, 0xd8, 0xff}) || bytes.HasPrefix(b, []byte{137, 80, 78, 71, 13, 10, 26, 10})) {
-			return fail("Beleg muss PDF, JPEG oder PNG bis 4 MiB sein.")
-		}
+	if o.Kind == "attachment" || o.Kind == "attachment-file" {
+		return attachmentValid(o)
 	}
 	return nil
 }
@@ -163,6 +168,13 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 	if o.Kind == "contact" {
 		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", o.Target); err != nil {
 			return "", err
+		}
+		ok, err := lifecycle(ctx, tx, d, o)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			return "Konflikt", nil
 		}
 		if !d.Donor {
 			if o.Data.Fields["birth"] != "" {
@@ -196,6 +208,12 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 	if frozen {
 		return "Konflikt", nil
 	}
+	if o.Kind == "attachment-file" {
+		return attachBody(ctx, tx, d, o)
+	}
+	if o.Kind == "attachment" && o.Data.Fields["sha256"] != "" {
+		o.Data.Fields["uploadDevice"] = d.ID
+	}
 	var rev int64
 	var kind string
 	err = tx.QueryRow(ctx, "SELECT revision,kind FROM entries WHERE event=$1 AND id=$2", d.Event, o.Target).Scan(&rev, &kind)
@@ -203,6 +221,22 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 		return "", err
 	}
 	if rev != o.Base || rev > 0 && kind != o.Kind {
+		return "Konflikt", nil
+	}
+	if o.Kind == "price" {
+		ok, err := lifecycle(ctx, tx, d, o)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			return "Konflikt", nil
+		}
+	}
+	assigned, err := allocationValid(ctx, tx, d, o)
+	if err != nil {
+		return "", err
+	}
+	if !assigned {
 		return "Konflikt", nil
 	}
 	ok, err := preconditions(ctx, tx, d, o)
@@ -219,7 +253,7 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "Konflikt", nil
 		}
-		if err != nil || owner != d.ID || v.Number < d.Block*1000 || v.Number > d.Block*1000+999 {
+		if err != nil || owner != d.ID || v.Number < d.Block*1000 || v.Number >= d.Block*1000+d.DigitalCount {
 			return "", fail("Keine Ausstellungszuständigkeit oder Nummernreserve.")
 		}
 		pdf, doc, archiveErr := checkArchive(d, v)
@@ -233,9 +267,12 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 		if !match {
 			return "Konflikt", nil
 		}
-		_, err = tx.Exec(ctx, "INSERT INTO originals(event,subject,number,device,pdf,docx,snapshot,previous_number) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", d.Event, archiveKey(v), v.Number, d.ID, pdf, doc, v.Note, previous)
+		tag, err := tx.Exec(ctx, "INSERT INTO originals(event,subject,number,device,pdf,docx,snapshot,previous_number) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING", d.Event, archiveKey(v), v.Number, d.ID, pdf, doc, v.Note, previous)
 		if err != nil {
-			return "", fail("Beleg oder Nummer bereits vergeben.")
+			return "", err
+		}
+		if tag.RowsAffected() == 0 {
+			return "Konflikt", nil
 		}
 	}
 	allowed, err := checkReimbursements(ctx, tx, d, o)
@@ -309,21 +346,43 @@ func accept(ctx context.Context, tx pgx.Tx, d *device, o op) error {
 	if o.Seq != d.Last+1 {
 		return fail("Gerätefolge unvollständig.")
 	}
-	if err = validate(o, d.Accounts); err != nil {
+	if err = validate(o, false); err != nil {
 		return err
 	}
-	if slices.Contains([]string{"opening", "period", "template", "organization", "import-source"}, o.Kind) && d.Role != "Leitung" {
+	if (slices.Contains([]string{"opening", "period", "template", "organization", "import-source"}, o.Kind) || strings.HasPrefix(o.Target, "import:") || strings.HasPrefix(o.Data.Reference, "source:")) && d.Role != "Leitung" {
 		return problem{403, "Leitungsrecht erforderlich."}
 	}
-	outcome, err := inspect(ctx, tx, *d, o)
-	if err != nil {
-		return err
+	outcome := "Konflikt"
+	if d.IncidentState != "returning" {
+		outcome, err = inspect(ctx, tx, *d, o)
+		if err != nil {
+			return err
+		}
 	}
-	_, err = tx.Exec(ctx, "INSERT INTO operations(id,event,device,seq,digest,target,base,kind,data,outcome) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", o.ID, d.Event, d.ID, o.Seq, digest, o.Target, o.Base, o.Kind, o.Data, outcome)
+	if o.Kind == "original" && outcome == "Konflikt" {
+		if o.Data.Number < d.Block*1000 || o.Data.Number >= d.Block*1000+d.DigitalCount {
+			return fail("Nummer außerhalb der Gerätereserve.")
+		}
+		if _, _, err := checkArchive(*d, o.Data); err != nil {
+			return err
+		}
+	}
+	var localTime *time.Time
+	if o.LocalTime != "" {
+		t, err := time.Parse(time.RFC3339Nano, o.LocalTime)
+		if err != nil {
+			return fail("Gerätezeit ungültig.")
+		}
+		localTime = &t
+	}
+	_, err = tx.Exec(ctx, "INSERT INTO operations(id,event,device,seq,digest,target,base,kind,data,outcome,local_time) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)", o.ID, d.Event, d.ID, o.Seq, digest, o.Target, o.Base, o.Kind, o.Data, outcome, localTime)
 	if err != nil {
 		return err
 	}
 	d.Last = o.Seq
+	if outcome == "Übernommen" && (o.Kind == "contact" || o.Kind == "price") && (o.Data.Fields["lifecycle"] == "Archiviert" || o.Data.Fields["lifecycle"] == "Wiederhergestellt") {
+		return audit(ctx, tx, d.Event, d.User, o.Data.Fields["lifecycle"], o.ID)
+	}
 	return audit(ctx, tx, d.Event, d.User, outcome, o.ID)
 }
 func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
@@ -340,12 +399,16 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		return nil, err
 	}
+	if d.IncidentState == "returning" && (q.Resolve != "" || q.Action != "" && q.Action != "Ende") {
+		return nil, problem{403, "Rückkehrprofil darf nur Daten abgleichen und sein Erfassungsende bestätigen."}
+	}
 	for _, o := range q.Ops {
 		if err = accept(ctx, tx, &d, o); err != nil {
 			return nil, err
 		}
 	}
-	if err = acceptPrintLog(ctx, tx, d, q.Prints); err != nil {
+	acceptedPrints, err := acceptPrintLog(ctx, tx, d, q.Prints)
+	if err != nil {
 		return nil, err
 	}
 	if q.Resolve != "" {
@@ -354,12 +417,12 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		}
 		var o op
 		origin := d
-		err = tx.QueryRow(ctx, "SELECT o.id::text,o.target,o.kind,o.data,x.id::text,x.username,u.role,x.donor_access FROM operations o JOIN devices x ON x.id=o.device JOIN users u ON u.name=x.username WHERE o.id=$1 AND o.event=$2 AND o.outcome='Konflikt'", q.Resolve, d.Event).Scan(&o.ID, &o.Target, &o.Kind, &o.Data, &origin.ID, &origin.User, &origin.Role, &origin.Donor)
+		err = tx.QueryRow(ctx, "SELECT o.id::text,o.target,o.kind,o.data,x.id::text,x.username,u.role,x.donor_access,x.block,x.incident_state,o.seq,x.digital_count FROM operations o JOIN devices x ON x.id=o.device JOIN users u ON u.name=x.username WHERE o.id=$1 AND o.event=$2 AND o.outcome='Konflikt'", q.Resolve, d.Event).Scan(&o.ID, &o.Target, &o.Kind, &o.Data, &origin.ID, &origin.User, &origin.Role, &origin.Donor, &origin.Block, &origin.IncidentState, &o.Seq, &origin.DigitalCount)
 		if err != nil {
 			return nil, fail("Konflikt bereits geklärt oder unbekannt.")
 		}
 		if q.Choice == "übernehmen" {
-			if o.Kind == "original" {
+			if o.Kind == "original" && q.Last != 0 {
 				return nil, fail("Ein ausgestelltes Original bleibt unverändert.")
 			}
 			var current int64
@@ -375,6 +438,25 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 				return nil, fail("Stand inzwischen geändert. Erneut prüfen.")
 			}
 			o.Base = current
+			if q.Account != "" || q.Destination != "" {
+				if !d.Accounts || !slices.Contains(accountEntries, o.Kind) || q.Destination != "" && !slices.Contains(transferEntries, o.Kind) {
+					return nil, fail("Kontoklärung passt nicht zum Vorgang.")
+				}
+				if q.Account != "" {
+					o.Data.Account = q.Account
+				}
+				if q.Destination != "" {
+					o.Data.To = q.Destination
+				}
+				if err = audit(ctx, tx, d.Event, d.User, "Kontozuordnung geklärt · "+o.Data.Account+" · "+o.Data.To, o.ID); err != nil {
+					return nil, err
+				}
+			}
+			if origin.IncidentState == "returning" {
+				if err = validate(o, d.Accounts); err != nil {
+					return nil, err
+				}
+			}
 			outcome, err := inspect(ctx, tx, origin, o)
 			if err != nil {
 				return nil, err
@@ -394,8 +476,34 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		}
 	}
 	if q.Action == "Ende" {
+		var missingFile bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM entries WHERE event=$1 AND kind='attachment' AND data->'Fields'->>'uploadDevice'=$2 AND coalesce(data->>'File','')='')`, d.Event, d.ID).Scan(&missingFile); err != nil {
+			return nil, err
+		}
+		if missingFile {
+			return nil, fail("Fehlende Belegdatei zuerst übertragen.")
+		}
+		if len(acceptedPrints) != len(q.Prints) {
+			return nil, fail("Nachdrucke zuerst mit dem gespeicherten Original abgleichen.")
+		}
 		if q.Last != d.Last {
 			return nil, fail("Letzten Stand zuerst synchronisieren.")
+		}
+		if d.IncidentState == "returning" {
+			var open bool
+			if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM operations WHERE device=$1 AND outcome='Konflikt')", d.ID).Scan(&open); err != nil {
+				return nil, err
+			}
+			if open {
+				return nil, fail("Rückkehrvorgänge zuerst einzeln klären.")
+			}
+			if _, err = tx.Exec(ctx, "UPDATE devices SET incident=NULL,incident_state='' WHERE id=$1", d.ID); err != nil {
+				return nil, err
+			}
+			d.IncidentState = ""
+			if err = audit(ctx, tx, d.Event, d.User, "Rückkehr abgeglichen und bestätigt", d.ID); err != nil {
+				return nil, err
+			}
 		}
 		d.Sealed = true
 		if err = audit(ctx, tx, d.Event, d.User, "Erfassungsende", d.ID); err != nil {
@@ -422,12 +530,15 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		return nil, err
 	}
 	for i := range entries {
-		projectData(&entries[i].Data, entries[i].Kind, d.Donor)
+		projectData(&entries[i].Data, entries[i].Kind, d)
 	}
 	for i := range conflicts {
-		projectData(&conflicts[i].Data, conflicts[i].Kind, d.Donor)
+		projectData(&conflicts[i].Data, conflicts[i].Kind, d)
 	}
-	deviceRows, err := tx.Query(ctx, "SELECT id::text,name,sealed FROM devices WHERE event=$1 ORDER BY name,id", d.Event)
+	deviceRows, err := tx.Query(ctx, `SELECT d.id::text,d.name,d.sealed,d.incident_state,d.last_seq,
+ CASE WHEN d.incident_state<>'' AND $2 IN ('Leitung','Prüfung') THEN concat_ws(' · ',nullif(d.incident,''),(SELECT a.action FROM audit a
+ WHERE a.event=d.event AND a.subject=d.id::text AND (a.action LIKE 'Ausnahmeentscheid%' OR a.action LIKE 'Gerät zurück%')
+ ORDER BY a.id DESC LIMIT 1)) ELSE '' END FROM devices d WHERE d.event=$1 ORDER BY d.name,d.id`, d.Event, d.Role)
 	if err != nil {
 		return nil, err
 	}
@@ -446,6 +557,9 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		if err = validateSettlement(entries); err != nil {
 			return nil, fail(err.Error())
 		}
+		if err = validateCarry(ctx, tx, entries); err != nil {
+			return nil, err
+		}
 		if err = checkBalance(entries, d.Accounts); err != nil {
 			return nil, err
 		}
@@ -462,9 +576,21 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 			return nil, err
 		}
 	}
-	return map[string]any{"entries": entries, "conflicts": conflicts, "sealed": d.Sealed, "pending": pending, "devices": devices, "accounts": d.Accounts, "closed": d.Closed, "last": d.Last}, tx.Commit(ctx)
+	prices, err := priceHistory(ctx, tx, d.Event)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"priceHistory": prices, "acknowledgedPrints": acceptedPrints, "incidentState": d.IncidentState, "entries": entries, "conflicts": conflicts, "sealed": d.Sealed, "pending": pending, "devices": devices, "accounts": d.Accounts, "closed": d.Closed, "last": d.Last}, tx.Commit(ctx)
 }
 func checkBalance(entries []row, accounts bool) error {
+	configured := map[string]bool{}
+	if accounts {
+		for _, r := range entries {
+			if r.Kind == "account" || r.Kind == "wallet" {
+				configured[r.ID] = true
+			}
+		}
+	}
 	balances := map[string]int64{}
 	actual := map[string]int64{}
 	opened := false
@@ -492,9 +618,9 @@ func checkBalance(entries []row, accounts bool) error {
 		case "opening":
 			opened = true
 			balances[account] += n
-		case "income", "payment", "donation", "presale", "card":
+		case "income", "payment", "donation", "presale", "card", "deposit":
 			balances[account] += n
-		case "expense", "reimbursement", "fee":
+		case "expense", "reimbursement", "fee", "deposit-return", "refund":
 			balances[account] -= n
 		case "transfer", "return", "skim", "supply", "payout":
 			if accounts {
@@ -508,7 +634,7 @@ func checkBalance(entries []row, accounts bool) error {
 	}
 	for k, n := range balances {
 		v, ok := actual[k]
-		if !ok || v != n || k == "" {
+		if !ok || v != n || k == "" || accounts && !configured[k] {
 			return fail("Bestandsdifferenz oder fehlende Zuordnung.")
 		}
 	}

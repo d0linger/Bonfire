@@ -11,6 +11,29 @@ type priorPeriod struct {
 	Actuals map[string]int64
 }
 
+func validateCarry(ctx context.Context, tx pgx.Tx, rows []row) error {
+	sources := map[string]priorPeriod{}
+	for _, r := range rows {
+		v := r.Data
+		if r.Kind != "opening" || v.Fields["previous"] == "" {
+			continue
+		}
+		src, ok := sources[v.Date]
+		if !ok {
+			var err error
+			src, err = prior(ctx, tx, v.Date)
+			if err != nil {
+				return err
+			}
+			sources[v.Date] = src
+		}
+		amount, ok := src.Actuals[v.Account]
+		if !ok || src.ID != v.Fields["previous"] || v.Amount == nil || *v.Amount != amount {
+			return fail("Vorperiodenübertrag stammt aus einem überholten Abschluss. Quelle und Betrag vor Freigabe prüfen.")
+		}
+	}
+	return nil
+}
 func prior(ctx context.Context, tx pgx.Tx, start string) (priorPeriod, error) {
 	var p priorPeriod
 	var rows []row

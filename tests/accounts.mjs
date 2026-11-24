@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { randomUUID, randomInt } from "node:crypto";
 import assert from "node:assert/strict";
+import { summary } from "../web/domain.js";
 const pass =
   process.env.BONFIRE_ADMIN_PASSWORD ||
   (await readFile(".env", "utf8"))
@@ -251,7 +252,82 @@ const srcPrice = rec(c, "price", "Saft", {
   Amount: 290,
   Bar: srcBar.Target,
 });
-await send(c, srcBar, srcPrice);
+const templateRef = "invoice_transfer_a4";
+const srcTemplate = rec(
+  c,
+  "template",
+  "Übungsrechnung",
+  {
+    Reference: templateRef,
+    Fields: { footer: "Fußzeile Übungsfest", margin: "16" },
+  },
+  "template:" + templateRef,
+);
+await send(c, srcBar, srcPrice, srcTemplate);
+const retiredPrice = rec(c, "price", "Früherer Artikel", {
+  Status: "Entwurf",
+  Category: "Getränk",
+  Amount: 300,
+  Unit: "Glas",
+  Bar: srcBar.Target,
+});
+await send(c, retiredPrice);
+const retire = rec(
+  c,
+  "price",
+  retiredPrice.Data.Label,
+  {
+    ...retiredPrice.Data,
+    Retired: true,
+    Fields: { lifecycle: "Archiviert", lifecycleReason: "Sortiment beendet" },
+  },
+  retiredPrice.Target,
+  1,
+);
+const archiveState = await send(c, retire);
+assert.equal(
+  archiveState.entries.find((x) => x.ID === retiredPrice.Target).Data.Retired,
+  true,
+);
+const presale = rec(c, "presale", "Übungs-Vorverkauf", {
+  Amount: 6000,
+  Bar: srcBar.Target,
+  Method: "Überweisung",
+  Fields: {
+    saleQuantity: "3",
+    unitCents: "2000",
+    paymentEvidence: "Fiktiver Kontoauszug 1",
+  },
+});
+await api(
+  "sync",
+  auth(c),
+  { Ops: [{ ...presale, Data: { ...presale.Data, Amount: 6100 } }] },
+  422,
+);
+await send(c, presale);
+const production = rec(c, "expense", "Herstellung Vorverkauf", {
+  Amount: 1400,
+  Bar: srcBar.Target,
+  Method: "Überweisung",
+  Fields: { sale: presale.Target },
+});
+out = await send(c, production);
+const saleRows = out.entries.filter(
+  (x) => x.ID === presale.Target || x.ID === production.Target,
+);
+assert.equal(summary(saleRows).result, 4600);
+assert.equal(
+  saleRows.find((x) => x.ID === presale.Target).Data.Fields.paymentEvidence,
+  "Fiktiver Kontoauszug 1",
+);
+assert.equal(
+  saleRows.find((x) => x.ID === production.Target).Data.Fields.sale,
+  presale.Target,
+);
+console.log(
+  "PASS Vorverkauf mit Mengenprüfung, Zahlungsnachweis und eigener Herstellungsausgabe",
+);
 const copied = await api("manage", auth(c), {
   Action: "copy",
   Target: "Neue Übung",
@@ -264,6 +340,23 @@ const fresh = await api("prepare", admin, {
 });
 assert.equal(fresh.event.Starts, nextDay);
 const snapshot = await send(fresh);
+const copiedTemplate = snapshot.entries.find(
+  (x) => x.ID === srcTemplate.Target,
+);
+assert.equal(copiedTemplate.Data.Reference, templateRef);
+assert.equal(copiedTemplate.Data.Fields.footer, srcTemplate.Data.Fields.footer);
+assert.equal(copiedTemplate.Data.Date, nextDay);
+assert.ok(
+  !snapshot.entries.some((x) => x.Data.Label === retiredPrice.Data.Label),
+);
+const copiedBar = snapshot.entries.find(
+  (x) => x.Kind === "bar" && x.Data.Label === "Garten",
+);
+assert.notEqual(copiedBar.ID, srcBar.Target);
+assert.equal(
+  snapshot.entries.find((x) => x.Kind === "price").Data.Bar,
+  copiedBar.ID,
+);
 const purse = snapshot.entries.find((x) => x.Kind === "wallet");
 assert.equal(purse.Data.Fields.owner, fresh.device);
 assert.equal(
@@ -272,9 +365,15 @@ assert.equal(
 );
 assert.ok(
   !snapshot.entries.some((x) =>
-    ["income", "expense", "handover", "actual", "period", "original"].includes(
-      x.Kind,
-    ),
+    [
+      "income",
+      "expense",
+      "presale",
+      "handover",
+      "actual",
+      "period",
+      "original",
+    ].includes(x.Kind),
   ),
 );
 const initialExpense = rec(c, "expense", "Konkurrenz", { Amount: 5000 });

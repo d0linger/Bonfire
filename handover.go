@@ -7,8 +7,11 @@ import (
 )
 
 type deviceInfo struct {
-	ID, Name string
-	Sealed   bool
+	ID, Name      string
+	Sealed        bool
+	IncidentState string
+	Last          int64
+	IncidentNote  string
 }
 
 func walletAuthority(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error) {

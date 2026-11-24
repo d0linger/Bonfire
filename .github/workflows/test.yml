@@ -6,11 +6,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
@@ -23,9 +25,28 @@ jobs:
           docker compose up -d --build --wait
           node tests/api.mjs
           node tests/accounts.mjs
+          node tests/import.mjs
           node tests/security.mjs
+          node tests/incidents.mjs
+          node tests/donation-reports.mjs
+          node tests/wallet-settlement.mjs
+          node tests/prices.mjs
+          node tests/conflict-originals.mjs
+          node tests/lifecycle.mjs
+          node tests/account-mode.mjs
+          node tests/carry-forward.mjs
+          node tests/attachments.mjs
+          node tests/layout-limits.mjs
           npx playwright install --with-deps chromium
           node tests/offline.mjs
           node tests/documents.mjs
           node tests/storage.mjs
           node tests/word-layout.mjs
+      - name: Verschlüsselte Wiederherstellung prüfen
+        shell: pwsh
+        run: |
+          $key = Join-Path $env:RUNNER_TEMP 'bonfire-ci.key'
+          node ops/crypt.mjs keygen $key
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $archive = & ./ops/rotate-backup.ps1 -Directory test-results -KeyFile $key
+          & ./ops/verify-restore.ps1 -Path $archive -KeyFile $key

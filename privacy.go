@@ -5,8 +5,12 @@ import (
 	"strings"
 )
 
-func projectData(v *data, kind string, sensitive bool) {
-	if sensitive {
+func projectData(v *data, kind string, d device) {
+	if kind == "import-source" && d.Role != "Leitung" {
+		v.File = ""
+		v.Filename = ""
+	}
+	if d.Donor {
 		return
 	}
 	if kind == "contact" {

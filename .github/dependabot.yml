@@ -16,6 +16,13 @@ updates:
     directory: "/"
     target-branch: dev
     schedule: *schedule
+  - package-ecosystem: docker-compose
+    directory: "/"
+    target-branch: dev
+    schedule: *schedule
+    ignore:
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     target-branch: dev

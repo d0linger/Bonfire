@@ -1,3 +1,33 @@
+const vaultSchema = 2;
+function profileState(state, readOnly = false) {
+  if ((state.schemaVersion ?? 1) === 1)
+    state = {
+      ...state,
+      history: state.history ?? [],
+      prints: state.prints ?? [],
+    };
+  else if (state.schemaVersion !== vaultSchema)
+    throw Error(
+      "Dieses Profil benötigt eine andere BONFIRE-Version. Verschlüsseltes Archiv sichern.",
+    );
+  if (!Array.isArray(state.ops) || !Number.isSafeInteger(state.seq))
+    throw Error(
+      "Profil oder Warteschlange unvollständig. Verschlüsseltes Archiv sichern.",
+    );
+  if (
+    !readOnly &&
+    state.preparedOrigin &&
+    state.preparedOrigin !== location.origin
+  )
+    throw Error(
+      "Abweichende Serveradresse. Ursprünglichen Zugang oder Lesearchiv verwenden.",
+    );
+  return {
+    ...state,
+    schemaVersion: vaultSchema,
+    preparedOrigin: state.preparedOrigin || location.origin,
+  };
+}
 const db = await new Promise((ok, no) => {
   const r = indexedDB.open("bonfire-v1", 1);
   r.onupgradeneeded = () => r.result.createObjectStore("vault");
@@ -26,8 +56,9 @@ export async function recoverReadOnly(file, pass) {
     k,
     bytes,
   );
-  const state = JSON.parse(new TextDecoder().decode(plain));
+  const state = profileState(JSON.parse(new TextDecoder().decode(plain)), true);
   delete state.token;
+  delete state.nextToken;
   state.recovery = true;
   state.sealed = true;
   state.ending = false;
@@ -82,14 +113,20 @@ export async function unlock(pass) {
     throw Error("Lokales Passwort ungültig.");
   }
   rev = v.rev;
-  return JSON.parse(new TextDecoder().decode(plain));
+  return profileState(JSON.parse(new TextDecoder().decode(plain)));
 }
 export async function save(state) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const bytes = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     key,
-    new TextEncoder().encode(JSON.stringify(state)),
+    new TextEncoder().encode(
+      JSON.stringify({
+        ...state,
+        schemaVersion: vaultSchema,
+        preparedOrigin: state.preparedOrigin || location.origin,
+      }),
+    ),
   );
   const capacity = await navigator.storage?.estimate?.().catch(() => null);
   if (capacity?.quota && bytes.byteLength > capacity.quota)
@@ -99,9 +136,11 @@ export async function save(state) {
   await new Promise((ok, no) => {
     const tx = db.transaction("vault", "readwrite", { durability: "strict" });
     const store = tx.objectStore("vault");
+    let stale = false;
     const get = store.get(slot);
     get.onsuccess = () => {
       if ((get.result?.rev ?? 0) !== rev) {
+        stale = true;
         tx.abort();
         return;
       }
@@ -114,7 +153,11 @@ export async function save(state) {
     tx.onabort = () =>
       no(
         Error(
-          "Speichern fehlgeschlagen. Speicherplatz und weitere geöffnete Tabs prüfen.",
+          stale
+            ? "Das Profil wurde in einem anderen Tab geändert. Den aktuellen Stand neu öffnen."
+            : tx.error?.name === "QuotaExceededError"
+              ? "Speichergrenze erreicht. Der letzte gespeicherte Stand bleibt erhalten. Speicherplatz freigeben und erneut versuchen."
+              : "Speichern fehlgeschlagen. Der letzte gespeicherte Stand bleibt erhalten. Vorgang erneut versuchen.",
         ),
       );
   });

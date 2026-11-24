@@ -84,6 +84,9 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 	if err != nil {
 		return "", err
 	}
+	if err = validateCarry(ctx, tx, entries); err != nil {
+		return "", err
+	}
 	if err = checkBalance(entries, accountMode); err != nil {
 		return "", err
 	}
@@ -115,6 +118,24 @@ func periodAction(ctx context.Context, tx pgx.Tx, d device, action, id, reason s
 	}
 	if d.Role != "Leitung" || len(strings.TrimSpace(reason)) < 5 {
 		return nil, fail("Leitung und Begründung erforderlich.")
+	}
+	var source string
+	err := tx.QueryRow(ctx, `SELECT p.id::text FROM period_closures p JOIN entries e ON e.id=p.period_id AND e.kind='period' WHERE e.event=$1 AND p.period_id=$2 AND p.reopened_at IS NULL`, d.Event, id).Scan(&source)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fail("Kein aktiver Periodenabschluss in diesem Arbeitsbereich.")
+	}
+	if err != nil {
+		return nil, err
+	}
+	var downstream bool
+	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM period_closures p CROSS JOIN LATERAL jsonb_array_elements(p.snapshot) j
+      WHERE p.reopened_at IS NULL AND j->>'Kind'='opening' AND j->'Data'->'Fields'->>'previous'=$1)
+      OR EXISTS(SELECT 1 FROM entries j JOIN events e ON e.id=j.event WHERE e.closed AND j.kind='opening' AND j.data->'Fields'->>'previous'=$1)`, source).Scan(&downstream)
+	if err != nil {
+		return nil, err
+	}
+	if downstream {
+		return nil, fail("Zuerst den abhängigen Folgeabschluss mit Begründung wieder öffnen.")
 	}
 	tag, err := tx.Exec(ctx, "UPDATE period_closures SET reopened_by=$1,reopened_reason=$2,reopened_at=now() WHERE period_id=$3 AND reopened_at IS NULL", d.User, reason, id)
 	if err != nil {

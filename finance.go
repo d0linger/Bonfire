@@ -14,7 +14,7 @@ func walletRevenue(rows []row, wallet string) (int64, bool) {
 	var increments int64
 	for _, r := range rows {
 		v := r.Data
-		if v.Wallet != wallet || v.Amount == nil {
+		if v.Wallet != wallet || v.Amount == nil || v.Method != "" && v.Method != "Bar" {
 			continue
 		}
 		switch r.Kind {
@@ -24,9 +24,9 @@ func walletRevenue(rows []row, wallet string) (int64, bool) {
 			} else if v.Phase == "Ende" {
 				end = v.Amount
 			}
-		case "skim", "expense":
+		case "skim", "expense", "refund", "deposit-return":
 			increments += *v.Amount
-		case "supply", "income", "donation", "payment", "presale":
+		case "supply", "income", "donation", "payment", "presale", "deposit":
 			increments -= *v.Amount
 		}
 	}
@@ -90,6 +90,12 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 			return false, problem{403, "Preisfreigabe durch Leitung erforderlich."}
 		}
 	}
+	if o.Kind == "opening" && o.Base > 0 && v.Fields["previous"] == "" {
+		var hasSource bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM entries WHERE event=$1 AND id=$2 AND coalesce(data->'Fields'->>'previous','')<>'')", d.Event, o.Target).Scan(&hasSource); err != nil || hasSource {
+			return false, err
+		}
+	}
 	if o.Kind == "opening" && v.Fields["previous"] != "" {
 		p, err := prior(ctx, tx, v.Date)
 		if err != nil {
@@ -110,17 +116,13 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 	}
 	if matter := v.Fields["matter"]; matter != "" {
 		var duplicate bool
-		err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM entries WHERE event=$1 AND id<>$2 AND kind=$3 AND data->'Fields'->>'matter'=$4)", d.Event, o.Target, o.Kind, matter).Scan(&duplicate)
+		err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM entries WHERE event=$1 AND id<>$2 AND (kind=$3 OR $3 IN ('income','donation','payment','presale','card') AND kind IN ('income','donation','payment','presale','card')) AND lower(trim(data->'Fields'->>'matter'))=lower(trim($4)))", d.Event, o.Target, o.Kind, matter).Scan(&duplicate)
 		if err != nil || duplicate {
 			return false, err
 		}
 	}
-	if strings.HasPrefix(o.Target, "import:") {
-		if d.Role != "Leitung" {
-			return false, problem{403, "Importfreigabe erforderlich."}
-		}
-		var ok bool
-		err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM entries WHERE event=$1 AND id=$2 AND kind='import-source' AND data->>'Status'<>'D8')", d.Event, v.Reference).Scan(&ok)
+	if strings.HasPrefix(o.Target, "import:") || strings.HasPrefix(v.Reference, "source:") {
+		ok, err := importReference(ctx, tx, d.Event, o)
 		if err != nil || !ok {
 			return false, err
 		}
@@ -132,7 +134,7 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 		var exists bool
 		var err error
 		if ref.kind == "contact" {
-			err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM directory WHERE id=$1)", ref.id).Scan(&exists)
+			err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM directory WHERE id=$1 AND NOT coalesce((data->>'Retired')::boolean,false)) OR EXISTS(SELECT 1 FROM entries WHERE event=$2 AND id=$3 AND data->>'Contact'=$1)", ref.id, d.Event, o.Target).Scan(&exists)
 		} else {
 			err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM entries WHERE event=$1 AND id=$2 AND kind=$3)", d.Event, ref.id, ref.kind).Scan(&exists)
 		}
@@ -185,6 +187,9 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 }
 
 func validateSettlement(rows []row) error {
+	if err := completeAttachments(rows); err != nil {
+		return err
+	}
 	for _, r := range rows {
 		if r.Kind != "wallet" {
 			continue
@@ -225,7 +230,7 @@ func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name, start, e
 	if err != nil {
 		return "", err
 	}
-	rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event=$1 AND kind IN ('bar','wallet','price','template','shift')", d.Event)
+	rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event=$1 AND kind IN ('bar','wallet','price','template','shift') AND NOT coalesce((data->>'Retired')::boolean,false)", d.Event)
 	if err != nil {
 		return "", err
 	}
@@ -269,11 +274,21 @@ func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name, start, e
 	return id, nil
 }
 
-func (a *app) globalPeriod(ctx context.Context, tx pgx.Tx, d device, start, end string) (any, error) {
+func (a *app) globalPeriod(ctx context.Context, tx pgx.Tx, d device, start, end string, history bool) (any, error) {
 	if d.Role == "Kassa" || !date(start) || !date(end) || start > end {
 		return nil, fail("Prüfrecht und gültiger Zeitraum erforderlich.")
 	}
-	rows, err := tx.Query(ctx, "SELECT e.name AS veranstaltung,j.kind AS art,j.data->>'Date' AS datum,j.data->>'Label' AS bezeichnung,(j.data->>'Amount')::bigint AS cent FROM entries j JOIN events e ON e.id=j.event WHERE j.data->>'Date' BETWEEN $1 AND $2 AND j.kind IN ('income','expense','donation','payment','presale','card','fee','reimbursement','outlay','transfer','payout') AND ($3='Leitung' OR e.id IN (SELECT event FROM grants_event WHERE username=$4)) ORDER BY datum,e.name,j.id", start, end, d.Role, d.User)
+	if history {
+		rows, err := tx.Query(ctx, `SELECT e.name AS veranstaltung,j.kind AS art,j.data->>'Date' AS datum,j.data->>'Label' AS bezeichnung,j.direction*(j.data->>'Amount')::bigint AS cent,
+  CASE j.direction WHEN -1 THEN 'Storno' ELSE 'Buchung' END AS richtung,j.revision,j.actor AS akteur,j.recorded_at::text AS angenommen,o.local_time::text AS geraetezeit,
+  o.device::text AS geraet,j.target AS vorgang FROM journal_history j JOIN events e ON e.id=j.event LEFT JOIN operations o ON o.id=j.operation
+  WHERE j.data->>'Date' BETWEEN $1 AND $2 AND ($3='Leitung' OR EXISTS (SELECT 1 FROM grants_event g WHERE g.event=e.id AND g.username=$4)) ORDER BY j.id`, start, end, d.Role, d.User)
+		if err != nil {
+			return nil, err
+		}
+		return pgx.CollectRows(rows, pgx.RowToMap)
+	}
+	rows, err := tx.Query(ctx, "SELECT e.name AS veranstaltung,j.kind AS art,j.data->>'Date' AS datum,j.data->>'Label' AS bezeichnung,(j.data->>'Amount')::bigint AS cent FROM entries j JOIN events e ON e.id=j.event WHERE j.data->>'Date' BETWEEN $1 AND $2 AND j.kind IN ('income','expense','refund','deposit','deposit-return','donation','payment','presale','card','fee','reimbursement','outlay','transfer','payout') AND ($3='Leitung' OR e.id IN (SELECT event FROM grants_event WHERE username=$4)) ORDER BY datum,e.name,j.id", start, end, d.Role, d.User)
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +296,7 @@ func (a *app) globalPeriod(ctx context.Context, tx pgx.Tx, d device, start, end 
 }
 
 func retainPrior(ctx context.Context, tx pgx.Tx, d device, o op) error {
-	if !slices.Contains(strings.Fields("income expense transfer payment donation reimbursement card fee payout presale supply skim return"), o.Kind) {
+	if !slices.Contains(strings.Fields("income expense refund deposit deposit-return transfer payment donation reimbursement card fee payout presale supply skim return"), o.Kind) {
 		return nil
 	}
 	if o.Base > 0 {

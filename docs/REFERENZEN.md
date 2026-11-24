@@ -10,4 +10,6 @@ Geprüft wurden die lokal bereitgestellten Git-Bäume von Parkrr und Treckrr auf
 | Deployment und Tests | Treckrr, `Dockerfile`, `compose.e2e.yml`, `e2e/` | Compose-Testinstallation und getrennte Browserprofile. |
 | Merge und Sicherheit | Beide GitHub-Repositories, Settings im Einrichtungsschritt geprüft | main als Standard, dev als Arbeitsbranch, zusätzliche PR-Pflicht auf main. Lokale Dependency-Konfiguration für die nun tatsächlich vorhandenen Ökosysteme. |
 
+Der zweite lokale Vergleich auf `dev` verwendete Parkrr `ed48172` und Treckrr `646069a`. Beide pinnen die Actions für Checkout und Dependency Review auf Commit-Hashes, lesen Repositoryinhalte mit minimalen Rechten und lassen hoch eingestufte Abhängigkeitsfunde einen PR-Check fehlschlagen. BONFIRE übernimmt diese Konfiguration, die historische Geheimnissuche ohne PR-Kommentar und die wöchentliche Prüfung der Go-Abhängigkeiten. Zusätzlich prüft BONFIRE seinen npm-Lockfile und führt den verschlüsselten Restore im Testworkflow aus. Dependabot berücksichtigt auch Compose-Images. Ein PostgreSQL-Hauptversionswechsel erfordert eine bewusste Migration. Die Konfiguration liegt lokal auf `dev`.
+
 Diese Übernahmeprüfung belegt die genannten Komponenten und Entscheidungen. Eine Gleichwertigkeit mit den Sicherheits- und Betriebsfunktionen beider Bestandsprodukte ist nicht abgenommen.

@@ -9,7 +9,7 @@ if($KeyFile){
     $output=& ./ops/restore-test.ps1 -Path $tempDump
   }finally{if(Test-Path -LiteralPath $tempDump){Remove-Item -LiteralPath $tempDump}}
 }else{
-  & ./ops/backup.ps1 -Path $Path
+  if(!(Test-Path -LiteralPath $Path)){& ./ops/backup.ps1 -Path $Path | Out-Null}
   $output=& ./ops/restore-test.ps1 -Path $Path
 }
 $output | Write-Output
@@ -20,6 +20,19 @@ $before=@(docker compose exec -T db psql -X -At -U bonfire -d bonfire -c $query)
 if($LASTEXITCODE -ne 0 -or !$before.Count){throw 'Vorbedingung: Mindestens ein synchronisierter Übungsbeleg.'}
 $after=@(docker compose exec -T db psql -X -At -U bonfire -d $restored -c $query)
 if($LASTEXITCODE -ne 0 -or (Compare-Object $before $after)){throw 'Originaldateien stimmen nicht überein.'}
+$conflictQuery="SELECT id,encode(sha256(decode(data->>'PDF','base64')),'hex'),encode(sha256(decode(data->>'DOCX','base64')),'hex') FROM operations WHERE kind='original' AND outcome IN ('Konflikt','Geklärt') ORDER BY id"
+$conflictSource=@(docker compose exec -T db psql -X -At -v ON_ERROR_STOP=1 -U bonfire -d bonfire -c $conflictQuery)
+if($LASTEXITCODE){throw 'Konfliktfassungen in der Quelle nicht lesbar.'}
+$conflictCopy=@(docker compose exec -T db psql -X -At -v ON_ERROR_STOP=1 -U bonfire -d $restored -c $conflictQuery)
+if($LASTEXITCODE -or (Compare-Object $conflictSource $conflictCopy)){throw 'Archivierte Konfliktfassungen weichen ab.'}
+Write-Output ("Wiederhergestellte Konfliktfassungen mit identischen PDF- und DOCX-Hashes: "+$conflictCopy.Count)
+$reportQuery="SELECT r.id,r.digest,encode(sha256(r.payload),'hex'),s.seq,s.status,encode(sha256(convert_to(s.evidence,'UTF8')),'hex') FROM donation_reports r JOIN donation_report_steps s ON s.report=r.id ORDER BY r.id,s.seq"
+$expectedReports=@(docker compose exec -T db psql -X -At -v ON_ERROR_STOP=1 -U bonfire -d bonfire -c $reportQuery)
+if($LASTEXITCODE){throw 'Quellnachweise für Spendenprüfläufe nicht lesbar.'}
+$restoredReports=@(docker compose exec -T db psql -X -At -v ON_ERROR_STOP=1 -U bonfire -d $restored -c $reportQuery)
+if($LASTEXITCODE -or (Compare-Object $expectedReports $restoredReports)){throw 'Archivierte Spendenprüfläufe oder Nachweise weichen ab.'}
+foreach($line in $restoredReports){$fields=$line.Split('|');if($fields[1] -ne $fields[2]){throw 'Prüfsumme eines Spendenexports ungültig.'}}
+Write-Output ("Wiederhergestellte Statusschritte mit geprüftem Spendenexport: "+$restoredReports.Count)
 $name='bonfire-restore-'+[guid]::NewGuid().ToString('N')
 $env:BONFIRE_TEST_DB=$restored
 docker compose run -d --no-deps --name $name -p 127.0.0.1::8080 -e BONFIRE_TEST_DB --entrypoint sh app -c 'export DATABASE_URL="${DATABASE_URL%/bonfire*}/${BONFIRE_TEST_DB}?sslmode=disable"; exec /app/bonfire'

@@ -35,9 +35,10 @@ export const profiles = [
 ];
 export const profileID = (i) => contracts[i].id;
 const fmt = (value) => (value == null ? "Offen" : String(value));
+import { pricesAt } from "./price-history.js";
 export function snapshot(index, s, rows, opts) {
   if (index >= 3 && index <= 5) {
-    rows = rows.filter(
+    rows = pricesAt(rows, s.priceHistory, opts.priceVersion).filter(
       (r) => r.Kind !== "price" || r.Data.Status === "Freigegeben",
     );
   }
@@ -258,6 +259,9 @@ export function snapshot(index, s, rows, opts) {
     templateVersion: tpl?.Revision || 1,
     font: config.Fields?.font || "helvetica",
     margin: Math.max(8, Math.min(35, Number(config.Fields?.margin) || 15)),
+    layoutMargin: config.Fields?.margin
+      ? Math.max(8, Math.min(35, Number(config.Fields.margin) || 15))
+      : null,
     footer: config.Fields?.footer || "",
     wordLayout: index === 6 ? config.File || null : null,
     cardHeader: config.Fields?.header || s.event.Name,

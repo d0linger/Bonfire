@@ -25,9 +25,16 @@ export function closure(rows, accounts, approved) {
       "presale",
       "card",
       "opening",
+      "deposit",
     ].includes(k)
       ? 1
-      : ["expense", "fee", "reimbursement"].includes(k)
+      : [
+            "expense",
+            "fee",
+            "reimbursement",
+            "refund",
+            "deposit-return",
+          ].includes(k)
         ? -1
         : 0;
     if (sign) expected.set(id, (expected.get(id) || 0) + d.Amount * sign);

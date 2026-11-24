@@ -301,7 +301,20 @@ export async function evidence(s, rows, reports = {}) {
           revision: r.Revision,
           art: r.Kind,
         })),
+        belegdateienAusstaendig: rows
+          .filter(
+            (r) =>
+              r.Kind === "attachment" && (!r.Data.File || r.Data.uploadPending),
+          )
+          .map((r) => r.ID),
         geraeteOhneEnde: s.pending ?? null,
+        geraetevorfaelle: (s.devices || [])
+          .filter((d) => d.IncidentState)
+          .map((d) => ({
+            geraet: d.ID,
+            status: d.IncidentState,
+            letzteFolge: d.Last,
+          })),
         ausstehend: s.ops.length,
         konflikte: s.conflicts.length,
         freigegeben: s.closed === true,

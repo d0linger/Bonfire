@@ -27,6 +27,8 @@ import {
   visible,
   summary,
   counted,
+  availableNumbers,
+  journalMatches,
   countID,
   today,
   eur,
@@ -111,6 +113,7 @@ let s,
   events = [],
   saved = false,
   filter = "",
+  journalFilters = {},
   busy = false;
 const sw = navigator.serviceWorker
   ?.register("/sw.js")
@@ -161,6 +164,7 @@ function canWrite() {
     Date.parse(s.expires) <= Date.now() ||
     s.closed ||
     s.sealed ||
+    s.incidentState === "returning" ||
     s.ending ||
     s.role === "Prüfung"
   )
@@ -169,14 +173,28 @@ function canWrite() {
 async function queue(k, d, target = crypto.randomUUID(), base = 0) {
   canWrite();
   const next = structuredClone(s);
-  next.ops.push({
-    ID: crypto.randomUUID(),
-    Seq: ++next.seq,
-    Target: target,
-    Base: base,
-    Kind: k,
-    Data: d,
-  });
+  const append = (Kind, Target, Base, Data) =>
+    next.ops.push({
+      LocalTime: new Date().toISOString(),
+      ID: crypto.randomUUID(),
+      Seq: ++next.seq,
+      Kind,
+      Target,
+      Base,
+      Data,
+    });
+  if (k === "attachment") {
+    const { File, ...metadata } = d;
+    append(k, target, base, metadata);
+    const revision = String(base + 1);
+    append("attachment-file", await countID("file", target, revision), 0, {
+      Label: metadata.Label,
+      Date: metadata.Date,
+      Reference: target,
+      File,
+      Fields: { sha256: d.Fields.sha256, size: d.Fields.size, revision },
+    });
+  } else append(k, target, base, d);
   await commit(next);
 }
 async function sync(extra = {}) {
@@ -220,7 +238,11 @@ async function sync(extra = {}) {
     const next = {
       ...s,
       ...out,
-      prints: last ? [] : s.prints,
+      prints: last
+        ? (s.prints || []).filter(
+            (l) => !(out.acknowledgedPrints || []).includes(l.ID),
+          )
+        : s.prints,
       history: [...(s.history || []), ...batch],
       ops: s.ops.slice(batch.length),
       seq: Math.max(s.seq, out.last),
@@ -242,7 +264,11 @@ function choices(kinds) {
   return [
     ["", "—"],
     ...rows()
-      .filter((r) => kinds.includes(r.Kind))
+      .filter(
+        (r) =>
+          kinds.includes(r.Kind) &&
+          (!r.Data.Retired || edit?.Data?.Contact === r.ID),
+      )
       .map((r) => [r.ID, r.Data.Label]),
   ];
 }
@@ -285,13 +311,38 @@ function table(list, editable = false) {
           esc(types[r.Kind]) +
           "</td><td>" +
           esc(r.Data.Label) +
+          (r.Data.Retired ? " · Archiviert" : "") +
+          (r.Kind === "attachment"
+            ? r.Data.uploadPending
+              ? " · Datei lokal, Übertragung offen"
+              : r.Data.File
+                ? " · Datei verfügbar"
+                : " · Metadaten vorhanden, Datei ausständig"
+            : "") +
           "</td><td>" +
           esc(r.Data.Amount == null ? "—" : eur(r.Data.Amount)) +
           "</td><td>" +
-          (editable
+          (r.Kind === "attachment" && r.Data.File
+            ? '<button type="button" data-attachment="' +
+              esc(r.ID) +
+              '">Datei laden</button>'
+            : "") +
+          (editable && !r.Data.Retired
             ? '<button class="secondary" data-edit="' +
               esc(r.ID) +
               '">Bearbeiten</button>'
+            : "") +
+          (editable &&
+          s.role === "Leitung" &&
+          !s.closed &&
+          !s.sealed &&
+          (r.Kind === "contact" ||
+            (r.Kind === "price" && r.Data.Status !== "Freigegeben"))
+            ? '<button type="button" class="secondary" data-lifecycle="' +
+              esc(r.ID) +
+              '">' +
+              (r.Data.Retired ? "Wiederherstellen" : "Archivieren") +
+              "</button>"
             : "") +
           "</td></tr>",
       )
@@ -300,6 +351,70 @@ function table(list, editable = false) {
   );
 }
 let readiness = [];
+let conflictFiles;
+function incidentPanel() {
+  const devices = s.devices || [];
+  const labels = {
+    missing: "Vermisst",
+    incomplete: "Abschluss unvollständig · Ausnahme protokolliert",
+    returning: "Zurückgemeldet · Einzelprüfung läuft",
+  };
+  const cases = devices.filter((d) => d.IncidentState);
+  let content = cases
+    .map(
+      (d) =>
+        "<p><strong>" +
+        esc(d.Name) +
+        "</strong> · " +
+        esc(labels[d.IncidentState]) +
+        " · bestätigte Folge " +
+        esc(d.Last) +
+        (d.IncidentNote ? "<br>" + esc(d.IncidentNote) : "") +
+        "</p>",
+    )
+    .join("");
+  for (const [id, role, allowed, label, reason] of [
+    [
+      "incident",
+      "Leitung",
+      [""],
+      "Gerät vermisst melden",
+      "Vorfall und bekannte Lücke",
+    ],
+    [
+      "incomplete",
+      "Prüfung",
+      ["missing"],
+      "Unvollständigkeit bestätigen",
+      "Rekonstruktion und verbleibende Lücke",
+    ],
+    [
+      "returnDevice",
+      "Leitung",
+      ["missing", "incomplete"],
+      "Rückkehr zur Prüfung freigeben",
+      "Nachweis der Geräterückkehr",
+    ],
+  ]) {
+    const choices = devices.filter(
+      (d) =>
+        d.ID !== s.device &&
+        !d.Sealed &&
+        allowed.includes(d.IncidentState || ""),
+    );
+    if (choices.length && s.role === role)
+      content += form(
+        id,
+        select(
+          "device",
+          "Betroffenes Gerät",
+          choices.map((d) => [d.ID, d.Name]),
+        ) + field("reason", reason, "text", true),
+        label,
+      );
+  }
+  return content ? panel("Gerätevorfälle", content) : "";
+}
 function devicePage() {
   const conflicts = s.conflicts
     .map((c) => {
@@ -337,7 +452,23 @@ function devicePage() {
             select("choice", "Entscheidung", [
               ["beibehalten", "Bisherigen Stand behalten"],
               ["übernehmen", "Vorschlag übernehmen"],
-            ]) + field("reason", "Begründung", "text", true),
+            ]) +
+              (s.accounts && monetary.has(c.Kind)
+                ? refs("account", "Konto für Klärung (optional)", [
+                    "account",
+                    "wallet",
+                  ])
+                : "") +
+              (s.accounts &&
+              ["transfer", "payout", "supply", "skim", "return"].includes(
+                c.Kind,
+              )
+                ? refs("destination", "Zielkonto für Klärung (optional)", [
+                    "account",
+                    "wallet",
+                  ])
+                : "") +
+              field("reason", "Begründung", "text", true),
             "Klärung speichern",
           ),
       );
@@ -389,6 +520,25 @@ function devicePage() {
           button("audit", "Protokoll anzeigen", true) +
             button("journalHistory", "Storno und Ersatz anzeigen", true) +
             button("numbers", "Nummernregister prüfen", true) +
+            button("conflictFiles", "Strittige Originalfassungen laden", true) +
+            (conflictFiles?.device === s.device && conflictFiles.list.length
+              ? form(
+                  "conflictFile",
+                  select(
+                    "operation",
+                    "Archivierte Konfliktfassung",
+                    conflictFiles.list.map((x) => [
+                      x.id,
+                      "Nr. " + x.number + " · " + x.outcome + " · " + x.id,
+                    ]),
+                  ) +
+                    select("format", "Dateityp", [
+                      ["pdf", "PDF"],
+                      ["docx", "DOCX"],
+                    ]),
+                  "Archivdatei laden",
+                )
+              : "") +
             auditRows
               .map(
                 (r) =>
@@ -398,6 +548,14 @@ function devicePage() {
                   esc(r.username) +
                   " · " +
                   esc(r.action) +
+                  (r.device ? "<br>Ausführendes Gerät " + esc(r.device) : "") +
+                  (r.local_time ? " · Gerätezeit " + esc(r.local_time) : "") +
+                  (r.source_device
+                    ? " · Quellgerät " +
+                      esc(r.source_device) +
+                      " · Ausgangsrevision " +
+                      esc(r.base_revision)
+                    : "") +
                   "</p>",
               )
               .join(""),
@@ -435,22 +593,7 @@ function devicePage() {
           ),
         )
       : "") +
-    (s.role === "Leitung"
-      ? panel(
-          "Fehlendes Gerät dokumentieren",
-          form(
-            "incident",
-            select(
-              "device",
-              "Offenes Gerät",
-              (s.devices || [])
-                .filter((d) => !d.Sealed)
-                .map((d) => [d.ID, d.Name]),
-            ) + field("reason", "Vorfall und bekannte Lücke", "text", true),
-            "Vorfall protokollieren",
-          ),
-        )
-      : "") +
+    incidentPanel() +
     panel(
       "Erfassungsende",
       "<p>Mit der Bestätigung endet die Erfassung auf diesem Gerät für diese Veranstaltung.</p><p>Geräte ohne bestätigtes Ende beim letzten Abgleich: " +
@@ -497,6 +640,9 @@ function formFields(k) {
   if (
     [
       "expense",
+      "refund",
+      "deposit",
+      "deposit-return",
       "donation",
       "payment",
       "count",
@@ -562,9 +708,9 @@ function formFields(k) {
       field(
         "Number",
         "Papiernummer P- (nur Zahl, " +
-          (s.limit - 999) +
+          s.first +
           " bis " +
-          s.limit +
+          (s.paperLimit ?? s.limit) +
           ")",
         "number",
         true,
@@ -595,7 +741,10 @@ function formFields(k) {
   if (k === "price")
     f +=
       field("field_guest", "Gästebezeichnung") +
-      field("field_allergens", "Bestätigte Allergene");
+      field("field_allergens", "Bestätigte Allergene") +
+      field("field_unitA", "Einheit laut erster Quelle (bei Klärung)") +
+      field("field_unitB", "Abweichende Quellenangabe") +
+      field("field_unitReason", "Begründung für die geklärte Ausgabeeinheit");
   if (k === "contact")
     f += field("Address", "Anschrift") + field("Category", "Person / Firma");
   if (monetary.has(k) && k !== "price")
@@ -606,7 +755,18 @@ function formFields(k) {
     f += s.event.Accounts
       ? refs("To", "Zielkonto", ["account", "wallet"])
       : field("To", "Zielkonto", "text", true);
-  if (["income", "expense", "payment", "donation", "presale"].includes(k))
+  if (
+    [
+      "income",
+      "expense",
+      "refund",
+      "deposit",
+      "deposit-return",
+      "payment",
+      "donation",
+      "presale",
+    ].includes(k)
+  )
     f += select("Method", "Zahlungsart", [
       ["Bar", "Bar"],
       ["Überweisung", "Überweisung"],
@@ -672,16 +832,13 @@ function formFields(k) {
         "field_reporting",
         "Meldezeitraum (unabhängig von der Abschlussperiode)",
       ) +
-      select("Status", "Meldestatus", [
-        ["Offen", "Offen"],
-        ["Geprüft", "Geprüft"],
-        ["Exportiert", "Export vermerkt"],
-        ["Übermittelt", "Übermittlung extern dokumentiert"],
-        ["Bestätigt", "Extern bestätigt"],
-        ["Korrektur", "Korrekturbedürftig"],
+      select("Status", "Spendenart", [
+        ["Offen", "Namentlich"],
         ["Anonym", "Anonym"],
       ]);
-  else if (["expense", "income"].includes(k))
+  else if (
+    ["expense", "income", "refund", "deposit", "deposit-return"].includes(k)
+  )
     f += field("Category", "Kategorie") + field("Reference", "Belegreferenz");
   if (k === "count")
     f += select("Status", "Erfassungsstand", [
@@ -718,12 +875,56 @@ function formFields(k) {
     )
   );
 }
+function journalFilterFields() {
+  const all = rows(),
+    labels = new Map(all.map((r) => [r.ID, r.Data.Label]));
+  let fields =
+    field("from", "Von", "date", false, journalFilters.from || "") +
+    field("until", "Bis", "date", false, journalFilters.until || "");
+  for (const [key, title, values] of [
+    ["kind", "Vorgangsart", groups.Journal.map((k) => [k, types[k]])],
+    ...[
+      ["category", "Kategorie", "Category"],
+      ["method", "Zahlungsart", "Method"],
+      ["account", "Konto", "Account"],
+      ["bar", "Bar", "Bar"],
+    ].map(([key, title, attr]) => [
+      key,
+      title,
+      [...new Set(all.map((r) => r.Data[attr]).filter(Boolean))]
+        .sort()
+        .map((v) => [v, labels.get(v) || v]),
+    ]),
+  ]) {
+    fields += label(
+      title,
+      '<select name="' +
+        key +
+        '"><option value="">Alle</option>' +
+        values
+          .map(
+            ([v, t]) =>
+              '<option value="' +
+              esc(v) +
+              '"' +
+              (journalFilters[key] === v ? " selected" : "") +
+              ">" +
+              esc(t) +
+              "</option>",
+          )
+          .join("") +
+        "</select>",
+    );
+  }
+  return fields;
+}
 function records() {
   const kinds = groups[page] || ["template"];
   if (!kinds.includes(kind)) kind = kinds[0];
   const set = rows().filter(
     (r) =>
       kinds.includes(r.Kind) &&
+      (page !== "Journal" || journalMatches(r, journalFilters)) &&
       (!filter ||
         (
           r.Data.Label +
@@ -779,7 +980,11 @@ function records() {
       form(
         "globalPeriod",
         field("start", "Auswertung von", "date", true, s.event.Starts) +
-          field("end", "bis", "date", true, s.event.Ends),
+          field("end", "bis", "date", true, s.event.Ends) +
+          select("scope", "Auswertung", [
+            ["period", "Aktueller Fachstand"],
+            ["journal-period", "Buchungen einschließlich Storno und Ersatz"],
+          ]),
         "Zugewiesene Veranstaltungen auswerten",
       ) +
       globalRows
@@ -791,6 +996,14 @@ function records() {
             esc(r.veranstaltung) +
             " · " +
             esc(r.bezeichnung) +
+            (r.revision
+              ? " · " +
+                esc(r.richtung) +
+                " · Revision " +
+                esc(r.revision) +
+                " · " +
+                esc(r.akteur)
+              : "") +
             " · " +
             eur(r.cent) +
             "</p>",
@@ -815,7 +1028,8 @@ function records() {
   if (page === "Perioden" && s.role === "Leitung")
     detail += form(
       "carry",
-      refs("period", "Zielperiode", ["period"]),
+      refs("period", "Zielperiode", ["period"]) +
+        field("reason", "Begründung bei Austausch eines früheren Übertrags"),
       "Bestätigten Vorperiodenstand übernehmen",
     );
   if (page === "Geldtaschen") {
@@ -828,10 +1042,16 @@ function records() {
           " · Weitere Sammelbareinnahme " +
           eur(counted(rows(), r.ID)) +
           " " +
-          (counted(rows(), r.ID) > 0
+          (counted(rows(), r.ID) !== null &&
+          (counted(rows(), r.ID) !== 0 ||
+            !rows().some((x) => x.ID === "settlement:" + r.ID))
             ? '<button type="button" data-settle="' +
               esc(r.ID) +
-              '">Sammelbetrag buchen</button>'
+              '">' +
+              (rows().some((x) => x.ID === "settlement:" + r.ID)
+                ? "Sammelbetrag berichtigen"
+                : "Sammelbetrag buchen") +
+              "</button>"
             : "") +
           "</p>",
       )
@@ -887,7 +1107,7 @@ function records() {
           "search",
           false,
           filter,
-        ),
+        ) + (page === "Journal" ? journalFilterFields() : ""),
         "Filtern",
       ) +
         table(set, true) +
@@ -910,6 +1130,79 @@ function records() {
         )
       : "")
   );
+}
+let donorReview;
+const donorRequest = (body) => api("donation-reports", body, bearer());
+function donationPanel() {
+  if (!s.donorAccess || s.recovery) return "";
+  const review = donorReview?.device === s.device ? donorReview : null;
+  let content = form(
+    "donorLoad",
+    field(
+      "period",
+      "Meldezeitraum",
+      "text",
+      true,
+      review?.period || String(new Date().getFullYear()),
+    ),
+    "Prüfstand online laden",
+  );
+  if (!review) return panel("Spendenmeldedaten", content);
+  const data = review.preview.daten;
+  content +=
+    "<p>" +
+    data.Spenden.length +
+    " meldbare Spenden · " +
+    eur(data.SummeCent) +
+    " · " +
+    data.Ausgeschlossen.length +
+    " ausgeschlossen</p><details><summary>Prüfdaten und Ausschlussgründe ansehen</summary><pre>" +
+    esc(JSON.stringify(data, null, 2)) +
+    "</pre></details>";
+  const latest = review.history.at(-1);
+  if (latest)
+    content +=
+      "<ol>" +
+      review.history
+        .map(
+          (h) =>
+            "<li>" +
+            esc(
+              h.at + " · " + h.actor + " · " + h.status + " · " + h.evidence,
+            ) +
+            "</li>",
+        )
+        .join("") +
+      "</ol>";
+  const next = {
+    Geprüft: ["Exportiert", "Korrektur"],
+    Exportiert: ["Übermittelt", "Korrektur"],
+    Übermittelt: ["Bestätigt", "Korrektur"],
+    Bestätigt: ["Korrektur"],
+  };
+  const options =
+    latest && latest.status !== "Korrektur" ? next[latest.status] : ["Geprüft"];
+  content += form(
+    "donorDecision",
+    select(
+      "step",
+      "Entscheidung",
+      options.map((v) => [v, v]),
+    ) + field("reason", "Prüfvermerk oder externer Nachweis", "text", true),
+    "Entscheidung dokumentieren",
+  );
+  const released = review.history.filter((h) => h.status === "Exportiert");
+  if (released.length)
+    content += form(
+      "donorDownload",
+      select(
+        "report",
+        "Gespeicherter Export",
+        released.map((h) => [h.id, h.at + " · " + h.id]),
+      ),
+      "Geprüfte Datei herunterladen",
+    );
+  return panel("Spendenmeldedaten", content);
 }
 function exchange() {
   const periods = rows().filter((r) => r.Kind === "period");
@@ -938,6 +1231,7 @@ function exchange() {
           : "") +
         "</div>",
     ) +
+    donationPanel() +
     panel(
       "Importvorschau",
       form(
@@ -973,7 +1267,18 @@ function exchange() {
                     r.sheet ? r.sheet + "!" + r.cell : r.row,
                     r.date || "Offen",
                     r.yearOrigin || "Quelldatum",
-                    r.raw ?? (r.amount == null ? "Offen" : String(r.amount)),
+                    r.cached != null
+                      ? r.raw +
+                        " · Cache " +
+                        (r.cached || "fehlt") +
+                        (r.calculatedCent != null
+                          ? " · nachgerechnet " + eur(r.calculatedCent)
+                          : "") +
+                        (r.differenceCent
+                          ? " · Abweichung " + eur(r.differenceCent)
+                          : "")
+                      : (r.raw ??
+                        (r.amount == null ? "Offen" : String(r.amount))),
                     r.label,
                     types[r.kind] || "Zuordnung offen",
                     eur(r.amount),
@@ -1049,6 +1354,21 @@ function docs() {
             true,
             "Übungsfeuerwehr",
           ) +
+          ((s.priceHistory || []).length
+            ? select("priceVersion", "Preisstand für Karten und Gästeliste", [
+                ["", "Aktuelle freigegebene Preise"],
+                ...[
+                  ...new Map(
+                    s.priceHistory.map((p) => [p.Version, p]),
+                  ).values(),
+                ]
+                  .reverse()
+                  .map((p) => [
+                    String(p.Version),
+                    p.At.slice(0, 19) + " · Stand " + p.Version,
+                  ]),
+              ])
+            : "") +
           select("version", "Vorlagenstand", [
             ["active", "Freigegebene Fassung"],
             ["draft", "Lokaler Entwurf"],
@@ -1084,7 +1404,7 @@ function docs() {
     panel(
       "Archiv",
       "<p>Freie Nummern dieses Geräts: " +
-        Math.max(0, s.limit - s.nextNumber + 1) +
+        availableNumbers(s) +
         "</p>" +
         originals
           .map(
@@ -1186,6 +1506,11 @@ function show() {
   if (!s) {
     article.innerHTML =
       heading(saved ? "Gerät entsperren" : "Gerät vorbereiten") +
+      (!saved
+        ? "<p>Lokale Arbeitsprofile gehören zur Adresse <strong>" +
+          esc(location.origin) +
+          "</strong>. Für ein bereits vorbereitetes Gerät dieselbe Adresse und dasselbe Browserprofil öffnen.</p>"
+        : "") +
       (saved
         ? panel(
             "Lokales Profil",
@@ -1193,7 +1518,7 @@ function show() {
               "unlock",
               field("pass", "Lokales Passwort", "password", true),
               "Entsperren",
-            ),
+            ) + button("recover", "Verschlüsseltes Profil sichern", true),
           )
         : !logged
           ? panel(
@@ -1222,6 +1547,13 @@ function show() {
                         .map((e) => [e.ID, e.Name]),
                     ) +
                       field("name", "Gerätename", "text", true) +
+                      field(
+                        "digitalCount",
+                        "Benötigte digitale Belegnummern (0–1000)",
+                        "number",
+                        true,
+                        "1000",
+                      ) +
                       select("donor", "Meldedaten auf diesem Gerät", [
                         ["", "Standardprofil"],
                         ["ja", "Belegprofil mit sensiblen Daten (Leitung)"],
@@ -1441,17 +1773,99 @@ async function action(fn) {
   if (backgroundSync) await backgroundSync;
   if (busy) return;
   busy = true;
+  article.setAttribute("aria-busy", "true");
   try {
     await fn();
   } catch (e) {
     notice.textContent = e.message || "Vorgang fehlgeschlagen.";
   } finally {
+    article.setAttribute("aria-busy", "false");
     busy = false;
   }
 }
 async function submit(f) {
   const vals = Object.fromEntries(new FormData(f));
   const id = f.id;
+  if (id === "conflictFile") {
+    const out = await api(
+      "manage",
+      { Action: "conflict-file", Target: vals.operation },
+      bearer(),
+    );
+    download(
+      from64(
+        out[vals.format],
+        vals.format === "pdf"
+          ? "application/pdf"
+          : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ),
+      "Konfliktfassung-" +
+        out.number +
+        "-" +
+        vals.operation +
+        "." +
+        vals.format,
+    );
+  }
+  if (id === "donorLoad") {
+    await sync();
+    const period = vals.period.trim();
+    const preview = await donorRequest({ Action: "Vorschau", Period: period });
+    const history = await donorRequest({ Action: "Verlauf", Period: period });
+    donorReview = {
+      device: s.device,
+      period,
+      preview,
+      history,
+      report: crypto.randomUUID(),
+    };
+  }
+  if (id === "donorDecision" || id === "donorDownload") {
+    if (donorReview?.device !== s.device || !s.donorAccess)
+      throw Error("Prüfstand neu laden.");
+    const { period, preview, report, history } = donorReview;
+    if (id === "donorDecision") {
+      const key = JSON.stringify([
+        period,
+        report,
+        history.at(-1)?.id,
+        vals.step,
+        vals.reason,
+      ]);
+      if (donorReview.pending?.key !== key)
+        donorReview.pending = { key, id: crypto.randomUUID() };
+      await donorRequest({
+        Action: vals.step,
+        Period: period,
+        Report: vals.step === "Geprüft" ? report : history.at(-1)?.id,
+        Digest: preview.sha256,
+        Reason: vals.reason,
+        Request: donorReview.pending.id,
+      });
+      donorReview.history = await donorRequest({
+        Action: "Verlauf",
+        Period: period,
+      });
+      donorReview.report = crypto.randomUUID();
+    } else {
+      const file = await donorRequest({
+        Action: "Datei",
+        Period: period,
+        Report: vals.report,
+      });
+      const bytes = new TextEncoder().encode(file.datei);
+      const digest = Array.from(
+        new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+        (v) => v.toString(16).padStart(2, "0"),
+      ).join("");
+      if (digest !== file.sha256)
+        throw Error("Prüfsumme der Exportdatei stimmt nicht.");
+      download(
+        new Blob([bytes], { type: "application/json" }),
+        "Spendenexport-" + vals.report + ".json",
+      );
+    }
+  }
   if (id === "login") {
     const bytes = new TextEncoder().encode(vals.user + ":" + vals.pass);
     const candidate = "Basic " + btoa(String.fromCharCode(...bytes));
@@ -1490,6 +1904,7 @@ async function submit(f) {
       Event: vals.event,
       Name: vals.name,
       Donor: !!vals.donor,
+      DigitalCount: Number(vals.digitalCount),
     });
     const next = {
       ...p,
@@ -1525,6 +1940,7 @@ async function submit(f) {
           ...new TextEncoder().encode(s.user + ":" + vals.password),
         ),
       );
+    if (!s.nextToken) await commit({ ...s, nextToken: crypto.randomUUID() });
     const res = await fetch("/api/renew", {
       method: "POST",
       headers: {
@@ -1532,10 +1948,19 @@ async function submit(f) {
         Authorization: credentials,
         "X-Bonfire-OTP": vals.otp,
       },
-      body: JSON.stringify({ Device: s.device, Proof: s.token }),
+      body: JSON.stringify({
+        Device: s.device,
+        Proof: s.token,
+        Next: s.nextToken,
+      }),
     });
     if (!res.ok) throw Error(await res.text());
-    await commit({ ...s, expires: await res.json() });
+    await commit({
+      ...s,
+      expires: await res.json(),
+      token: s.nextToken,
+      nextToken: null,
+    });
     await sync();
   }
   if (id === "periodAction") {
@@ -1546,12 +1971,17 @@ async function submit(f) {
     );
     await sync();
   }
-  if (id === "incident") {
+  if (["incident", "incomplete", "returnDevice"].includes(id)) {
     await api(
       "manage",
-      { Action: "incident", Target: vals.device, Reason: vals.reason },
+      {
+        Action: id === "returnDevice" ? "return" : id,
+        Target: vals.device,
+        Reason: vals.reason,
+      },
       bearer(),
     );
+    await sync();
   }
   if (id === "carry") {
     const period = rows().find((r) => r.ID === vals.period);
@@ -1563,24 +1993,36 @@ async function submit(f) {
     );
     for (const [account, amount] of Object.entries(prior.Actuals)) {
       const target = await countID("opening", period.ID, account);
-      if (!rows().some((r) => r.ID === target))
-        await queue(
-          "opening",
-          {
-            Label: "Übertrag aus Abschluss " + prior.End,
-            Date: period.Data.Date,
-            Amount: amount,
-            Account: account,
-            Fields: { previous: prior.ID },
-          },
-          target,
-        );
+      const old = rows().find((r) => r.ID === target);
+      if (
+        old &&
+        old.Data.Fields?.previous === prior.ID &&
+        old.Data.Amount === amount
+      )
+        continue;
+      if (old && !old.Data.Fields?.previous)
+        throw Error("Vorhandene manuelle Eröffnung zuerst fachlich klären.");
+      if (old && vals.reason.trim().length < 5)
+        throw Error("Austausch des Vorperiodenübertrags begründen.");
+      await queue(
+        "opening",
+        {
+          Label: "Übertrag aus Abschluss " + prior.End,
+          Date: period.Data.Date,
+          Amount: amount,
+          Account: account,
+          Fields: { previous: prior.ID },
+          Note: old ? vals.reason : "",
+        },
+        target,
+        old?.Revision || 0,
+      );
     }
   }
   if (id === "globalPeriod") {
     globalRows = await api(
       "manage",
-      { Action: "period", Target: vals.start, Reason: vals.end },
+      { Action: vals.scope, Target: vals.start, Reason: vals.end },
       bearer(),
     );
   }
@@ -1676,7 +2118,8 @@ async function submit(f) {
         Fields: {
           cell: r.cell || String(r.row),
           sheet: r.sheet || "Journal",
-          original: r.raw || String(r.amount),
+          original: r.raw ?? String(r.amount),
+          sourceColumn: r.column || "",
           dateOrigin: r.yearOrigin || "Quelldatum",
         },
       },
@@ -1700,7 +2143,12 @@ async function submit(f) {
       "Dankesbriefe.zip",
     );
   }
-  if (id === "filter") filter = vals.filter;
+  if (id === "filter") {
+    if (vals.from && vals.until && vals.from > vals.until)
+      throw Error("Datumsbereich prüfen.");
+    filter = vals.filter;
+    if (page === "Journal") journalFilters = vals;
+  }
   if (id === "record") {
     const d = { ...vals };
     delete d.amount;
@@ -1731,6 +2179,24 @@ async function submit(f) {
     if (kind === "attachment") {
       if (!vals.file.size || vals.file.size > 4194304)
         throw Error("Dateigröße maximal 4 MiB.");
+      const bytes = new Uint8Array(await vals.file.arrayBuffer());
+      const signature = [...bytes.slice(0, 8)];
+      if (
+        ![
+          [37, 80, 68, 70, 45],
+          [255, 216, 255],
+          [137, 80, 78, 71, 13, 10, 26, 10],
+        ].some((m) => m.every((n, i) => signature[i] === n))
+      )
+        throw Error("Datei als PDF, JPEG oder PNG auswählen.");
+      d.Fields = {
+        ...d.Fields,
+        sha256: Array.from(
+          new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+          (x) => x.toString(16).padStart(2, "0"),
+        ).join(""),
+        size: String(bytes.length),
+      };
       d.File = await b64(vals.file);
       d.Filename = vals.file.name;
     }
@@ -1771,8 +2237,8 @@ async function submit(f) {
       target = "paper:" + d.Number;
       if (
         !Number.isInteger(d.Number) ||
-        d.Number < s.limit - 999 ||
-        d.Number > s.limit ||
+        d.Number < s.first ||
+        d.Number > (s.paperLimit ?? s.limit) ||
         rows().some((r) => r.ID === target)
       )
         throw Error(
@@ -2005,6 +2471,8 @@ async function submit(f) {
     const c = s.conflicts.find((c) => c.ID === id.slice(8));
     await sync({
       Resolve: c.ID,
+      Account: vals.account || "",
+      Destination: vals.destination || "",
       Choice: vals.choice,
       Reason: vals.reason,
       Last: s.entries.find((r) => r.ID === c.Target)?.Revision || 0,
@@ -2044,7 +2512,7 @@ async function submit(f) {
       }
       if (
         rows().find((r) => r.ID === vals.subject)?.Device !== s.device ||
-        s.nextNumber > s.limit
+        availableNumbers(s) === 0
       )
         throw Error("Ausstellungsrecht oder Nummernreserve fehlt.");
     }
@@ -2094,6 +2562,7 @@ async function submit(f) {
         Note: JSON.stringify(snap),
       };
       next.ops.push({
+        LocalTime: new Date().toISOString(),
         ID: crypto.randomUUID(),
         Seq: ++next.seq,
         Target:
@@ -2179,6 +2648,7 @@ document.addEventListener("click", (e) => {
   if (b.dataset.page) {
     page = b.dataset.page;
     filter = "";
+    journalFilters = {};
     edit = null;
     show();
     return;
@@ -2191,26 +2661,80 @@ document.addEventListener("click", (e) => {
       document.querySelector("#record")?.scrollIntoView();
       return;
     }
+    if (b.dataset.lifecycle) {
+      const row = rows().find((r) => r.ID === b.dataset.lifecycle);
+      const reason = prompt(
+        row.Data.Retired
+          ? "Grund für die Wiederherstellung"
+          : "Grund für die Archivierung",
+      )?.trim();
+      if (!reason) return;
+      if (reason.length < 3) throw Error("Begründung angeben.");
+      await queue(
+        row.Kind,
+        {
+          ...row.Data,
+          Retired: !row.Data.Retired,
+          Fields: {
+            ...row.Data.Fields,
+            lifecycle: row.Data.Retired ? "Wiederhergestellt" : "Archiviert",
+            lifecycleReason: reason,
+          },
+        },
+        row.ID,
+        row.Revision,
+      );
+      show();
+      return;
+    }
     if (b.dataset.settle) {
       const wallet = rows().find((r) => r.ID === b.dataset.settle);
       const target = "settlement:" + wallet.ID;
-      if (rows().some((r) => r.ID === target))
-        throw Error("Sammelbuchung bereits vorhanden. Bitte berichtigen.");
+      const previous = rows().find((r) => r.ID === target);
+      const amount = counted(
+        rows().filter((r) => r.ID !== target),
+        wallet.ID,
+      );
+      if (amount === null || amount < 0)
+        throw Error("Zählungen und zugeordnete Geldbewegungen prüfen.");
+      const reason = previous
+        ? prompt("Grund für die Berichtigung des Sammelbetrags")?.trim()
+        : "";
+      if (previous && !reason) return;
+      const end = rows().find(
+        (r) =>
+          r.Kind === "count" &&
+          r.Data.Wallet === wallet.ID &&
+          r.Data.Phase === "Ende",
+      );
       await queue(
         "income",
         {
           Label: "Barabrechnung " + wallet.Data.Label,
-          Date: today(),
+          Date: previous?.Data.Date || end.Data.Date,
+          Note: reason,
           Wallet: wallet.ID,
           Bar: wallet.Data.Bar,
           Account: wallet.ID,
-          Amount: counted(rows(), wallet.ID),
+          Amount: amount,
           Method: "Bar",
           Reference: "wallet-settlement",
         },
         target,
+        previous?.Revision || 0,
       );
       show();
+      return;
+    }
+    if (b.dataset.attachment) {
+      const v = rows().find((r) => r.ID === b.dataset.attachment)?.Data;
+      if (!v?.File) throw Error("Datei noch nicht vorhanden.");
+      const mime = v.File.startsWith("JVBER")
+        ? "application/pdf"
+        : v.File.startsWith("/9j/")
+          ? "image/jpeg"
+          : "image/png";
+      download(from64(v.File, mime), v.Filename || "Beleg");
       return;
     }
     if (b.dataset.file) {
@@ -2281,15 +2805,27 @@ document.addEventListener("click", (e) => {
           "Spenden-Pruefliste.json",
         );
         return;
+      case "conflictFiles":
+        conflictFiles = {
+          device: s.device,
+          list: await api("manage", { Action: "conflict-originals" }, bearer()),
+        };
+        if (!conflictFiles.list.length)
+          notice.textContent = "Keine strittigen Originalfassungen vorhanden.";
+        break;
       case "numbers": {
         const ranges = await api("manage", { Action: "numbers" }, bearer());
         auditRows = ranges.map((x) => ({
           at: "",
           username: x.name,
           action:
+            (x.capacity === 0
+              ? "Keine Digitalnummern"
+              : x.first + "–" + x.last) +
+            " · Papier P-" +
             x.first +
-            "–" +
-            x.last +
+            "–P-" +
+            x.paper_last +
             " · " +
             x.status +
             " · Digital: " +
@@ -2325,7 +2861,7 @@ document.addEventListener("click", (e) => {
           Date.parse(s.expires) > Date.now()
             ? "Gerätefreigabe gültig"
             : "Gerätefreigabe abgelaufen",
-          "Freie Belegnummern: " + Math.max(0, s.limit - s.nextNumber + 1),
+          "Freie Belegnummern: " + availableNumbers(s),
           "Geschätzter freier Speicher: " +
             Math.floor(((usage.quota || 0) - (usage.usage || 0)) / 1048576) +
             " MiB",
@@ -2355,6 +2891,7 @@ document.addEventListener("click", (e) => {
       case "seal":
         if (!confirm("Erfassung dieses Geräts verbindlich beenden?")) return;
         await commit({ ...s, ending: true });
+        await sync();
         await sync({ Action: "Ende", Last: s.seq });
         break;
       case "close":

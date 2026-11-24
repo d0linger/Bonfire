@@ -142,22 +142,14 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 			return nil, problem{403, "Leitungsrecht erforderlich."}
 		}
 		return prior(ctx, tx, q.Target)
+	case "conflict-originals", "conflict-file":
+		return conflictOriginals(ctx, tx, d, q.Action, q.Target)
 	case "numbers":
 		return numberReport(ctx, tx, d)
-	case "incident":
-		if d.Role != "Leitung" || len(strings.TrimSpace(q.Reason)) < 5 {
-			return nil, fail("Leitung und Verlustvermerk erforderlich.")
-		}
-		tag, err := tx.Exec(ctx, "UPDATE devices SET incident=$1 WHERE id=$2 AND event=$3 AND NOT sealed", q.Reason, q.Target, d.Event)
-		if err != nil || tag.RowsAffected() != 1 {
-			return nil, fail("Offenes Gerät nicht gefunden.")
-		}
-		if err = audit(ctx, tx, d.Event, d.User, "Gerätevorfall: "+q.Reason, q.Target); err != nil {
-			return nil, err
-		}
-		return true, tx.Commit(ctx)
-	case "period":
-		return a.globalPeriod(ctx, tx, d, q.Target, q.Reason)
+	case "incident", "incomplete", "return":
+		return incidentAction(ctx, tx, d, q.Action, q.Target, q.Reason)
+	case "period", "journal-period":
+		return a.globalPeriod(ctx, tx, d, q.Target, q.Reason, q.Action == "journal-period")
 	case "copy":
 		id, err := a.copyEvent(ctx, tx, d, q.Target, q.Start, q.End)
 		if err != nil {
@@ -177,7 +169,7 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 		if d.Role == "Kassa" {
 			return nil, problem{403, "Prüfrecht erforderlich."}
 		}
-		rows, err := tx.Query(ctx, "SELECT at::text,username,action,subject FROM audit WHERE event=$1 ORDER BY id", d.Event)
+		rows, err := tx.Query(ctx, "SELECT a.at::text,a.username,a.action,a.subject,a.actor_device::text AS device,o.local_time::text AS local_time,o.device::text AS source_device,o.base AS base_revision FROM audit a LEFT JOIN operations o ON o.id::text=a.subject AND o.event=a.event WHERE a.event=$1 ORDER BY a.id", d.Event)
 		if err != nil {
 			return nil, err
 		}
@@ -187,6 +179,11 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 			return nil, problem{403, "Nur Leitung bei offener Veranstaltung."}
 		}
 		_, err = tx.Exec(ctx, "UPDATE events SET accounts=$1 WHERE id=$2", q.Accounts, d.Event)
+		if q.Accounts {
+			q.Action = "Kontozuordnung aktiviert"
+		} else {
+			q.Action = "Kontozuordnung deaktiviert"
+		}
 	case "reopen":
 		if d.Role != "Leitung" || !d.Closed || len(strings.TrimSpace(q.Reason)) < 5 {
 			return nil, fail("Leitung und Wiederöffnungsgrund erforderlich.")

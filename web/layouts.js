@@ -10,6 +10,9 @@ import {
   WidthType,
   ImageRun,
   PageOrientation,
+  Footer,
+  Header,
+  PageNumber,
 } from "docx";
 import { eur, types, summary, denom } from "./domain.js";
 import { lineCents } from "./positions.js";
@@ -222,9 +225,16 @@ export function tablesFor(i, s, rows, subject, opts) {
         "presale",
         "card",
         "opening",
+        "deposit",
       ].includes(r.Kind)
         ? 1
-        : ["expense", "reimbursement", "fee"].includes(r.Kind)
+        : [
+              "expense",
+              "reimbursement",
+              "fee",
+              "refund",
+              "deposit-return",
+            ].includes(r.Kind)
           ? -1
           : 0;
       if (sign) balance.set(k, (balance.get(k) || 0) + sign * d.Amount);
@@ -280,6 +290,9 @@ export function tablesFor(i, s, rows, subject, opts) {
               [
                 "income",
                 "expense",
+                "refund",
+                "deposit",
+                "deposit-return",
                 "transfer",
                 "outlay",
                 "reimbursement",
@@ -308,7 +321,11 @@ export function tablesFor(i, s, rows, subject, opts) {
               r.Data.Filename || r.Data.Label,
               rows.find((x) => x.ID === r.Data.Reference)?.Data.Label ||
                 "Offen",
-              r.Data.File ? "Lokal verfügbar" : "Datei fehlt",
+              r.Data.uploadPending
+                ? "Lokal, Upload ausständig"
+                : r.Data.File
+                  ? "Lokal verfügbar"
+                  : "Metadaten, Datei ausständig",
             ]),
         },
       ],
@@ -344,19 +361,30 @@ export async function renderTables(s) {
         }),
       ],
     });
-  const left = spec.invoice || spec.letter ? 25 : s.index === 10 ? 12 : 15;
+  const left =
+    s.layoutMargin ??
+    (spec.invoice || spec.letter ? 25 : s.index === 10 ? 12 : 15);
   const width = s.width - left * 2;
-  let y = 18;
+  const top = s.layoutMargin ?? 15,
+    bottom = s.layoutMargin ?? 17;
+  let y = top + 3;
   function page() {
     pdf.addPage();
-    y = 15;
+    y = top;
+    const size = pdf.getFontSize(),
+      face = pdf.getFont();
+    pdf.setFont(family, "normal");
     pdf.setFontSize(9);
-    pdf.text(
+    const headerLines = pdf.splitTextToSize(
       s.organization + " · " + s.title + " · " + (s.number || s.status),
-      left,
-      y,
+      width,
     );
-    y += 10;
+    if (headerLines.length > 4)
+      throw Error("Kopfzeile zu lang für die Folgeseite.");
+    pdf.text(headerLines, left, y);
+    y += 5 * headerLines.length + 5;
+    pdf.setFont(face.fontName, face.fontStyle);
+    pdf.setFontSize(size);
   }
   function flow(t, size = 11, bold = false) {
     t = String(t);
@@ -364,7 +392,7 @@ export async function renderTables(s) {
     pdf.setFontSize(size);
     const lines = pdf.splitTextToSize(t, width);
     for (const line of lines) {
-      if (y > s.height - 18) page();
+      if (y > s.height - bottom - 1) page();
       pdf.text(line, left, y);
       y += size * 0.46 + 1.4;
     }
@@ -396,12 +424,31 @@ export async function renderTables(s) {
     }
     y = 66;
     flow(s.organization, 11, true);
-    y = 79;
-    for (const line of spec.address) flow(line, 12);
+    if (y > 78) throw Error("Absender passt nicht in das Adressfenster.");
+    const metaX = s.width - left - 60;
+    pdf.setFont(family, "normal");
+    pdf.setFontSize(12);
+    const addressLines = spec.address.flatMap((line) =>
+      pdf.splitTextToSize(String(line), metaX - left - 6),
+    );
+    if (addressLines.length > 6)
+      throw Error(
+        "Empfängeranschrift passt nicht in das Adressfenster. Zeilen und Länge vor Ausgabe prüfen.",
+      );
+    pdf.text(addressLines, left, 79, { lineHeightFactor: 1.13 });
+    for (const line of spec.address) word.push(point(12, line));
     pdf.setFontSize(10);
-    pdf.text(spec.meta, 125, 79);
+    const metaLines = spec.meta.flatMap((line) =>
+      pdf.splitTextToSize(String(line), 60),
+    );
+    if (metaLines.length > 7)
+      throw Error("Belegangaben überschreiten das Adressfenster.");
+    pdf.text(metaLines, metaX, 79);
     word.push(point(10, spec.meta.join(" · ")));
-    y = Math.max(y + 10, 113);
+    y = Math.max(
+      113,
+      79 + 5 * Math.max(addressLines.length, metaLines.length) + 6,
+    );
     flow(s.title, 16, true);
     y = Math.max(y, 125);
     flow(spec.intro, 13);
@@ -416,11 +463,13 @@ export async function renderTables(s) {
   for (const block of spec.blocks) {
     const font = spec.invoice ? 12 : s.index === 10 ? 9 : 10;
     const tables = [];
+    const total = block.widths.reduce((a, b) => a + b, 0);
+    const widths = block.widths.map((w) => (w * width) / total);
     function grid(cells, header = false, record = true) {
       pdf.setFont(family, header ? "bold" : "normal");
       pdf.setFontSize(font);
       const lines = cells.map((v, i) =>
-        pdf.splitTextToSize(String(v), block.widths[i] - 4),
+        pdf.splitTextToSize(String(v), widths[i] - 4),
       );
       const lh = font * 0.38 + 1;
       const height = Math.max(
@@ -429,13 +478,19 @@ export async function renderTables(s) {
       );
       if (height > s.height - 55)
         throw Error("Tabellenzeile überschreitet die Seitenhöhe.");
-      if (y + height > s.height - 17) {
+      if (y + height > s.height - bottom) {
         page();
         if (!header) grid(block.headers, true, false);
       }
+      if (y + height > s.height - bottom)
+        throw Error(
+          "Tabellenzeile passt mit dem wiederholten Tabellenkopf auf keine Folgeseite.",
+        );
+      pdf.setFont(family, header ? "bold" : "normal");
+      pdf.setFontSize(font);
       let x = left;
       for (let j = 0; j < cells.length; j++) {
-        const width = block.widths[j];
+        const width = widths[j];
         pdf.setDrawColor(155);
         pdf.setLineWidth(0.17);
         if (header) pdf.setFillColor(236, 238, 241);
@@ -451,7 +506,7 @@ export async function renderTables(s) {
             children: cells.map(
               (v, i) =>
                 new TableCell({
-                  width: { size: mm(block.widths[i]), type: WidthType.DXA },
+                  width: { size: mm(widths[i]), type: WidthType.DXA },
                   children: [point(font, v, header)],
                 }),
             ),
@@ -464,7 +519,7 @@ export async function renderTables(s) {
     word.push(
       new Table({
         width: {
-          size: mm(block.widths.reduce((a, b) => a + b, 0)),
+          size: mm(width),
           type: WidthType.DXA,
         },
         rows: tables,
@@ -477,11 +532,13 @@ export async function renderTables(s) {
   for (let i = 1; i <= pdf.getNumberOfPages(); i++) {
     pdf.setPage(i);
     pdf.setFontSize(8);
-    pdf.text(
+    const footerLines = pdf.splitTextToSize(
       (s.footer || s.event) + " · " + i + " / " + pdf.getNumberOfPages(),
-      left,
-      s.height - 8,
+      width,
     );
+    if (footerLines.length > 2)
+      throw Error("Fußzeile überschreitet den verfügbaren Platz.");
+    pdf.text(footerLines, left, s.height - 6 - (footerLines.length - 1) * 3.4);
   }
   const wide = s.width > s.height;
   const doc = new Document({
@@ -499,10 +556,37 @@ export async function renderTables(s) {
             margin: {
               left: mm(left),
               right: mm(left),
-              top: mm(spec.invoice ? 25 : 15),
-              bottom: mm(15),
+              top: mm(s.layoutMargin ?? (spec.invoice ? 25 : 15)),
+              bottom: mm(s.layoutMargin ?? 15),
             },
           },
+        },
+        headers: {
+          default: new Header({
+            children: [point(8, s.cardHeader || s.organization)],
+          }),
+        },
+        footers: {
+          default: new Footer({
+            children: [
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: (s.footer || s.event) + " · ",
+                    size: 16,
+                  }),
+                  new TextRun({
+                    children: [
+                      PageNumber.CURRENT,
+                      " / ",
+                      PageNumber.TOTAL_PAGES,
+                    ],
+                    size: 16,
+                  }),
+                ],
+              }),
+            ],
+          }),
         },
         children: word,
       },

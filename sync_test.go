@@ -5,6 +5,7 @@ import "testing"
 func amount(n int64) *int64 { return &n }
 func TestAccountReconciliation(t *testing.T) {
 	entries := []row{{Kind: "opening", Data: data{Account: "Kassa", Amount: amount(100000)}}, {Kind: "transfer", Data: data{Account: "Kassa", To: "Tasche", Amount: amount(30000)}}, {Kind: "actual", Data: data{Account: "Kassa", Amount: amount(70000)}}, {Kind: "actual", Data: data{Account: "Tasche", Amount: amount(30000)}}}
+	entries = append(entries, row{ID: "Kassa", Kind: "account"}, row{ID: "Tasche", Kind: "wallet"})
 	if err := checkBalance(entries, true); err != nil {
 		t.Fatal(err)
 	}

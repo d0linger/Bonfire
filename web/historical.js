@@ -9,6 +9,31 @@ const parse = (bytes) => {
   return doc;
 };
 const all = (node, name) => [...node.getElementsByTagNameNS("*", name)];
+const excluded = (text) => /gemeinde|globalbudget/i.test(text);
+function sourceCents(value) {
+  if (!/^-?\d+(?:[.,]\d{1,2})?$/.test(value)) return null;
+  try {
+    return (value.startsWith("-") ? -1 : 1) * cents(value.replace(/^-/, ""));
+  } catch {
+    return null;
+  }
+}
+function simpleSum(formula, cells) {
+  const m = /^(?:SUM|SUMME)\(\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)\)$/i.exec(
+    formula.trim(),
+  );
+  if (!m || m[1] !== m[3] || +m[2] > +m[4] || +m[4] - m[2] > 10000) return null;
+  let total = 0;
+  for (let i = +m[2]; i <= +m[4]; i++) {
+    const cell = cells.get(m[1].toUpperCase() + i);
+    if (!cell || (cell.value === "" && cell.formula === null)) continue;
+    if (cell.formula !== null || cell.type !== "n") return null;
+    const n = sourceCents(cell.value);
+    if (n === null) return null;
+    total += n;
+  }
+  return Number.isSafeInteger(total) ? total : null;
+}
 export async function historyPreview(file, role, year) {
   if (file.size > 4 << 20) throw Error("Datei übersteigt 4 MiB.");
   if (!/^\d{4}$/.test(year))
@@ -17,10 +42,32 @@ export async function historyPreview(file, role, year) {
     files = officeFiles(bytes);
   const book = parse(files["xl/workbook.xml"]),
     rels = parse(files["xl/_rels/workbook.xml.rels"]);
-  const epoch =
-    all(book, "workbookPr")[0]?.getAttribute("date1904") === "1"
-      ? Date.UTC(1904, 0, 1)
-      : Date.UTC(1899, 11, 30);
+  if (!["D1", "D8"].includes(role)) throw Error("Quellenrolle unbekannt.");
+  const date1904 = ["1", "true"].includes(
+    all(book, "workbookPr")[0]?.getAttribute("date1904"),
+  );
+  const dateStyle = new Set();
+  if (files["xl/styles.xml"]) {
+    const styles = parse(files["xl/styles.xml"]);
+    const custom = new Map(
+      all(styles, "numFmt").map((f) => [
+        Number(f.getAttribute("numFmtId")),
+        f.getAttribute("formatCode") || "",
+      ]),
+    );
+    const xfs = all(styles, "cellXfs")[0];
+    if (xfs)
+      all(xfs, "xf").forEach((xf, i) => {
+        const n = Number(xf.getAttribute("numFmtId"));
+        const pattern = (custom.get(n) || "").replace(
+          /"[^"]*"|\[[^\]]*\]|\\./g,
+          "",
+        );
+        if ((n >= 14 && n <= 17) || n === 22 || /[yd]/i.test(pattern))
+          dateStyle.add(i);
+      });
+  }
+  const epoch = date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, 30);
   const strings = files["xl/sharedStrings.xml"]
     ? all(parse(files["xl/sharedStrings.xml"]), "si").map((n) => n.textContent)
     : [];
@@ -42,82 +89,173 @@ export async function historyPreview(file, role, year) {
     if (!target) continue;
     const path = target.startsWith("/") ? target.slice(1) : "xl/" + target;
     if (!files[path]) throw Error("Tabellenblatt fehlt.");
-    for (const r of all(parse(files[path]), "row")) {
-      const cells = all(r, "c").map((c) => {
-        const t = c.getAttribute("t"),
-          raw = all(c, "v")[0]?.textContent ?? c.textContent,
-          formula = all(c, "f")[0]?.textContent;
+    const sheetRows = all(parse(files[path]), "row").map((row) => ({
+      number: Number(row.getAttribute("r")),
+      cells: all(row, "c").map((c) => {
+        const type = c.getAttribute("t") || "n",
+          ref = c.getAttribute("r") || "";
+        const raw = all(c, "v")[0]?.textContent ?? "";
+        const value =
+          type === "s" && raw !== ""
+            ? (strings[Number(raw)] ?? "")
+            : type === "inlineStr"
+              ? all(c, "t")
+                  .map((n) => n.textContent)
+                  .join("")
+              : raw;
         return {
-          ref: c.getAttribute("r"),
-          type: t,
-          value:
-            t === "s"
-              ? strings[Number(raw)]
-              : t === "inlineStr"
-                ? all(c, "t")
-                    .map((n) => n.textContent)
-                    .join("")
-                : raw,
-          formula,
+          ref,
+          col: ref.replace(/\d+$/, ""),
+          type,
+          value,
+          formula: all(c, "f")[0]?.textContent ?? null,
+          style: Number(c.getAttribute("s") || 0),
         };
-      });
-      const labels = cells
-        .filter((c) => ["s", "inlineStr", "str"].includes(c.type))
-        .map((c) => c.value);
-      if (!labels.length) continue;
-      const title = labels.join(" · ").slice(0, 195);
-      if (/gemeinde|globalbudget/i.test(title)) continue;
+      }),
+    }));
+    const byRef = new Map(
+      sheetRows.flatMap((r) => r.cells.map((c) => [c.ref, c])),
+    );
+    let headings = new Map();
+    for (const row of sheetRows) {
+      const texts = row.cells.filter(
+        (c) => ["s", "inlineStr", "str"].includes(c.type) && c.value.trim(),
+      );
+      const header =
+        texts.some((c) =>
+          /^(datum|buchungsdatum|bezeichnung|beschreibung|buchungstext)$/i.test(
+            c.value.trim(),
+          ),
+        ) &&
+        texts.some((c) =>
+          /^(einnahmen?|ausgaben?|betrag|soll|haben|eingang|ausgang|globalbudget|gemeinde)$/i.test(
+            c.value.trim(),
+          ),
+        );
+      if (header) {
+        headings = new Map(texts.map((c) => [c.col, c.value.trim()]));
+        continue;
+      }
+      const cells = row.cells.filter(
+        (c) => !excluded(headings.get(c.col) || ""),
+      );
+      const label = cells
+        .filter((c) => texts.includes(c))
+        .map((c) => c.value)
+        .join(" · ")
+        .slice(0, 195);
+      if (excluded(label) || (!label && !headings.size)) continue;
       let date = "",
         origin = "Datum prüfen";
+      const dates = new Set();
       for (const c of cells) {
-        const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})?$/.exec(c.value);
-        if (m) {
-          date =
-            (m[3] || year) +
+        const isDate =
+          /datum/i.test(headings.get(c.col) || "") ||
+          dateStyle.has(c.style) ||
+          c.type === "d";
+        const match = /^(\d{1,2})\.(\d{1,2})\.(\d{4})?$/.exec(c.value);
+        let day = "",
+          source = "";
+        if (match) {
+          day =
+            (match[3] || year) +
             "-" +
-            m[2].padStart(2, "0") +
+            match[2].padStart(2, "0") +
             "-" +
-            m[1].padStart(2, "0");
-          origin = m[3] ? "Zelldatum" : "Manuell gewähltes Quellenjahr";
-          break;
-        }
-        if (
-          /datum/i.test(name) &&
-          !c.type &&
-          +c.value > 30000 &&
-          +c.value < 70000
+            match[1].padStart(2, "0");
+          source = match[3] ? "Zelldatum" : "Manuell gewähltes Quellenjahr";
+        } else if (c.type === "d") {
+          day = c.value.slice(0, 10);
+          source = "ISO-Zelldatum";
+        } else if (
+          isDate &&
+          c.type === "n" &&
+          /^\d+(\.\d+)?$/.test(c.value) &&
+          Number(c.value) < 2958466
         ) {
-          date = new Date(epoch + Number(c.value) * 86400000)
+          const serial = Math.floor(Number(c.value));
+          if (serial === 60 && !date1904) {
+            dates.add(c.ref);
+            continue;
+          }
+          day = new Date(
+            epoch + (serial + (!date1904 && serial < 60 ? 1 : 0)) * 86400000,
+          )
             .toISOString()
             .slice(0, 10);
-          origin = "Excel-Datum, bitte bestätigen";
+          source = "Excel-Datum";
+        }
+        if (isDate || match) dates.add(c.ref);
+        if (
+          !date &&
+          day &&
+          /^\d{4}-\d{2}-\d{2}$/.test(day) &&
+          !isNaN(Date.parse(day)) &&
+          new Date(day).toISOString().slice(0, 10) === day
+        ) {
+          date = day;
+          origin = source;
         }
       }
-      for (const c of cells.filter(
-        (c) => !c.type || c.type === "n" || c.formula,
-      )) {
-        if (c.value === "" && !c.formula) continue;
-        let amount = null;
-        try {
-          amount = cents(String(c.value).replace(/^-/, ""));
-        } catch {}
+      for (const c of cells) {
+        if (dates.has(c.ref) || (c.type !== "n" && c.formula === null))
+          continue;
+        const heading = headings.get(c.col) || "";
+        if (
+          /^(lfd\.?\s*nr\.?|nummer|anzahl|menge|jahr|belegnummer)$/i.test(
+            heading,
+          )
+        )
+          continue;
+        if (
+          c.value === "" &&
+          c.formula === null &&
+          !/betrag|einnahme|ausgabe|soll|haben/i.test(heading)
+        )
+          continue;
+        const signed = sourceCents(c.value),
+          amount = signed === null ? null : Math.abs(signed);
+        const aggregate = /summe|ergebnis|übertrag|gesamt|saldo/i.test(
+          label + " " + heading,
+        );
+        const check = c.formula !== null ? simpleSum(c.formula, byRef) : null;
         const blocked =
-          role === "D8" ||
-          !!c.formula ||
-          /summe|ergebnis|übertrag|gesamt|saldo/i.test(title);
+          role === "D8" || c.formula !== null || aggregate || amount === null;
+        const kind = /einnahm|eingang/i.test(heading)
+          ? "income"
+          : /ausgab|ausgang/i.test(heading)
+            ? "expense"
+            : "";
+        const mismatch = check !== null && signed !== null && check !== signed;
         result.push({
           source: sha,
           sheet: name,
           cell: c.ref,
-          row: Number(r.getAttribute("r")),
+          row: row.number,
           key: ix + "-" + c.ref,
-          label: title,
-          raw: c.formula ? "=" + c.formula : c.value,
+          label: label || heading,
+          raw: c.formula === null ? c.value : "=" + c.formula,
+          cached: c.formula === null ? null : c.value,
+          calculatedCent: check,
+          differenceCent:
+            check === null || signed === null ? null : signed - check,
+          column: heading,
           yearOrigin: origin,
           date,
           amount,
-          kind: "",
-          status: blocked ? "Nur Vergleich / Summenzeile" : "Zuordnung offen",
+          kind,
+          status:
+            role === "D8"
+              ? "Folgevorlage · nur Vergleich"
+              : mismatch
+                ? "Formel und Cache weichen ab"
+                : c.formula !== null
+                  ? "Formel · nur Vergleich"
+                  : aggregate
+                    ? "Summen- oder Übertragszeile"
+                    : amount === null
+                      ? "Betrag fehlt oder unlesbar"
+                      : "Einzelzuordnung prüfen",
           blocked,
         });
       }

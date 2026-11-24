@@ -31,6 +31,7 @@ try {
     await store.createVault(id, {
       seq: 1,
       token: "nur-uebung",
+      nextToken: "nur-uebung-zweiter-schluessel",
       ops: [{ test: 1 }],
       limit: 1200,
     });
@@ -101,6 +102,7 @@ try {
       archived:
         recovered.recovery &&
         !recovered.token &&
+        !recovered.nextToken &&
         recovered.sealed &&
         recovered.limit < 0,
     };
@@ -113,6 +115,102 @@ try {
     large: false,
     archived: true,
   });
+  const migrated = await context.newPage();
+  await migrated.goto(origin + "?profil=" + crypto.randomUUID());
+  const migrationPassed = await migrated.evaluate(async (pass) => {
+    const store = await import("/store.js");
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const base = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(pass),
+      "PBKDF2",
+      false,
+      ["deriveKey"],
+    );
+    const key = await crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt, iterations: 600000, hash: "SHA-256" },
+      base,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt"],
+    );
+    const op = {
+      ID: crypto.randomUUID(),
+      Seq: 1,
+      Kind: "original",
+      Data: { Number: 7999, PDF: "fiktive Bytes" },
+    };
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open("bonfire-v1", 1);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    async function fixture(state) {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const bytes = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        key,
+        new TextEncoder().encode(JSON.stringify(state)),
+      );
+      await new Promise((resolve, reject) => {
+        const t = db.transaction("vault", "readwrite");
+        t.objectStore("vault").put(
+          { rev: 1, iv, salt, bytes },
+          new URLSearchParams(location.search).get("profil"),
+        );
+        t.oncomplete = resolve;
+        t.onerror = reject;
+      });
+    }
+    const legacy = {
+      seq: 1,
+      last: 0,
+      ops: [op],
+      nextNumber: 8000,
+      limit: 8999,
+    };
+    await fixture(legacy);
+    const upgraded = await store.unlock(pass);
+    await store.save(upgraded);
+    const persisted = await store.unlock(pass);
+    if (
+      persisted.schemaVersion !== 2 ||
+      persisted.preparedOrigin !== location.origin ||
+      persisted.nextNumber !== 8000 ||
+      JSON.stringify(persisted.ops) !== JSON.stringify(legacy.ops)
+    )
+      return false;
+    for (const extra of [
+      { schemaVersion: 88 },
+      {
+        schemaVersion: 2,
+        preparedOrigin: "https://anderer-uebungsserver.invalid",
+      },
+    ]) {
+      await fixture({ ...legacy, ...extra });
+      const before = await store.readVault();
+      let blocked = false;
+      try {
+        await store.unlock(pass);
+      } catch {
+        blocked = true;
+      }
+      const after = await store.readVault();
+      if (
+        !blocked ||
+        before.rev !== after.rev ||
+        (await store.b64(new Blob([before.bytes]))) !==
+          (await store.b64(new Blob([after.bytes])))
+      )
+        return false;
+    }
+    db.close();
+    return true;
+  }, id);
+  assert.equal(migrationPassed, true);
+  console.log(
+    "PASS Profilmigration mit ausstehender Originalausgabe, unveränderten Nummern und Schutz bei unbekanntem Schema oder anderer Serveradresse",
+  );
   console.log(
     "PASS: forced browser transaction abort preserves outbox, concurrent tab is rejected, protected recovery rejects wrong password and has no issuance token",
   );

@@ -165,11 +165,19 @@ func (a *app) prepare(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		return nil, err
 	}
 	var in struct {
-		Event, Name string
-		Donor       bool
+		Event, Name  string
+		Donor        bool
+		DigitalCount *int64
 	}
 	if err = read(r, &in); err != nil {
 		return nil, err
+	}
+	capacity := int64(1000)
+	if in.DigitalCount != nil {
+		capacity = *in.DigitalCount
+	}
+	if capacity < 0 || capacity > 1000 {
+		return nil, fail("Zwischen 0 und 1000 Digitalnummern wählen.")
 	}
 	if len(in.Name) < 1 || len(in.Name) > 100 {
 		return nil, fail("Gerätename fehlt.")
@@ -193,7 +201,7 @@ func (a *app) prepare(ctx context.Context, w http.ResponseWriter, r *http.Reques
 	id, token := uuid(), secret()
 	var block int64
 	expiry := time.Now().UTC().Add(72 * time.Hour)
-	err = tx.QueryRow(ctx, "INSERT INTO devices(id,username,event,name,secret,expires,donor_access) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING block", id, name, e.ID, in.Name, hash(token), expiry, in.Donor).Scan(&block)
+	err = tx.QueryRow(ctx, "INSERT INTO devices(id,username,event,name,secret,expires,donor_access,digital_count) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING block", id, name, e.ID, in.Name, hash(token), expiry, in.Donor, capacity).Scan(&block)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +219,7 @@ func (a *app) prepare(ctx context.Context, w http.ResponseWriter, r *http.Reques
 	if err = audit(ctx, tx, e.ID, name, "Gerät vorbereitet", id); err != nil {
 		return nil, err
 	}
-	return map[string]any{"device": id, "user": name, "role": role, "event": e, "token": token, "first": block * 1000, "limit": block*1000 + 999, "expires": expiry, "donorAccess": in.Donor}, tx.Commit(ctx)
+	return map[string]any{"device": id, "user": name, "role": role, "event": e, "token": token, "first": block * 1000, "limit": block*1000 + capacity - 1, "paperLimit": block*1000 + 999, "expires": expiry, "donorAccess": in.Donor}, tx.Commit(ctx)
 }
 func audit(ctx context.Context, tx pgx.Tx, event, user, act, subject string) error {
 	_, err := tx.Exec(ctx, "INSERT INTO audit(event,username,action,subject) VALUES($1,$2,$3,$4)", event, user, act, subject)
@@ -219,10 +227,10 @@ func audit(ctx context.Context, tx pgx.Tx, event, user, act, subject string) err
 }
 
 type device struct {
-	Donor                    bool
-	ID, User, Role, Event    string
-	Block, Last              int64
-	Sealed, Closed, Accounts bool
+	Donor                                bool
+	ID, User, Role, Event, IncidentState string
+	Block, Last, DigitalCount            int64
+	Sealed, Closed, Accounts             bool
 }
 
 func lock(ctx context.Context, tx pgx.Tx, r *http.Request) (device, error) {
@@ -240,11 +248,15 @@ func lock(ctx context.Context, tx pgx.Tx, r *http.Request) (device, error) {
 	if err != nil {
 		return d, problem{403, "Gerät unbekannt."}
 	}
-	err = tx.QueryRow(ctx, "SELECT d.id::text,d.username,u.role,d.block,d.last_seq,d.sealed,e.closed,e.accounts,d.secret,d.donor_access FROM devices d JOIN users u ON u.name=d.username JOIN events e ON e.id=d.event WHERE d.id=$1 AND u.active AND d.expires>now() AND (u.role='Leitung' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.username=u.name AND g.event=e.id))", id).Scan(&d.ID, &d.User, &d.Role, &d.Block, &d.Last, &d.Sealed, &d.Closed, &d.Accounts, &digest, &d.Donor)
+	err = tx.QueryRow(ctx, "SELECT d.id::text,d.username,u.role,d.block,d.last_seq,d.sealed,e.closed,e.accounts,d.secret,d.donor_access,d.incident_state,d.digital_count FROM devices d JOIN users u ON u.name=d.username JOIN events e ON e.id=d.event WHERE d.id=$1 AND u.active AND d.expires>now() AND (u.role='Leitung' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.username=u.name AND g.event=e.id))", id).Scan(&d.ID, &d.User, &d.Role, &d.Block, &d.Last, &d.Sealed, &d.Closed, &d.Accounts, &digest, &d.Donor, &d.IncidentState, &d.DigitalCount)
 	if err != nil || subtle.ConstantTimeCompare(digest, hash(token)) != 1 {
 		return d, problem{403, "Gerätefreigabe abgelaufen oder entzogen."}
 	}
-	return d, nil
+	if d.IncidentState == "missing" || d.IncidentState == "incomplete" || (d.IncidentState == "returning" && r.URL.Path != "/api/sync") {
+		return d, problem{403, "Gerätevorfall offen. Rückkehr durch Leitung bestätigen lassen."}
+	}
+	_, err = tx.Exec(ctx, "SELECT set_config('bonfire.device',$1,true)", d.ID)
+	return d, err
 }
 func date(s string) bool { _, err := time.Parse("2006-01-02", s); return err == nil }
 func initialize(ctx context.Context, db *pgxpool.Pool) error {
@@ -315,6 +327,21 @@ func initialize(ctx context.Context, db *pgxpool.Pool) error {
 	if err = applyUpgrade(ctx, tx, 8, "migrations/008.sql"); err != nil {
 		return err
 	}
+	if err = applyUpgrade(ctx, tx, 9, "migrations/009.sql"); err != nil {
+		return err
+	}
+	if err = applyUpgrade(ctx, tx, 10, "migrations/010.sql"); err != nil {
+		return err
+	}
+	if err = applyUpgrade(ctx, tx, 11, "migrations/011.sql"); err != nil {
+		return err
+	}
+	if err = applyUpgrade(ctx, tx, 12, "migrations/012.sql"); err != nil {
+		return err
+	}
+	if err = applyUpgrade(ctx, tx, 13, "migrations/013.sql"); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 func main() {
@@ -338,6 +365,7 @@ func main() {
 	}
 	a := &app{db: db, attempts: map[string]int{}}
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/donation-reports", route(a.donationReports))
 	mux.HandleFunc("POST /api/login", route(a.login))
 	mux.HandleFunc("POST /api/logout", route(a.logout))
 	mux.HandleFunc("POST /api/mfa", route(a.mfa))
