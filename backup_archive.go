@@ -58,8 +58,12 @@ func sealBackup(src io.Reader, dst io.Writer, key []byte, m backupManifest) erro
 		binary.BigEndian.PutUint64(nonce[4:], idx)
 		idx++
 		ct := aead.Seal(nil, nonce[:], data, header)
+		size := len(ct)
+		if size > frameSize+16 {
+			return errors.New("encrypted frame exceeds its supported size")
+		}
 		var sz [4]byte
-		binary.BigEndian.PutUint32(sz[:], uint32(len(ct)))
+		binary.BigEndian.PutUint32(sz[:], uint32(size))
 		if _, err := dst.Write(sz[:]); err != nil {
 			return err
 		}

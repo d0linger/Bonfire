@@ -70,7 +70,9 @@ func (b *backupWorker) persist() error {
 func backupNow() time.Time { return time.Now().UTC() }
 func writeBackupJSON(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Print("Backup response interrupted")
+	}
 }
 func badBackup(w http.ResponseWriter, msg string) { http.Error(w, msg, http.StatusUnprocessableEntity) }
 
@@ -90,6 +92,9 @@ func (b *backupWorker) health(target string, now time.Time) backupHealth {
 		since = *h.LastAttempt
 	}
 	next := c.Next(since.In(time.Local))
+	if next.IsZero() {
+		return h
+	}
 	h.Next = &next
 	h.Due = !next.After(now)
 	return h
@@ -178,8 +183,15 @@ func (b *backupWorker) command(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *backupWorker) start(q backupCommand, actor string) error {
+	return b.startIfDue(q, actor, "")
+}
+
+func (b *backupWorker) startIfDue(q backupCommand, actor, schedule string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if schedule != "" && !b.health(schedule, backupNow()).Due {
+		return nil
+	}
 	if b.active {
 		return errors.New("Ein Sicherungsauftrag läuft bereits")
 	}
@@ -217,14 +229,20 @@ func (b *backupWorker) start(q backupCommand, actor string) error {
 	if q.Action == "probe" {
 		key = "probe"
 	}
+	previous, existed := b.state.Last[key]
 	if q.Action == "backup" || q.Action == "probe" {
-		h := b.state.Last[key]
+		h := previous
 		h.LastAttempt = &now
 		h.Outcome = "running"
 		b.state.Last[key] = h
 	}
 	if err := b.persist(); err != nil {
 		b.active = false
+		if existed {
+			b.state.Last[key] = previous
+		} else {
+			delete(b.state.Last, key)
+		}
 		return errors.New("Auftragsstatus konnte nicht gespeichert werden")
 	}
 	prev := b.state.Probe
@@ -270,7 +288,9 @@ func (b *backupWorker) run(q backupCommand, actor, key string, days int, pr *bac
 			defer func() {
 				clean, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
-				ctl.Exec(clean, "DROP DATABASE IF EXISTS "+dbIdent(db)+" WITH (FORCE)")
+				if _, err := ctl.Exec(clean, "DROP DATABASE IF EXISTS "+dbIdent(db)+" WITH (FORCE)"); err != nil {
+					log.Print("Failed to remove temporary restore database")
+				}
 			}()
 			if q.Action == "promote" {
 				if pr.Hash != fingerprint {
@@ -349,7 +369,7 @@ func (b *backupWorker) tick() {
 			}
 			q = backupCommand{Action: "probe", Target: "local", Name: files[0].Name}
 		}
-		_ = b.start(q, "System")
+		_ = b.startIfDue(q, "System", target)
 		return
 	}
 }
@@ -368,20 +388,15 @@ func (b *backupWorker) download(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
-	io.Copy(w, file)
+	if _, err := io.Copy(w, file); err != nil {
+		panic(http.ErrAbortHandler)
+	}
 }
 
 func (b *backupWorker) upload(w http.ResponseWriter, r *http.Request) {
 	dir := filepath.Join(backupHome, "uploads")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		http.Error(w, "Uploadspeicher nicht verfügbar.", 503)
-		return
-	}
-	// One uploaded candidate at a time; its random name and receipt bind the later takeover.
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.active {
-		http.Error(w, "Ein Auftrag läuft.", 409)
 		return
 	}
 	tmp, err := os.CreateTemp(dir, ".upload-")
@@ -396,6 +411,13 @@ func (b *backupWorker) upload(w http.ResponseWriter, r *http.Request) {
 		badBackup(w, "Upload unvollständig oder zu groß.")
 		return
 	}
+	// One uploaded candidate at a time; its random name and receipt bind the later takeover.
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.active {
+		http.Error(w, "Ein Auftrag läuft.", 409)
+		return
+	}
 	name := "bonfire-" + backupNow().Format("20060102T150405Z") + "-" + uuid() + ".dump.enc"
 	if err = b.audit(r.Header.Get("X-Bonfire-Actor"), "Datei zur Probe hochgeladen", "upload"); err != nil {
 		http.Error(w, "Protokollierung fehlgeschlagen.", 503)
@@ -408,7 +430,9 @@ func (b *backupWorker) upload(w http.ResponseWriter, r *http.Request) {
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if e.Name() != name && backupName.MatchString(e.Name()) {
-			os.Remove(filepath.Join(dir, e.Name()))
+			if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+				log.Print("Failed to remove superseded backup upload")
+			}
 		}
 	}
 	writeBackupJSON(w, map[string]string{"name": name})
@@ -481,8 +505,7 @@ func runBackupWorker() error {
 	if err != nil {
 		return errors.New("Wartungsdatenbank nicht erreichbar")
 	}
-	err = b.recoverSwap(ctx, c)
-	c.Close(ctx)
+	err = errors.Join(b.recoverSwap(ctx, c), c.Close(ctx))
 	if err != nil {
 		return errors.New("Unvollständigen Restore anhand des Sicherungsjournals prüfen")
 	}

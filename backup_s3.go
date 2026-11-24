@@ -99,15 +99,28 @@ func (b *backupWorker) openArchive(ctx context.Context, target, name string) (io
 	}
 	switch target {
 	case "local", "upload":
-		path := filepath.Join(backupHome, name)
+		dir := backupHome
 		if target == "upload" {
-			path = filepath.Join(backupHome, "uploads", name)
+			dir = filepath.Join(dir, "uploads")
 		}
-		st, err := os.Lstat(path)
-		if err != nil || !st.Mode().IsRegular() {
-			return nil, errors.New("Sicherung nicht gefunden")
+		root, err := os.OpenRoot(dir)
+		if err != nil {
+			return nil, err
 		}
-		return os.Open(path)
+		defer root.Close()
+		before, err := root.Lstat(name)
+		if err != nil || !before.Mode().IsRegular() {
+			return nil, errors.New("backup file not found")
+		}
+		file, err := root.Open(name)
+		if err != nil {
+			return nil, err
+		}
+		after, err := file.Stat()
+		if err != nil || !os.SameFile(before, after) {
+			return nil, errors.Join(errors.New("backup file changed while opening"), file.Close())
+		}
+		return file, nil
 	case "s3":
 		if b.s3 == nil {
 			return nil, errors.New("S3 nicht eingerichtet")
