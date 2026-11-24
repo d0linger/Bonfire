@@ -139,15 +139,6 @@ func (a *app) changeEventEntry(ctx context.Context, w http.ResponseWriter, r *ht
 	if len(spaces) != len(ids) {
 		return nil, problem{409, "Ein gewählter Arbeitsbereich ist nicht mehr verfügbar."}
 	}
-	year := spaces[0].Year
-	for _, e := range spaces {
-		if e.Closed || e.ID == q.Event && e.General {
-			return nil, problem{409, "Nur Einträge einer offenen Veranstaltung können bereinigt werden."}
-		}
-		if moving && (year == "" || e.Year != year) {
-			return nil, problem{409, "Das Ziel muss im selben Geschäftsjahr liegen."}
-		}
-	}
 	source, err := lockOnlineEvent(ctx, tx, r, q.Event)
 	if err != nil {
 		return nil, err
@@ -170,6 +161,15 @@ func (a *app) changeEventEntry(ctx context.Context, w http.ResponseWriter, r *ht
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
+	}
+	year := spaces[0].Year
+	for _, e := range spaces {
+		if e.Closed || e.ID == q.Event && e.General {
+			return nil, problem{409, "Nur Einträge einer offenen Veranstaltung können bereinigt werden."}
+		}
+		if moving && (year == "" || e.Year != year) {
+			return nil, problem{409, "Das Ziel muss im selben Geschäftsjahr liegen."}
+		}
 	}
 	var current row
 	err = tx.QueryRow(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event=$1 AND id=$2", q.Event, q.Target).Scan(&current.ID, &current.Kind, &current.Device, &current.Revision, &current.Data)
