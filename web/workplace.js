@@ -107,9 +107,7 @@ export const eventTabs = [
   ["Sponsoring", "Sponsoren & Rechnungen"],
 ];
 export const onlineEventTabs = [
-  ...eventTabs,
-  ["Kontakte", "Kontakte"],
-  ["Spenden", "Spenden"],
+  ...eventTabs.filter(([page]) => page !== "Sponsoring"),
   ["Dokumente", "Dokumente"],
   ["Perioden", "Abschluss"],
 ];
@@ -245,13 +243,16 @@ const dateFmt = new Intl.DateTimeFormat("de-AT", {
 });
 export const dat = (d) =>
   d ? dateFmt.format(new Date(d.slice(0, 10) + "T12:00:00")) : "—";
-export const recordKinds = (p) =>
+export const recordKinds = (p, online = false) =>
   ({
     Kontakte: ["contact"],
     Spenden: ["donation"],
     Preise: ["price"],
     Sponsoring: ["sponsorship", "payment"],
-    Zahlungen: groups.Journal,
+    Zahlungen: online
+      ? [...groups.Journal, "sponsorship", "payment", "donation"]
+      : groups.Journal,
+    Journal: online ? [...groups.Journal, "donation"] : groups.Journal,
     Verwaltung: ["organization"],
   })[p] ||
   groups[p] ||

@@ -115,6 +115,8 @@ Die Ausführung auf dem normalen lokalen Port 8137 wurde separat geprüft. Anmel
 
 ## Getrennte Buchungswege im Onlinebetrieb
 
+`tests/action-spacing.mjs` erfasst unter **Zahlungen & Kosten** eine Festspende und eine Sponsoringforderung mit einem zentral gepflegten Kontakt und öffnet genau diese Forderung in der Rechnungsvorlage. `tests/online-api.mjs` prüft die Sponsorauswahl mit einem auf das Fest beschränkten Schreibkonto und die Zugriffsbeschränkung für Lesekonten.
+
 `tests/action-spacing.mjs` öffnet die vier direkten Geldtaschenaktionen und die zusätzlichen Planungsvorgänge. Der Browsertest erfasst 4 EUR Anfangsbestand, 25 EUR Nachversorgung aus der Handkassa und 34 EUR Endbestand. Er prüft die gespeicherten Zählphasen, die empfangende Geldtasche und die verbleibende Sammelbareinnahme von 5 EUR. Die Bedienelemente werden bei 390 und 1440 Pixeln Breite geprüft.
 
 `tests/online-api.mjs` prüft die Abschlusssperren mit offenen Privatauslagen, einer unbezahlten Sponsoringforderung, einem offenen Fest und fehlenden Istbeständen im Kassenbuch. Nach dem Abschluss müssen auch Buchungen aus einem bereits geöffneten Dialog und das nachträgliche Anlegen einer Veranstaltung am Server scheitern. Der Test prüft die begründete Admin-Freigabe und eine anschließende Buchung mit Schreibrecht.

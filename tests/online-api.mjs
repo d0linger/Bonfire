@@ -147,6 +147,23 @@ await api("users", admin, {
   Event: event.ID,
 });
 const writeSession = await session(basic(writer, password));
+const sponsor = make("contact", "Jahressponsor " + suffix);
+sponsor.Data.Address = "Übungsstraße 1";
+await call("online?event=" + ledger.ID, cash, { Ops: [sponsor] });
+const lookup = { Action: "sponsor-contacts" };
+const scope = { "X-Bonfire-Event": event.ID };
+const directory = await call("manage", writeSession, lookup, 200, scope);
+assert.deepEqual(
+  directory.find((c) => c.id === sponsor.Target),
+  {
+    id: sponsor.Target,
+    caption: sponsor.Data.Label + " · " + sponsor.Data.Address,
+  },
+);
+await call("manage", review, lookup, 403, scope);
+await call("manage", writeSession, lookup, 403, {
+  "X-Bonfire-Event": ledger.ID,
+});
 await call("online?event=" + ledger.ID, writeSession, {}, 403);
 const payment = make("income", "Vereinsabend", 15);
 const posted = await call(path, writeSession, { Ops: [payment] });

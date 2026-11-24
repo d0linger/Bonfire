@@ -305,6 +305,18 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return nil, err
 	}
 	switch q.Action {
+	case "sponsor-contacts":
+		if !d.Online || d.Closed || (d.Role != roleAdmin && d.Role != roleWrite) {
+			return nil, problem{403, "Schreibrecht für ein offenes Fest erforderlich."}
+		}
+		rows, err := tx.Query(ctx, `SELECT id,concat_ws(' · ',data->>'Label',nullif(data->>'Address',''),nullif(data->'Fields'->>'distinct','')) AS caption
+			FROM directory WHERE NOT coalesce((data->>'Retired')::boolean,false)
+			AND EXISTS(SELECT FROM events WHERE id=$1 AND NOT general_ledger)
+			ORDER BY lower(data->>'Label'),id`, d.Event)
+		if err != nil {
+			return nil, err
+		}
+		return pgx.CollectRows(rows, pgx.RowToMap)
 	case "year-carry":
 		return carryYear(ctx, tx, d, q.Target, q.Stamp, q.AccountMap)
 	case "period-close", "period-open":

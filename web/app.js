@@ -375,7 +375,9 @@ function onOverview() {
 function editableKinds() {
   if (!writableWorkspace()) return [];
   const kinds =
-    !offlineEnabled && onOverview() ? ["opening"] : recordKinds(page);
+    !offlineEnabled && onOverview()
+      ? ["opening"]
+      : recordKinds(page, !offlineEnabled);
   return kinds.filter((k) => s.role === "Admin" || !adminKinds.has(k));
 }
 function canWrite() {
@@ -499,9 +501,12 @@ function choices(kinds) {
       ]),
   ];
 }
-function refs(name, title, kinds) {
+function refs(name, title, kinds, alwaysSearch = false) {
   const dropdown = select(name, title, choices(kinds));
-  if (name !== "Contact" || !rows().some((r) => r.Kind === "contact"))
+  if (
+    name !== "Contact" ||
+    (!alwaysSearch && !rows().some((r) => r.Kind === "contact"))
+  )
     return dropdown;
   return (
     label(
@@ -509,6 +514,34 @@ function refs(name, title, kinds) {
       '<input type="search" data-contact-filter autocomplete="off">',
     ) + dropdown
   );
+}
+async function loadSponsorChoices(form) {
+  if (
+    offlineEnabled ||
+    page !== "Zahlungen" ||
+    kind !== "sponsorship" ||
+    s.role !== "Write"
+  )
+    return;
+  const picker = form.elements.Contact;
+  try {
+    const contacts = await api(
+      "manage",
+      { Action: "sponsor-contacts" },
+      bearer(),
+    );
+    if (!form.isConnected) return;
+    const available = new Set([...picker.options].map((opt) => opt.value));
+    for (const { id, caption } of contacts) {
+      if (!available.has(id)) picker.add(new Option(caption, id));
+    }
+    form
+      .querySelector("[data-contact-filter]")
+      .dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (err) {
+    if (form.isConnected)
+      entryDialog.querySelector(".entry-error").textContent = err.message;
+  }
 }
 function table(list, editable = []) {
   if (!list.length) return '<p class="muted">Keine Einträge.</p>';
@@ -829,6 +862,7 @@ function devicePage() {
   );
 }
 function formFields(k, countPhase = "") {
+  const eventBooking = !offlineEnabled && page === "Zahlungen";
   const walletTopUp = page === "Geldtaschen" && k === "supply" && !edit;
   const simpleBooking = [
     "expense",
@@ -897,20 +931,24 @@ function formFields(k, countPhase = "") {
     else f += wallet;
   }
   if (
-    [
-      "sponsorship",
-      "donation",
-      "payment",
-      "outlay",
-      "income",
-      "expense",
-      "contact",
-    ].includes(k) &&
-    k !== "contact"
+    k === "sponsorship" ||
+    (!eventBooking &&
+      ["donation", "payment", "outlay", "income", "expense"].includes(k))
   ) {
-    const contact = refs("Contact", "Kontakt", ["contact"]);
+    const contact = refs(
+      "Contact",
+      eventBooking ? "Sponsor aus dem Kontaktverzeichnis" : "Kontakt",
+      ["contact"],
+      eventBooking,
+    );
     if (simpleBooking) extra += contact;
     else f += contact;
+  } else if (eventBooking && edit?.Data.Contact) {
+    const contact = rows().find(
+      (r) => r.Kind === "contact" && r.ID === edit.Data.Contact,
+    );
+    if (contact)
+      f += "<p>Zugeordneter Kontakt: " + esc(contact.Data.Label) + "</p>";
   }
   if (k === "organization")
     f +=
@@ -1102,7 +1140,12 @@ function formFields(k, countPhase = "") {
         "Meldezeitraum (unabhängig von der Abschlussperiode)",
       ) +
       select("Status", "Spendenart", [
-        ["Offen", "Namentlich"],
+        [
+          "Offen",
+          eventBooking && !edit?.Data.Contact
+            ? "Spenderangaben offen"
+            : "Namentlich",
+        ],
         ["Anonym", "Anonym"],
       ]);
   else if (simpleBooking)
@@ -1166,7 +1209,11 @@ function journalFilterFields() {
     field("from", "Von", "date", false, journalFilters.from || "") +
     field("until", "Bis", "date", false, journalFilters.until || "");
   for (const [key, title, values] of [
-    ["kind", "Vorgangsart", groups.Journal.map((k) => [k, types[k]])],
+    [
+      "kind",
+      "Vorgangsart",
+      recordKinds(page, !offlineEnabled).map((k) => [k, types[k]]),
+    ],
     ...[
       ["category", "Kategorie", "Category"],
       ["method", "Zahlungsart", "Method"],
@@ -1206,7 +1253,7 @@ function isBookingList() {
   return page === "Journal" || (!offlineEnabled && page === "Zahlungen");
 }
 function records() {
-  const kinds = recordKinds(page);
+  const kinds = recordKinds(page, !offlineEnabled);
   if (!kinds.includes(kind)) kind = kinds[0];
   const set = rows().filter(
     (r) =>
@@ -1242,7 +1289,7 @@ function records() {
       )
       .join("");
   }
-  if (page === "Sponsoring") {
+  if (page === "Sponsoring" || (!offlineEnabled && page === "Zahlungen")) {
     const claims = sponsorshipStatus(rows());
     if (claims.length) {
       const originals = claims.flatMap((c) =>
@@ -1251,7 +1298,7 @@ function records() {
           c.claim.Data.Label + " · Nr. " + doc.number,
         ]),
       );
-      detail = panel(
+      detail += panel(
         "Sponsoring",
         '<div class="list"><table><tr><th>Forderung</th><th>Zusage</th><th>Betrag</th><th>Bezahlt</th><th>Offen</th><th>Belege und Versand</th></tr>' +
           claims
@@ -1271,6 +1318,11 @@ function records() {
                 (c.originals
                   .map((o) => "Nr. " + o.number + " · " + esc(o.dispatch))
                   .join("<br>") || "Kein Original ausgestellt") +
+                (page === "Zahlungen"
+                  ? ' <button type="button" class="secondary" data-claim-invoice="' +
+                    esc(c.claim.ID) +
+                    '">Rechnung öffnen</button>'
+                  : "") +
                 "</td></tr>",
             )
             .join("") +
@@ -1529,6 +1581,41 @@ function walletActions() {
     "</div></details></section>"
   );
 }
+function bookingTypeSelector(kinds) {
+  const basic = ["income", "expense", "donation"];
+  const sponsorship = ["sponsorship", "payment"];
+  const sections = [
+    ["Einnahmen und Ausgaben", basic],
+    ["Sponsoring und Rechnungen", sponsorship],
+    [
+      "Weitere Vorgänge",
+      kinds.filter((k) => !basic.includes(k) && !sponsorship.includes(k)),
+    ],
+  ];
+  return label(
+    "Vorgang",
+    '<select name="type">' +
+      sections
+        .map(([title, items]) => {
+          const options = items
+            .filter((k) => kinds.includes(k))
+            .map((k) =>
+              option(
+                k,
+                k === "sponsorship"
+                  ? "Sponsoringforderung / Rechnung"
+                  : types[k],
+              ),
+            )
+            .join("");
+          return options
+            ? '<optgroup label="' + esc(title) + '">' + options + "</optgroup>"
+            : "";
+        })
+        .join("") +
+      "</select>",
+  );
+}
 function openRecord(trigger, item = null) {
   canWrite();
   const kinds = editableKinds();
@@ -1542,11 +1629,13 @@ function openRecord(trigger, item = null) {
   kind = item?.Kind || walletKind || (kinds.includes(kind) ? kind : kinds[0]);
   const selector =
     kinds.length > 1 && page !== "Geldtaschen"
-      ? select(
-          "type",
-          "Vorgang",
-          kinds.map((k) => [k, types[k]]),
-        )
+      ? !offlineEnabled && isBookingList()
+        ? bookingTypeSelector(kinds)
+        : select(
+            "type",
+            "Vorgang",
+            kinds.map((k) => [k, types[k]]),
+          )
       : "";
   openEditor(
     trigger,
@@ -1568,7 +1657,9 @@ function openRecord(trigger, item = null) {
     type.value = kind;
     type.disabled = !!item;
   }
-  if (item) fillRecord(entryDialog.querySelector("#record"));
+  const record = entryDialog.querySelector("#record");
+  if (item) fillRecord(record);
+  loadSponsorChoices(record);
   if (!item && kind === "opening" && onOverview()) {
     const period = rows().find(
       (r) => r.Kind === "period" && r.ID === overviewPeriod,
@@ -3338,7 +3429,16 @@ function show() {
                 button("newProfile", "Anderen Arbeitsbereich öffnen", true),
               )
           : "") +
-        (page === "Spenden" ? donationPanel() : "") +
+        (page === "Spenden"
+          ? donationPanel()
+          : !offlineEnabled &&
+              page === "Zahlungen" &&
+              rows().some((r) => r.Kind === "donation") &&
+              s.role === "Admin"
+            ? "<details><summary>Spendenmeldedaten</summary>" +
+              donationPanel() +
+              "</details>"
+            : "") +
         (page === "Preise"
           ? route(
               "Dokumente",
@@ -3929,6 +4029,8 @@ async function submit(f) {
         "Das Buchungsziel hat sich geändert. Erfassung schließen und im gewünschten Bereich erneut öffnen.",
       );
     const d = { ...vals };
+    if (edit?.Data.Contact && !("Contact" in vals))
+      d.Contact = edit.Data.Contact;
     if (kind === "supply" && vals.To === undefined) {
       const wallet = rows().find(
         (r) => r.Kind === "wallet" && r.ID === d.Wallet,
@@ -4273,7 +4375,9 @@ async function submit(f) {
         throw Error(
           offlineEnabled
             ? "Für nummerierte Spendenbelege ist ein vorbereitetes Belegprofil erforderlich."
-            : "Öffne zuerst die Meldedaten unter Spenden.",
+            : s.event.General
+              ? "Öffne zuerst die Meldedaten unter Spenden."
+              : "Öffne zuerst die Spendenmeldedaten unter Zahlungen & Kosten.",
         );
       if (vals.version === "draft")
         throw Error("Originalausgabe verlangt die freigegebene Fassung.");
@@ -4464,6 +4568,7 @@ document.addEventListener("change", (e) => {
     kind = e.target.value;
     previous.outerHTML = recordForm();
     const current = entryDialog.querySelector("#record");
+    loadSponsorChoices(current);
     for (const name of ["Label", "Date", "amount", "Method", "Note"]) {
       if (values.has(name) && current.elements.namedItem(name))
         current.elements.namedItem(name).value = values.get(name);
@@ -4620,6 +4725,15 @@ document.addEventListener("click", (e) => {
     return;
   }
   action(async () => {
+    if (b.dataset.claimInvoice && page === "Zahlungen") {
+      page = "Dokumente";
+      show();
+      const form = article.querySelector("#export");
+      form.elements.profile.value = "0";
+      form.elements.subject.value = b.dataset.claimInvoice;
+      form.elements.profile.focus();
+      return;
+    }
     if (b.dataset.walletAction) {
       openRecord(b);
       return;

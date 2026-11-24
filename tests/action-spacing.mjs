@@ -192,6 +192,9 @@ try {
   await nav("Journal");
   await page.locator("[data-act=focusEntry]").click();
   await check("Erfassung", page.getByRole("dialog"));
+  await page.locator("#entry-dialog [name=type]").selectOption("donation");
+  assert.ok(await page.locator("#record [name=Contact]").isVisible());
+  await page.locator("#entry-dialog [name=type]").selectOption("income");
   await page.locator(".record-extra summary").click();
   await check("Erfassung mit Zusatzfeldern", page.getByRole("dialog"));
   await page.locator("#record [data-act=cancel]").click();
@@ -200,7 +203,16 @@ try {
   await check("Veranstaltungsliste");
   await page.locator('[data-space="' + event.ID + '"]').click();
   await check("Veranstaltung");
-  for (const key of ["Geldtaschen", "Zahlungen", "Preise", "Sponsoring"]) {
+  assert.equal(
+    await page
+      .locator("article .tabs")
+      .locator(
+        '[data-page="Kontakte"], [data-page="Spenden"], [data-page="Sponsoring"]',
+      )
+      .count(),
+    0,
+  );
+  for (const key of ["Geldtaschen", "Zahlungen", "Preise"]) {
     await page
       .locator(
         'article .tabs [data-page="' +
@@ -212,6 +224,65 @@ try {
       .first()
       .click();
     await check(key);
+    if (key === "Zahlungen") {
+      const dialog = page.getByRole("dialog");
+      for (const [type, title] of [
+        ["donation", "Festspende"],
+        ["sponsorship", "Bannerrechnung"],
+        ["payment", "Zahlung Bannerrechnung"],
+      ]) {
+        await page
+          .getByRole("button", { name: "Veranstaltungsbuchung erfassen" })
+          .click();
+        await dialog.locator("[name=type]").selectOption(type);
+        await dialog.locator("[name=Label]").fill(title);
+        await dialog.locator("[name=amount]").fill("25,00");
+        if (type === "sponsorship") {
+          await dialog
+            .locator("[name=Contact]")
+            .selectOption({ label: label + " bestätigt" });
+        } else {
+          assert.equal(await dialog.locator("[name=Contact]").count(), 0);
+          if (type === "payment") {
+            await dialog
+              .locator("[name=Reference]")
+              .selectOption({ label: "Bannerrechnung" });
+            await dialog.locator("[name=Method]").selectOption("Überweisung");
+          }
+        }
+        await dialog
+          .getByRole("button", { name: "Speichern", exact: true })
+          .click();
+        await dialog.waitFor({ state: "hidden" });
+        await page
+          .locator(".entry-list")
+          .getByRole("cell", { name: title, exact: true })
+          .waitFor();
+      }
+      const { entries } = await api("online?event=" + event.ID, {});
+      const claim = entries.find(
+        (r) => r.Kind === "sponsorship" && r.Data.Label === "Bannerrechnung",
+      );
+      const sponsor = entries.find((r) => r.ID === claim.Data.Contact);
+      assert.equal(sponsor.Data.Label, label + " bestätigt");
+      assert.equal(
+        entries.find((r) => r.Kind === "payment").Data.Reference,
+        claim.ID,
+      );
+      assert.equal(
+        entries.find((r) => r.Data.Label === "Festspende").Data.Status,
+        "Offen",
+      );
+      await page.getByRole("button", { name: "Rechnung öffnen" }).click();
+      assert.equal(
+        await page.locator("#export [name=profile]").inputValue(),
+        "0",
+      );
+      assert.equal(
+        await page.locator("#export [name=subject]").inputValue(),
+        claim.ID,
+      );
+    }
     if (key === "Geldtaschen") {
       const actions = page.getByRole("region", {
         name: "Geldtaschen verwalten",
