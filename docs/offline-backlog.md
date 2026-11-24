@@ -1,9 +1,9 @@
-# Offline derzeit deaktiviert; Spezifikation offen
+# Deferred offline functionality
 
-Der Betrieb setzt eine aktive Serversitzung und ein erreichbares Backend voraus. Die installierbare Webapp ist ein Onlineclient. Eine veraltete lokale Moduseinstellung und die frühere Umgebungsvariable dürfen den Gerätebetrieb nicht aktivieren.
+Offline operation is disabled pending a separate specification. Financial workflows require a live session and a reachable server. An old local mode preference or environment setting must never re-enable device operation.
 
-Historische Geräteprofile, ausstehende Operationen, Reservierungen und Gerätesicherungen getrennt geschützt verwahren. Vor einem Abschluss mit solchen Beständen müssen die Kassiere den Abgleich klären. Serverbackups enthalten ausschließlich die bereits auf dem Server gespeicherten Daten.
+Preserve historical device profiles, unsent operations, number reservations and encrypted device backups. The cashiers must reconcile any such records before relying on a completeness statement. Server backups contain only server-confirmed records.
 
-Für einen neuen Auftrag offen sind Einsatzszenarien, Berechtigungen, Datenhaltung, Nummernvergabe, Konfliktentscheidungen, Wiederanlauf und Abschlussregeln. Die bisherigen Geräte- und Sync-Tests dokumentieren den historischen Entwurf.
+Future decisions include use cases, permissions, storage, numbering, conflict resolution, synchronization, recovery and closure. Historical device tests document a previous design.
 
-Die Abnahmematrix enth�lt 111 urspr�ngliche IDs. 20 sind vollst�ndig zur�ckgestellt. 91 behalten einen aktiven Umfang. Historische Pr�fergebnisse belegen keinen aktuellen Online-Pr�flauf.
+The acceptance register retains 111 original IDs. 20 are fully deferred. 91 retain an active requirement. Historical results do not certify the current online build.

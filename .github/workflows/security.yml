@@ -1,4 +1,4 @@
-name: Sicherheitsprüfungen
+name: Security checks
 on:
   workflow_call:
   workflow_dispatch:
@@ -8,6 +8,7 @@ permissions:
   contents: read
 jobs:
   dependencies:
+    name: Dependency Review
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -18,6 +19,7 @@ jobs:
         with:
           fail-on-severity: high
   vulnerabilities:
+    name: govulncheck and npm audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -29,6 +31,7 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
       - run: npm audit --package-lock-only --audit-level=high
   secrets:
+    name: Git secret scanning (Gitleaks)
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -1,15 +1,18 @@
-# Teststrategie
+# Test strategy
 
-Die Prüfinstallation arbeitet mit PostgreSQL und synthetischen Daten. Der dokumentierte Start verwendet PowerShell 7, Docker Compose, Node und die Go-Version aus go.mod. Unter Linux bündeln die Make-Targets die nachstehenden Prüfungen. Unter Windows lassen sich die enthaltenen Befehle direkt ausführen.
+Run tests with synthetic fixtures, PostgreSQL, Docker Compose, PowerShell 7, Node.js 22 and the Go version from go.mod. On Linux, Make provides the entry points below. On Windows, run the corresponding commands from the Makefile directly.
 
-| Prüfung | Auftrag und Einstieg |
+| Command | Scope |
 | --- | --- |
-| Formatierung und statische Prüfung | make lint prüft Go-Formatierung, go vet und JavaScript-Syntax. |
-| Go und JavaScript | make test führt Go mit Race Detector und Coverage sowie die Node-Tests aus. Für den Race Detector wird ein C-Compiler benötigt. |
-| Finanzen | make test-finance verwendet unabhängige Sollbeträge. tests/cash-vectors.json wird von Go und JavaScript gelesen. |
-| Integration, E2E, Verbindungsabbruch und Restore | Nach npm ci und npx playwright install chromium die lokale Konfiguration mit ./ops/init.ps1 anlegen. make test-integration startet die isolierte Suite. test-connectivity, test-e2e und test-restore nutzen denselben Ablauf. tests/online-api.mjs prüft konkurrierende Buchungen, tests/year-workplace.mjs unterbricht die Antwort im Browser. |
-| Dokumente | make test-documents prüft den Austausch und die Word-Darstellung im Browser. Physische Drucke und echte Mobilgeräte brauchen eigene Abnahmen. |
-| Abhängigkeiten | make test-security führt govulncheck und npm audit aus. |
-| Gesamtprüfung | make check |
+| make lint | Go formatting, go vet and JavaScript syntax checks. |
+| make test | Go race detection and statement coverage, then the Node unit tests. The race detector requires a C compiler. |
+| make test-finance | Financial invariants and independently derived amounts. Go and JavaScript both consume tests/cash-vectors.json. |
+| make test-integration | A fresh PostgreSQL/Compose stack exercises the HTTP API, Chromium workflows, year boundaries, roles, audit and encrypted restoration. |
+| make test-connectivity, make test-e2e, make test-restore | These run the shared isolated integration suite. tests/year-workplace.mjs drops a real response after the transaction commits. tests/online-api.mjs retries the same posting five times in parallel. |
+| make test-documents | Browser-based exchange and Word rendering. The Word test requires a running local server, selected with BONFIRE_URL. |
+| make test-security | govulncheck and npm lockfile audit. |
+| make check | Local lint, tests, integration and dependency checks. |
 
-Bei einem Fehlschlag nennt der Online-Prüflauf den betroffenen Suite-Namen und entfernt seine eigenen Testvolumes. Testarchive, Schlüssel und lokale Zugangsdaten bleiben außerhalb von Git. Coverage im bisherigen Go-Hauptpaket erfasst nur die instrumentierten Go-Tests. HTTP-Aufrufe gegen das separate Compose-Image erhöhen diesen Wert nicht. 90 % für Rechenlogik und 80 % für handgeschriebene Anwendungslogik sind Abnahmeziele.
+Run npm ci, install Chromium with npx playwright install chromium and initialize local configuration using ./ops/init.ps1 before integration testing. A failing suite reports its name. The script removes its own disposable volumes. Keep generated keys and archives outside Git.
+
+The initial Go unit run measured 5.6% statement coverage in the single application package. HTTP tests against a separate uninstrumented Compose binary contribute no statements to this measurement. Acceptance targets remain 90% for pure financial calculations and 80% for handwritten application logic. Physical printing and testing on actual mobile devices require separate evidence.

@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="docs/logo-original.svg" width="80" alt="BONFIRE">
+<img src="docs/logo-original.svg" width="88" alt="BONFIRE">
 
 # BONFIRE
 
-**Self-hosted fire brigade finance ledger** for fiscal years, events, cash wallets, donations and receipts. Go, PostgreSQL and Docker Compose.
+**A self-hosted finance ledger for fire brigades.** Track the cashbook, event income and expenses, cash wallets, donations and sponsorships in an installable web app backed by Go and PostgreSQL.
 
 [![CI](https://github.com/d0linger/bonfire/actions/workflows/test.yml/badge.svg?branch=dev)](https://github.com/d0linger/bonfire/actions/workflows/test.yml)
 
@@ -12,136 +12,60 @@
 
 ## Screenshots
 
-![BONFIRE-Anmeldung im Hellmodus](docs/login-light.png)
+![BONFIRE sign-in screen from an isolated test installation](docs/login-light.png)
 
 ## Features
 
-### Kassenalltag der beiden Kassiere
+- Define fiscal years with arbitrary start and end dates. Choose a year in the sidebar and open its general cashbook or a specific event before posting.
+- Record income, expenses, donors, invoice issuers and purchasing notes. Internal transfers move balances between accounts without changing profit. Account allocation is configurable.
+- Group event wallets by bar, record opening cash, replenish change and settle individual wallets or the pooled balance. Track claims, partial payments, private advances and reimbursements.
+- Use the central contact directory on documents. The document library includes eleven standard profiles. Numbered originals, working copies and reprints have different purposes.
+- Review audit events, manage users, inspect system health and configure encrypted local or S3-compatible backups in the administration area.
 
-- Im **Kassenbuch** oder unter **Veranstaltung → Zahlungen & Kosten** bei einer Ausgabe Rechnungssteller und Einkaufszweck erfassen. Im Filter findet die Suche auch den Rechnungssteller. Die zentrale Kontaktpflege führt Straße und Hausnummer sowie PLZ und Ort. Bestehende Anschriften lassen sich weiterhin verwenden.
-- Unter **Verwaltung → Feuerwehrkonten** legt ein Admin Handkassa, Bank- und Sparkonten an und ordnet ihnen die jeweiligen Konten der Arbeitsbereiche zu. Bei aktivierter Kontozuordnung erscheinen sie im Buchungsdialog. **Kassenbuch → Abschluss → Kontenabgleich** zeigt die Bewegungen je Konto und den Abgleich mit Kassensturz oder Kontoauszug. Unter **Bestände erfassen** lässt sich der bestätigte Vorjahresstand als Anfang übernehmen.
-- Unter **Geldtaschen** erscheint der Wechselgeldbedarf aus Plänen und erfassten Anfangsbeständen. Bei **Zahlungen & Kosten → Bargeld an Gast auszahlen** Geldtasche, Terminal-Verrechnungskonto und Anbieter wählen. Die spätere Anbieterauszahlung auf das Bankkonto und eine Gebühr getrennt erfassen. **Veranstaltung → Abschluss → Festabrechnung** verbindet die Zählungen mit Vorverkauf, bezahlten Forderungen, Spenden und Kosten. Jede Ergebniszeile zeigt ihre Quellen.
-- Bei einer Forderung kann die Forderungsart **Ausgangsrechnung** gewählt werden. In der Buchungszeile **Rechnung**, **Zahlung bestätigen** oder **Spendenbeleg** öffnen. Der allgemeine Spendenbeleg ist eine eigene Bestätigung. Das A6-Profil für die Sammlung bleibt im Dokumentenbereich verfügbar. Nach der Ausgabe öffnet derselbe Knopf das archivierte Original für PDF, DOCX und auf unterstützten Geräten die PDF-Dateifreigabe.
-- Im Dokumentenbereich zeigt **Vorlagenbibliothek** die Standardprofile und gespeicherte Freigaben mit Quelle und Version. Ein Admin kann den ausgewählten Stand im aktuellen Arbeitsbereich übernehmen. Für die Gästepreisliste stehen ein oder zwei Exemplare auf A4 oder Letter zur Wahl. **Veranstaltung kopieren** zeigt das Quellfest und übernimmt die ausgewählten Strukturdaten in das Zielgeschäftsjahr.
+**Status.** Development and acceptance testing are in progress. The application requires a reachable BONFIRE server. Offline capture, device queues and offline receipt issuance are deferred pending a new specification. Historical records that exist only on a device require separate reconciliation. See the [acceptance matrix](docs/AKZEPTANZ.csv), [implementation register](docs/IMPLEMENTIERUNGSSTATUS.csv) and [offline backlog](docs/offline-backlog.md).
 
+## Quick start with Docker Compose
 
-Lokale Entwicklungsinstallation für eine Feuerwehr mit einer zuständigen PostgreSQL-Datenbank. Der Lieferstand und die Grenzen der Finanz-, Offline- und Vorlagenfunktionen stehen in [der Statusmatrix](docs/IMPLEMENTIERUNGSSTATUS.csv), in der [Einzelprüfung der 111 Akzeptanzkriterien](docs/AKZEPTANZ.csv) und im [Prüfbericht](docs/ABNAHME.md).
-
-## Lokaler Start
-
-Voraussetzungen sind Docker mit Compose und für die folgenden Betriebsbefehle PowerShell 7.4 oder neuer. Im Verzeichnis dieses Repositorys ausführen.
+Install Docker with Compose and PowerShell 7.4 or newer. From the repository root run:
 
 ```powershell
 ./ops/init.ps1
 docker compose up -d --build --wait
 ```
 
-Auf bestehenden Entwicklungsinstallationen die vorhandene `.env` weiterverwenden. Die Oberfläche öffnet unter [localhost:8137](http://localhost:8137). Der Dienst `migrate` richtet Schema und Rollen ein und beendet sich anschließend. Der HTTP-Dienst läuft mit der eingeschränkten Datenbankrolle `bonfire_runtime`. `init.ps1` ergänzt deren Zufallskennwort auch bei bestehenden Entwicklungsinstallationen. Die erste Anmeldung verwendet `leitung` und den lokal generierten Wert von `BONFIRE_ADMIN_PASSWORD` aus `.env`. Das Startpasswort wird beim ersten Einrichten der Datenbank gehasht. Die Entwicklungsumgebung bindet den HTTP-Port an die Loopback-Adresse.
+Open [localhost:8137](http://localhost:8137). Sign in as `leitung` using the generated `BONFIRE_ADMIN_PASSWORD` in the local `.env` file. The one-shot migration service initializes the database. The HTTP service uses the separate `bonfire_runtime` role. On an existing installation keep the original credentials and volumes.
 
-## Von der Anmeldung zum Finanzarbeitsplatz
+In **Geschäftsjahre**, create a fiscal year. Select it in the sidebar, open **Kassenbuch**, and enter an opening balance. Choose **Buchung erfassen**, record income or an expense and verify the posted amount. To book against an event instead, open **Veranstaltungen**, select the event, and use **Zahlungen & Kosten**.
 
-Der halb gefüllte Kreis oben rechts schaltet mit einem Klick zwischen Hell- und Dunkelmodus um. Bis zur ersten manuellen Auswahl folgt BONFIRE dem Betriebssystem. Die Auswahl gilt im jeweiligen Browser für Anmeldung und Arbeitsplatz und bleibt nach einem Neustart erhalten.
+## Configuration and access
 
-1. Mit E-Mail-Adresse oder bestehendem Kontonamen und Passwort anmelden. Bei aktiviertem MFA folgt der Authenticator- oder Recoverycode.
-2. Unter **Geschäftsjahre** eine Bezeichnung, den ersten und den letzten Tag eingeben. Beide Tage gehören zum Jahr. Geschäftsjahre können kürzer oder länger als zwölf Monate sein. Eine Überschneidung wird abgewiesen. Für den Zeitraum entsteht ein allgemeines Kassenbuch.
-3. In der linken Navigation unter dem BONFIRE-Logo das Geschäftsjahr auswählen. Unter der Bezeichnung steht der Zeitraum; bei 2027 beispielsweise 01.11.2026 – 31.12. Unter **Kassenbuch** buchen beide Kassiere in das allgemeine Kassenbuch des gewählten Jahres. Für ein Fest **Veranstaltungen → Fest auswählen → Veranstaltungsbuchungen öffnen** wählen. Unter **Zahlungen & Kosten** erfasst ihr auch Sponsoringforderungen, zugehörige Zahlungen und direkt beim Fest erhaltene Spenden. Bei der Forderung lässt sich ein Sponsor aus dem zentralen Kontaktverzeichnis auswählen. **Rechnung öffnen** führt mit dieser Forderung zur Dokumenterstellung. Allgemeine Feuerwehrspenden werden im **Kassenbuch** erfasst, Kontakte zentral unter **Kontakte** gepflegt. Die Seitenleiste führt zurück zum allgemeinen Jahresbereich. Im Erfassungsdialog stehen Buchungsziel und Geschäftsjahr. Nach dem Neuladen bleibt das Jahr ausgewählt. Wer ausschließlich für Veranstaltungen freigeschaltet ist, wählt das Fest aus der Liste.
-4. **Speichern** überträgt die Buchung direkt an PostgreSQL. Bei unterbrochener Verbindung ist keine Buchung möglich. Beide Kassiere können im selben zugewiesenen Arbeitsbereich buchen. **Serverstand aktualisieren** lädt die Buchungen des anderen Kontos. Berechtigungen lassen sich unter **Verwaltung → Benutzer** zuweisen.
-5. Vorhandene Arbeitsbereiche ohne Jahresbezug stehen unter **Geschäftsjahr → Geschäftsjahre öffnen → Bisherige Arbeitsbereiche** bereit. Ein Admin kann sie einem passenden Jahr zuordnen. Dabei werden der Veranstaltungszeitraum und bestehende Finanzbuchungen geprüft.
+The Compose file binds the app to loopback by default. Use a secure origin for installation on other devices and for WebAuthn. Configure the externally visible passkey origin before enrolling credentials. Two cashiers can work concurrently with separate accounts and sessions. The three roles are Admin, Write and Read. Access assignments apply to the selected workspace. Users can manage their password, authenticator, recovery codes, passkeys and sessions.
 
-Unter **Geschäftsjahresauswahl → Geschäftsjahre öffnen → Bearbeiten** können Admins Name, Startdatum und Enddatum eines offenen Geschäftsjahrs korrigieren. Das allgemeine Kassenbuch übernimmt den Zeitraum. Alle zugeordneten Veranstaltungen, Finanzbuchungen, Zählungen und Abrechnungsperioden müssen weiterhin hineinpassen. Das Audit-Log hält die bisherigen und neuen Angaben fest.
+During a connection failure, keep the form open. If a save was submitted and its response was lost, reload the server state through the dialog and check the entry before entering it again. A missing confirmation leaves the result uncertain.
 
-Auf der Jahresübersicht oder der Übersicht einer geöffneten Veranstaltung können Admins **Anfangsbestand fehlt** anklicken. Der Dialog zeigt das Buchungsziel und schlägt den ersten Tag des angezeigten Zeitraums vor. Auch ein bestätigter Anfangsbestand von 0,00 EUR ist möglich.
+## Backup, updates and monitoring
 
-Am Beginn eines Arbeitsbereichs bietet der Dialog **Händisch erfassen** und **Aus Vorjahr übernehmen** an. Die Übernahme verwendet bestätigte Istbestände aus einem abgeschlossenen Vorjahreskassenbuch bzw. einer ausdrücklich ausgewählten Vorjahresveranstaltung. Auch eine freigegebene Abrechnungsperiode, die das gesamte Vorjahr umfasst, kann die Istbestände des jeweiligen Arbeitsbereichs bestätigen. Bei Kontozuordnung wählst du die Zielkonten. Prüfe Quelle und Summe und klicke auf **Anfangsbestand übernehmen**.
+Use **Verwaltung → Backup** for schedules, local and S3-compatible destinations, and restore probes. Keep recovery keys separate from archives. Before upgrading, verify a backup in a separate database, retain the previous version and configuration, then rebuild and start with the quick-start command. Never remove data volumes during an upgrade.
 
-Unter **Veranstaltungen → Bearbeiten** können Admins den Namen und den Zeitraum eines offenen Fests korrigieren. Die Aktion ist auch auf der Festübersicht verfügbar. Bestehende Buchungen behalten ihr Buchungsdatum. Das Audit-Log hält die ursprünglichen und die korrigierten Angaben fest.
+The system status view exposes actual runtime, database and backup information. Use the Compose healthcheck and monitoring configuration for deployment diagnostics. See the [operations guide](docs/BETRIEB.md), [backup and restore procedure](docs/VERWALTUNG-BACKUP.md) and [audit and monitoring guide](docs/VERWALTUNG-AUDIT.md).
 
-Unter **Veranstaltungen → Fest auswählen → Geldtaschen** wählst du **Anfangsbestand zählen** oder **Endbestand zählen**. Gib den gezählten Betrag direkt ein oder wähle **Münzen und Scheine zählen**. Für eine Auswertung je Börse lege die Geldtaschen einzeln an und ordne sie bei Bedarf einer Bar zu. Die Tabelle zeigt Anfangsbestand, Endbestand und Sammelbareinnahme je Börse, je zugeordneter Bar und für das Fest. Fehlende Zählungen bleiben als offen erkennbar.
+## Architecture and development
 
-Bei **Anfangsbestand zählen**, **Wechselgeld nachlegen** und **Endbestand zählen** ist die direkte Betragseingabe voreingestellt. Unter **Münzen und Scheine zählen** erhöht jeder Tipp auf **+1**, **+2**, **+5** oder **+10** die Stückzahl des jeweiligen Nennwerts. Du kannst die Stückzahl im Feld korrigieren. BONFIRE zeigt die Summe sofort an und speichert die Stückelung mit dem Vorgang.
+The browser sends authenticated requests to a Go service using pgx and PostgreSQL. Database migrations run before the app starts. The web build bundles local assets and PDF/DOCX renderers. The separate backup worker runs PostgreSQL client tools.
 
-Wenn ihr das Bargeld am Ende gemeinsam zählt, wählt **Alle Geldtaschen zusammen**. Als Anfangsbestand genügt entweder eine gemeinsame Zählung oder die Summe der Anfangszählungen aller angelegten Börsen. Ein gemeinsamer Start und ein gemeinsames Ende funktionieren auch ohne angelegte Börsen. Die gemeinsame Endzählung ergibt eine einzige Buchung über **Gesamtbetrag buchen**. Bei aktiver Kontozuordnung wählst du das Buchungskonto. Einzelne Endbestände lassen sich aus dem Gesamtbetrag nicht ableiten.
-
-Die Endzählung erfolgt vor der Schlussrückgabe. Unter **Wechselgeld nachlegen** erfasst du Betrag, Quelle und empfangende Geldtasche. Die Abrechnung berücksichtigt Nachversorgung, Abschöpfungen und schon erfasste Barbewegungen. Bei einer gemeinsamen Zählung gehört eine Barbuchung ohne Geldtasche zum gemeinsamen Bestand, wenn kein separates Konto angegeben ist. Eine bereits erfasste Barspende wird so nicht nochmals als Sammelbareinnahme gebucht. Unter **Weitere Vorgänge** findest du Wechselgeldplanung, Bars und Schichten, Abschöpfung, Zwischenzählung und Rückgabe.
-
-Admins wählen auf der Festübersicht oder im Reiter **Abschluss** die Aktion **Veranstaltung abschließen**. BONFIRE prüft Eröffnungs- und Istbestände, Geldtaschenabrechnungen, offene Privatauslagen und Sponsoringforderungen sowie ausstehende Geräte und Konflikte. Beheben lässt sich ein gemeldeter Hinderungsgrund im weiterhin offenen Arbeitsbereich.
-
-Sind alle Feste abgeschlossen, steht auf der Jahresübersicht **Geschäftsjahr abschließen** bereit. Der Jahresabschluss prüft und sperrt auch das allgemeine Kassenbuch. Die Daten bleiben einsehbar. Für eine Korrektur wählt ein Admin **Geschäftsjahr wieder öffnen** und gibt den Grund an. Damit öffnet sich das Kassenbuch. Jedes Fest bleibt bis zu seiner eigenen begründeten Freigabe gesperrt. Abschluss und Wiederöffnung erscheinen im Audit-Log.
-
-Der Offlinebetrieb ist vorerst deaktiviert. Bereits vorhandene verschlüsselte Geräteprofile bleiben im jeweiligen Browser erhalten. Ausschließlich dort gespeicherte Altvorgänge erscheinen erst nach einer gesonderten Übernahme im zentralen Kassenbuch. Für die Weiterarbeit das Browserprofil aufbewahren.
-
-## Konto und Sicherheit
-
-Beide Kassiere öffnen ihr eigenes Konto links unter ihrem Namen. Das funktioniert auch vor der Zuweisung eines Arbeitsbereichs.
-
-- **Passwort ändern** verlangt das aktuelle Passwort und bei aktivierter Zwei-Faktor-Anmeldung zusätzlich einen Authenticator- oder Recoverycode. Die aktuelle Sitzung erhält ein neues Cookie. Andere Sitzungen enden.
-- **Authenticator einrichten** zeigt einen lokal erzeugten QR-Code und einen manuellen Schlüssel. Den sechsstelligen Code der App bestätigen und die acht einmal angezeigten Recoverycodes sicher verwahren. Jeder Recoverycode kann einmal verwendet werden. Erneuern ersetzt den gesamten Satz.
-- **Passkey hinzufügen** vergibt einen Namen für den Schlüssel. Anschließend im Browser mit dem Gerät oder einem Sicherheitsschlüssel bestätigen. Bei der nächsten Anmeldung **Mit Passkey anmelden** wählen. Unter **Passkeys** stehen registrierte Schlüssel und ihre letzte Verwendung.
-- **Aktive Sitzungen** zeigt Browser, Beginn, Ablauf und die aktuelle Sitzung. Andere Sitzungen lassen sich einzeln oder zusammen beenden.
-
-Für Passkeys lokal immer dieselbe Adresse verwenden: `http://localhost:8137`. Eine Installation unter eigener HTTPS-Adresse setzt `BONFIRE_PASSKEY_ORIGIN` auf die von den Browsern verwendete Origin einschließlich eines abweichenden Ports. Ein vollständiger Restore stellt auch die registrierten Passkeys des Sicherungszeitpunkts wieder her. Nach dem Restore zwischenzeitlich entfernte Schlüssel prüfen.
-
-## Verwaltung
-
-Unter **Verwaltung → Benutzer** wählt ein Admin die Rolle und die freigegebenen Arbeitsbereiche eines Kontos.
-
-| Rolle | Berechtigung |
-| --- | --- |
-| **Admin** | Verwaltet die gesamte Installation einschließlich Benutzern, Geschäftsjahren, Veranstaltungen, Backups und Systemstatus. Darf buchen, Konflikte klären und Abschlüsse freigeben. |
-| **Write** | Darf in zugewiesenen Kassenbüchern und Veranstaltungen Geldbewegungen erfassen und Fachdaten bearbeiten. Kann das Audit dieser Arbeitsbereiche einsehen. |
-| **Read** | Darf Daten und Audit der zugewiesenen Arbeitsbereiche einsehen. Buchungen, Änderungen an Fachdaten und Abschlussfreigaben sind gesperrt. |
-
-Alle drei Rollen verwalten ihr eigenes Passwort, MFA, Passkeys und ihre Sitzungen unter **Konto und Sicherheit**. Bei der Aktualisierung übernimmt BONFIRE bestehende Konten und Zuweisungen. **Leitung** wird **Admin**, **Kassa** wird **Write** und **Prüfung** wird **Read**. Veranstaltungs- und Periodenabschlüsse sowie Ausnahmeentscheidungen bei Gerätevorfällen gibt künftig ein Admin frei. Der bisherige Anmeldename bleibt gültig.
-
-Die Sicherungen umfassen den gesamten Serverbestand mit seinen Geschäftsjahren. Eine Restore-Probe läuft in einer getrennten Datenbank. Die [Anleitung für Backup und Wiederherstellung](docs/VERWALTUNG-BACKUP.md) beschreibt Verschlüsselung, Schlüsselverwahrung und S3-Konfiguration. Die [Anleitung für Audit und Systemstatus](docs/VERWALTUNG-AUDIT.md) erklärt Filter, Rechte und Integritätsprüfungen.
-
-Für einen vollständigen S3-Probelauf mit einem lokalen S3-kompatiblen Dienst und einem eigenen Test-Bucket `./ops/accept-s3.ps1` ausführen.
-
-## Entwicklung und Tests
-
-Die Onlineabnahme verwendet ein eigenes Compose-Projekt mit PostgreSQL, synthetischen Daten und zufälligem lokalen Port. Sie prüft die Anmeldung, Geschäftsjahre, Buchungen und den Restore. Für die Browserprüfungen Chromium installieren.
-
-```powershell
-./ops/init.ps1
-go test ./...
-go vet ./...
+```sh
 npm ci
-npm test
-npm run build
 npx playwright install chromium
-./ops/accept-online.ps1
+make lint
+make test
+npm run build
+make test-integration
 ```
 
-[Teststrategie](docs/testing.md) · [Referenzvergleich](docs/reference-reuse.md) · [Offline derzeit deaktiviert; Spezifikation offen](docs/offline-backlog.md) · [Issues](https://github.com/d0linger/bonfire/issues) · [Releases](https://github.com/d0linger/bonfire/releases)
+Use the Go toolchain in go.mod, Node.js 22, PowerShell and Docker. The integration suite provisions and removes its own disposable stack. [Test strategy](docs/testing.md) · [Reference comparison](docs/reference-reuse.md) · [Detailed German operating instructions](README.de.md)
 
-## Betrieb, Aktualisierung und Sicherung
+## CI, releases and licensing
 
-- **Datenhaltung.** PostgreSQL enthält Vorgänge, Revisionen, Konflikte, Audit, Gerätestände, Originaldateien und Anhänge. Im aktuellen Onlinebetrieb bestätigt der Server jede Buchung. Alte, nur lokal vorliegende Gerätesicherungen gesondert aufbewahren.
-- **Sicherung.** `./ops/backup.ps1 -Path <neuer-Pfad.dump>` erstellt einen konsistenten Datenbankdump und gibt seinen SHA-256-Wert aus. Dump, verwendeten Git-Stand, Imageversionen und Zugangskonfiguration geschützt verwahren. Datenbanksicherungen enthalten sensible Daten im Klartext. Lokale Outboxen finden sich nur in den separat verschlüsselten Gerätesicherungen. Vorhandene Gerätesicherungen bleiben bis zu einer gesonderten Wiederaufnahme des Offlinebetriebs separat verwahrt.
-- **Wiederherstellung.** `./ops/restore-test.ps1 -Path <Sicherung>` legt eine neue Datenbank mit eigenem Namen an. `verify-restore.ps1` führt zusätzlich eine isolierte App mit Loopback-Port gegen den Klon aus, vergleicht Geschäftsjahre, Arbeitsbereichszuordnung und Originalhashes. Der historische Übungslauf mit `-VerifyExercise` prüft zusätzlich Gerätewiederholungen. Der Prüfcontainer wird beendet. Die isolierte Datenbank bleibt zur Nachprüfung verfügbar. Im Ernstfall muss der alte Schreibserver vor der Umschaltung außer Betrieb sein.
-- **Aktualisierung.** Zuerst lokale Ausstände abgleichen, Sicherung anlegen und die Wiederherstellung prüfen. `docker compose up -d --build --wait` startet die neue Version. Der Server prüft die Versionshashes der transaktionalen Migrationen. Für einen Rückweg eine kompatible App und die zugehörige Sicherung zusammen in einer separaten Instanz prüfen.
-- **Monitoring.** `/health` prüft die aktive Datenbankverbindung. `/metrics` liefert offene Konflikte und Gerätestände, Synchronisationsfehler, Datenbankgröße und letzten Sicherungszeitpunkt. Mit `docker compose -f compose.yaml -f compose.monitoring.yaml up -d` startet zusätzlich der lokale Prometheus auf Port 9137 mit Alarmregeln. Eine externe Alarmzustellung benötigt ein Betriebsziel. Diagnoseprotokolle enthalten keine Nutzdaten. Compose meldet den Gesundheitszustand beider Dienste mit `docker compose ps`.
-- **Veranstaltungs-WLAN.** Für weitere Geräte ist ein vertrauenswürdiger HTTPS-Endpunkt vor genau dieser Instanz erforderlich. Im lokalen DNS denselben stabilen Namen auf den Veranstaltungsserver auflösen und Zertifikatsvertrauen auf jedem Gerät prüfen. Ein Wechsel des Origins erzeugt einen anderen lokalen Browserspeicher. Die aktuelle Compose-Datei ist für localhost bestimmt.
-- **Git.** Lokale Arbeit auf `dev`, Übernahme nach `main` per Pull Request. Übergabepaket, Privatquellen, Kennwörter, DB-Dumps und Testprofile gehören außerhalb des Git-Bestands.
+Pull requests run finance and browser checks, dependency and secret scans, and container scans with commit-linked software bills of materials. The final job aggregates the required results. Extended checks exercise upgrades and fuzzing. The release process requires separate authorization. Physical printing and real-device acceptance are tracked separately.
 
-## Verschlüsselter Sicherungslauf
-
-Für die Sicherungswerkzeuge wird zusätzlich Node.js ab Version 22 benötigt. Beispiel für den Betrieb unter PowerShell aus dem Repositoryverzeichnis. Schlüsselverzeichnis und Sicherungsziel vorab mit passenden Zugriffsrechten bereitstellen. Ein Wiederherstellungsschlüssel benötigt eine separate, zugriffsgeschützte Kopie.
-
-```powershell
-node ops/crypt.mjs keygen X:/Schluessel/bonfire.key
-./ops/rotate-backup.ps1 -Directory Y:/Sicherungen -KeyFile X:/Schluessel/bonfire.key -RetentionDays 30
-./ops/verify-restore.ps1 -Path Y:/Sicherungen/<Dateiname>.dump.enc -KeyFile X:/Schluessel/bonfire.key
-```
-
-Der Rotationslauf erstellt einen konsistenten Custom-Dump und verschlüsselt ihn mit AES-256-GCM. Nach erfolgreicher Sicherung entfernt er eigene Archivdateien im gewählten Ziel, deren Alter die Aufbewahrungsfrist überschreitet. Der Prüflauf authentisiert das Archiv vor der Wiederherstellung. Die hostseitige Aufgabenplanung kann denselben Rotationsbefehl mit dem Repository als Arbeitsverzeichnis ausführen. Für die temporäre Klartextdatei ein zugriffsgeschütztes, verschlüsseltes Laufwerk verwenden. Dateizugriffsrechte für Schlüssel, Sicherungsziel und temporäres Verzeichnis liegen beim Betriebskonto.
-
-Die [Betriebsanleitung](docs/BETRIEB.md) beschreibt Rollen, Sicherungsprüfung und den Wiederanlauf auf separater Hardware.
-
-## Technische Entscheidungen
-
-Der Browserclient sendet Buchungen über das Go-Backend an PostgreSQL. Beim Abgleich serialisiert eine Zeilensperre die Vorgänge derselben Veranstaltung. Der Server prüft Gerätefolge, Operationsidentität, Digest, erwartete Revision und fachliche Grenzen. Eine ID mit geändertem Inhalt wird abgelehnt. Gleich hohe Beträge verschiedener Vorgänge behalten eigene Identitäten.
-
-Die produktbezogene Marke kommt ausschließlich aus `lucide@1.17.0` (Flame), mit dokumentierten Farben, Abmessungen und Strichstärke 1,7. Der Build erzeugt das transparente SVG und Raster-Icons in 32, 192 und 512 Pixeln. SHA-256 des SVG ist `f12b47ae30d1c088420b3407eae7ad912218208440d851c8c848772ec7f46119`. Die Wortmarke nutzt die übergebenen HTML-Schriftparameter. Renderer und Marke werden lokal gebündelt.
-
-Die installierte PWA benötigt für die Finanzfunktionen ein erreichbares Backend. Offline-Erfassung, automatische Nachbuchung und Offline-Belegausgabe sind zurückgestellt.
+The repository currently has no project license file. Third-party components retain their respective licenses. [Issues](https://github.com/d0linger/bonfire/issues) · [Releases](https://github.com/d0linger/bonfire/releases)

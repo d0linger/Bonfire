@@ -1,4 +1,4 @@
-name: Prüfung
+name: BONFIRE CI
 on:
   push:
     branches: [dev, main]
@@ -34,6 +34,13 @@ jobs:
         run: |
           ./ops/init.ps1
           ./ops/accept-online.ps1
+  analysis:
+    uses: ./.github/workflows/source-analysis.yml
+    permissions:
+      contents: read
+      security-events: write
+  browser:
+    uses: ./.github/workflows/browser-checks.yml
   container:
     uses: ./.github/workflows/container.yml
   security:
@@ -46,10 +53,12 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
-    needs: [test, security, container]
+    needs: [test, security, container, analysis, browser]
     env:
+      ANALYSIS: ${{ needs.analysis.result }}
+      BROWSER: ${{ needs.browser.result }}
       ONLINE: ${{ needs.test.result }}
       CONTAINER: ${{ needs.container.result }}
       SECURITY: ${{ needs.security.result }}
     steps:
-      - run: test "$ONLINE" = success && test "$SECURITY" = success && test "$CONTAINER" = success
+      - run: test "$ONLINE" = success && test "$SECURITY" = success && test "$CONTAINER" = success && test "$ANALYSIS" = success && test "$BROWSER" = success
