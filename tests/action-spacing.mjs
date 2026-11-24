@@ -95,9 +95,9 @@ try {
       for (const pair of touching) failures.push({ name, width, pair });
       if (
         process.env.BONFIRE_LAYOUT_SCREENSHOTS &&
-        ["Erfassung", "Kontakte"].includes(name)
+        ["Erfassung", "Kontakte", "Veranstaltungsliste"].includes(name)
       ) {
-        const area = name === "Erfassung" ? page : page.locator(".entry-list");
+        const area = name === "Kontakte" ? page.locator(".entry-list") : page;
         await area.screenshot({
           path: "test-results/layout-" + name + "-" + width + ".png",
         });
@@ -191,6 +191,8 @@ try {
   await check("Erfassung mit Zusatzfeldern", page.getByRole("dialog"));
   await page.locator("#record [data-act=cancel]").click();
   await nav("Veranstaltungen");
+  await page.locator(".event-row").first().waitFor();
+  await check("Veranstaltungsliste");
   await page.locator('[data-space="' + event.ID + '"]').click();
   await check("Veranstaltung");
   for (const key of ["Geldtaschen", "Zahlungen", "Preise", "Sponsoring"]) {

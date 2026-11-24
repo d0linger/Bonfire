@@ -2300,7 +2300,7 @@ async function openEventCleanup(trigger, workspace, message = "") {
       if ([workspace.ID, values.Destination].includes(preferredEvent)) {
         await sync();
         show();
-      }
+      } else if (page === "Veranstaltungsliste") show();
       await openEventCleanup(
         trigger,
         workspace,
@@ -2316,35 +2316,68 @@ function eventCleanupButton(event) {
         '">Veranstaltung löschen …</button>'
     : "";
 }
-function eventsOfYear() {
-  const list = events.filter((e) => !e.General);
+function eventListRow(e) {
+  const book = !e.Closed && ["Admin", "Write"].includes(onlineUser.role);
+  const date = dat(e.Starts) + (e.Ends === e.Starts ? "" : " – " + dat(e.Ends));
   return (
+    '<li class="event-row"><div class="event-info"><button type="button" class="event-name" data-space="' +
+    esc(e.ID) +
+    '">' +
+    esc(e.Name) +
+    '</button><span class="event-date">' +
+    icon("CalendarDays") +
+    date +
+    '</span></div><span class="event-status' +
+    (e.Closed ? " is-closed" : "") +
+    '">' +
+    (e.Closed ? "Abgeschlossen" : "Buchung offen") +
+    '</span><div class="event-receipts"><small>Einnahmen</small><strong>' +
+    eur(e.ReceiptsCents) +
+    '</strong></div><div class="event-actions">' +
+    (book
+      ? '<button type="button" data-book-event="' +
+        esc(e.ID) +
+        '" aria-haspopup="dialog">' +
+        icon("Plus") +
+        "Veranstaltungsbuchung erfassen</button>"
+      : "") +
+    eventCleanupButton(e) +
+    "</div></li>"
+  );
+}
+async function showEventsOfYear() {
+  const year = selectedYear;
+  article.innerHTML =
     pageHead(
       "Veranstaltungen",
-      fiscalYear()?.Name || "Bisherige Arbeitsbereiche",
+      fiscalYear()
+        ? "Geschäftsjahr " + fiscalYear().Name
+        : "Bisherige Arbeitsbereiche",
       fiscalYear() && onlineUser.role === "Admin" ? eventForm() : "",
     ) +
-    panel(
-      "Veranstaltungen im Geschäftsjahr",
-      list.length
-        ? list
-            .map(
-              (e) =>
-                '<p class="actions"><button type="button" class="secondary" data-space="' +
-                esc(e.ID) +
-                '">' +
-                esc(e.Name) +
-                "</button> · " +
-                dat(e.Starts) +
-                " – " +
-                dat(e.Ends) +
-                eventCleanupButton(e) +
-                "</p>",
-            )
-            .join("")
-        : "<p>Für dieses Geschäftsjahr gibt es noch keine Veranstaltung.</p>",
-    )
-  );
+    '<div class="event-list-host" aria-busy="true">Veranstaltungen werden geladen …</div>';
+  const host = article.querySelector(".event-list-host");
+  try {
+    const spaces = await api(
+      "events?overview=1&year=" +
+        encodeURIComponent(year === legacyGroup ? "" : year),
+    );
+    if (!host.isConnected) return;
+    events = spaces;
+    allSpaces = allSpaces
+      .filter((e) => (e.Year || legacyGroup) !== year)
+      .concat(spaces);
+    const list = spaces.filter((e) => !e.General);
+    host.innerHTML = list.length
+      ? '<ul class="event-list" aria-label="Veranstaltungen im Geschäftsjahr">' +
+        list.map(eventListRow).join("") +
+        "</ul>"
+      : "<p>Für dieses Geschäftsjahr gibt es noch keine Veranstaltung.</p>";
+  } catch (err) {
+    if (host.isConnected) host.textContent = err.message;
+  } finally {
+    host.removeAttribute("aria-busy");
+  }
 }
 function defaultLedger(spaces) {
   const ledgers = spaces.filter((e) => e.General);
@@ -2906,7 +2939,7 @@ function show() {
       (page === "Veranstaltungen" && !isOnlineEventPage()) ||
       (!s && page === "Übersicht")
     ) {
-      article.innerHTML = eventsOfYear();
+      showEventsOfYear();
       return;
     }
     if (!s) {
@@ -4160,13 +4193,22 @@ document.addEventListener("click", (e) => {
     if (workspace) action(() => openEventCleanup(b, workspace));
     return;
   }
-  if (b.dataset.year || b.dataset.space) {
+  if (b.dataset.year || b.dataset.space || b.dataset.bookEvent) {
     action(async () => {
       donorAccess = false;
       await selectFiscalWorkspace(
         b.dataset.year || selectedYear,
-        b.dataset.space,
+        b.dataset.space || b.dataset.bookEvent,
       );
+      if (b.dataset.bookEvent) {
+        page = "Zahlungen";
+        show();
+        if (s.event.General || !writableWorkspace())
+          throw Error("Dieser Arbeitsbereich ist für Buchungen gesperrt.");
+        kind = "income";
+        openRecord(article.querySelector('[data-act="focusEntry"]'));
+        return;
+      }
       page = b.dataset.space
         ? s.event.General
           ? "Journal"

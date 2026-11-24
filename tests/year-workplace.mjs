@@ -123,8 +123,17 @@ try {
     "2046-08-20",
     "0,00",
   );
-  await button("Veranstaltungsbuchungen öffnen").click();
-  await button("Veranstaltungsbuchung erfassen").click();
+  await go("Veranstaltungen");
+  const eventRow = page
+    .getByRole("listitem")
+    .filter({ has: button(eventName) });
+  await eventRow
+    .getByText("20.08.2046 – 21.08.2046", { exact: true })
+    .waitFor();
+  await eventRow.getByText("Buchung offen", { exact: true }).waitFor();
+  await eventRow
+    .getByRole("button", { name: "Veranstaltungsbuchung erfassen" })
+    .click();
   const eventBooking = "Festkassa " + randomUUID();
   const eventDialog = page.getByRole("dialog");
   assert.match(
@@ -253,6 +262,9 @@ try {
   const yearB = await createYear("2047", "2046-11-01", "2047-12-31");
   assert.notEqual(yearA, yearB);
   await go("Veranstaltungen");
+  await page
+    .getByText("Für dieses Geschäftsjahr gibt es noch keine Veranstaltung.")
+    .waitFor();
   assert.equal(await button("Übung Sommerfest").count(), 0);
   assert.equal(
     await page.locator("#fiscal-switch summary small").textContent(),
@@ -260,6 +272,7 @@ try {
   );
   await chooseYear(yearA);
   await go("Veranstaltungen");
+  assert.match(await eventRow.locator(".event-receipts").innerText(), /12,34/);
   const eventID = await button(eventName).getAttribute("data-space");
   await button(eventName).click();
   await page.getByRole("heading", { name: eventName, exact: true }).waitFor();

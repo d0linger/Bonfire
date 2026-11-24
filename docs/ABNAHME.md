@@ -113,6 +113,8 @@ Die Ausführung auf dem normalen lokalen Port 8137 wurde separat geprüft. Anmel
 
 ## Getrennte Buchungswege im Onlinebetrieb
 
+Die Veranstaltungsliste zeigt Datum bzw. Zeitraum, Buchungsstatus und Einnahmen je Fest. `tests/year-workplace.mjs` bucht direkt aus der Zeile des Sommerfests und prüft die angezeigten 12,34 EUR nach einem Jahreswechsel. `tests/online-api.mjs` prüft die Summe nach einer Rückzahlung und einem internen Transfer sowie die Sicht eines Kontos mit eingeschränkter Freigabe.
+
 `tests/year-workplace.mjs` öffnet über **Anfangsbestand fehlt** den Erfassungsdialog in beiden Übersichten und prüft Buchungsziel und vorgeschlagenen Stichtag. Im allgemeinen Kassenbuch speichert der Test 175,50 EUR und im Fest 0,00 EUR. In beiden Ansichten verschwindet der Hinweis. Nach der Rückkehr aus dem Fest zeigt die Jahresübersicht weiterhin 175,50 EUR.
 
 Der Browsertest `tests/year-workplace.mjs` erfasst bei 390 Pixeln Breite eine Einnahme im ausgewählten Fest und eine zweite im allgemeinen Kassenbuch desselben Geschäftsjahrs. Er prüft das angezeigte Ziel in beiden Dialogen, lädt die Anwendung neu und öffnet das Fest nach einem Jahreswechsel erneut. Jede Einnahme erscheint ausschließlich in ihrer vorgesehenen Liste. Ein Schreibkonto mit alleiniger Freigabe für das Fest kann die Veranstaltungserfassung ausdrücklich öffnen. Im allgemeinen Kassenbuch zeigt die Anwendung die fehlende Freigabe und bietet keine Erfassung an. `tests/online-api.mjs` prüft die entsprechenden Schreibrechte am Server. Beide Tests liefen im isolierten Docker-Prüfstack mit erfundenen Daten erfolgreich.

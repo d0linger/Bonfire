@@ -135,6 +135,11 @@ type event struct {
 	Year                      string
 }
 
+type listedEvent struct {
+	event
+	ReceiptsCents *int64 `json:",omitempty"`
+}
+
 func (a *app) events(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
 	name, role, err := a.auth(ctx, r)
 	if err != nil {
@@ -158,13 +163,23 @@ func (a *app) events(ctx context.Context, w http.ResponseWriter, r *http.Request
 	if year != "" && !idPattern.MatchString(year) {
 		return nil, fail("Geschäftsjahr ungültig.")
 	}
-	rows, err := a.db.Query(ctx, `SELECT id::text,name,starts::text,ends::text,closed,accounts,general_ledger,coalesce(fiscal_year::text,'')
-	    FROM events WHERE ($1='Admin' OR id IN (SELECT event FROM grants_event WHERE username=$2))
-	    AND ($3='' OR fiscal_year=nullif($3,'')::uuid) ORDER BY general_ledger DESC,starts DESC,name,id`, role, name, year)
+	overview := r.URL.Query().Get("overview") == "1"
+	rows, err := a.db.Query(ctx, `SELECT e.id::text,name,starts::text,ends::text,closed,accounts,general_ledger,coalesce(fiscal_year::text,''),
+		CASE WHEN $4 AND NOT general_ledger THEN (
+			SELECT coalesce(sum((CASE WHEN kind='refund' THEN -1 ELSE 1 END) * (data->>'Amount')::bigint),0)::bigint
+			FROM entries WHERE event=e.id AND kind IN ('income','donation','payment','presale','card','refund')
+		) END
+	    FROM events e WHERE ($1='Admin' OR e.id IN (SELECT event FROM grants_event WHERE username=$2))
+	    AND (($3='' AND NOT $4) OR fiscal_year IS NOT DISTINCT FROM nullif($3,'')::uuid)
+	    ORDER BY general_ledger DESC,starts DESC,name,e.id`, role, name, year, overview)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, pgx.RowToStructByPos[event])
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (listedEvent, error) {
+		var e listedEvent
+		err := row.Scan(&e.ID, &e.Name, &e.Starts, &e.Ends, &e.Closed, &e.Accounts, &e.General, &e.Year, &e.ReceiptsCents)
+		return e, err
+	})
 }
 func (a *app) prepare(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
 	name, role, err := a.auth(ctx, r)
