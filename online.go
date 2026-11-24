@@ -114,6 +114,8 @@ func (a *app) registerCapture(mux *http.ServeMux) {
 	mux.HandleFunc("GET /sw.js", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript")
 		w.Header().Set("Cache-Control", "no-store")
-		w.Write([]byte(retiredWorker))
+		if _, err := w.Write([]byte(retiredWorker)); err != nil {
+			failedRequests.Add(1)
+		}
 	})
 }
