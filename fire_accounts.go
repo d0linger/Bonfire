@@ -306,14 +306,12 @@ func yearAccountBalances(ctx context.Context, tx pgx.Tx, year string) ([]account
 		if balances[id] == nil {
 			balances[id] = &accountBalance{ID: id, Name: name, Shared: true}
 		}
-		{
-			v := balances[id]
-			if opening != nil {
-				v.Opening = opening
-			}
-			v.Actual = actual
-			v.Revision = rev
+		v := balances[id]
+		if opening != nil {
+			v.Opening = opening
 		}
+		v.Actual = actual
+		v.Revision = rev
 	}
 	if err = rows.Err(); err != nil {
 		return nil, err
