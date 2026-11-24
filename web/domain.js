@@ -36,6 +36,7 @@ export const types = {
   attachment: "Belegdatei",
   template: "Vorlagenfassung",
   original: "Originalbeleg",
+  dispatch: "Nachweis Belegübergabe",
 };
 export const groups = {
   Journal: [

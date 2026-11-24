@@ -121,6 +121,12 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 			return false, err
 		}
 	}
+	if o.Kind == "dispatch" {
+		var ok bool
+		err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM entries j JOIN entries parent ON parent.event=j.event AND parent.id=j.data->>'Reference'
+			WHERE j.event=$1 AND j.id=$2 AND j.kind='original' AND parent.kind IN ('sponsorship','payment'))`, d.Event, v.Reference).Scan(&ok)
+		return ok, err
+	}
 	if strings.HasPrefix(o.Target, "import:") || strings.HasPrefix(v.Reference, "source:") {
 		ok, err := importReference(ctx, tx, d.Event, o)
 		if err != nil || !ok {

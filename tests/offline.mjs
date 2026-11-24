@@ -115,6 +115,18 @@ async function record(p, group, type, label, values = {}) {
   await by(p, "Label").fill(label);
   for (const [name, value] of Object.entries(values)) {
     const input = by(p, name);
+    if (name === "Contact") {
+      await p.locator("[data-contact-filter]").fill("Musterplatz");
+      assert.ok(
+        await input
+          .locator("option")
+          .evaluateAll(
+            (options, label) =>
+              options.some((o) => o.text === label && !o.hidden),
+            value,
+          ),
+      );
+    }
     if (await input.evaluate((el) => el.tagName === "SELECT"))
       await input.selectOption({ label: value });
     else await input.fill(value);
@@ -190,8 +202,9 @@ try {
   );
   await record(a.p, "Kontakte & Preise", "sponsorship", "Übungsbanner", {
     amount: "40,00",
-    Contact: "Übungsfirma " + eventID.slice(0, 8),
+    Contact: "Übungsfirma " + eventID.slice(0, 8) + " · Musterplatz 8",
     field_due: "2026-12-01",
+    field_paymentRef: "SPONSOR-UEBUNG-42",
     field_service: "Übungsfest",
   });
   await record(b.p, "Journal", "income", "Eintritt Sammelbetrag", {
@@ -390,11 +403,81 @@ try {
   console.log(
     "PASS: offline imported Word layout with table, image, header, footer and split tokens in PDF/DOCX",
   );
+  await press(a.p, "Kontakte & Preise");
+  await a.p
+    .getByText(/Nr\. \d+ · Ohne Versandvermerk/)
+    .first()
+    .waitFor();
+  await by(a.p, "delivery").selectOption("Extern übergeben");
+  await by(a.p, "evidence").fill("Fiktive Übergabebestätigung");
+  await press(a.p, "Übergabe dokumentieren");
+  await a.p
+    .getByText(/Nr\. \d+ · Extern übergeben/)
+    .first()
+    .waitFor();
+  connected = true;
+  await press(a.p, "Dokumente");
+  const templateForm = a.p.locator("#template");
+  await templateForm
+    .locator("[name=Reference]")
+    .selectOption("invoice_transfer_a4");
+  await templateForm
+    .locator("[name=Label]")
+    .fill("Überarbeitete Übungsrechnung");
+  await templateForm.locator("[name=Note]").fill("Geprüfter neuer Textstand");
+  const published = a.p.waitForResponse(
+    (r) =>
+      r.ok() &&
+      r.url().endsWith("/api/sync") &&
+      r
+        .request()
+        .postDataJSON()
+        ?.Ops?.some((op) => op.Kind === "template"),
+  );
+  await templateForm.getByRole("button", { name: "Fassung freigeben" }).click();
+  await published;
+  await a.p.waitForFunction(
+    () => !document.querySelector('[aria-busy="true"]'),
+  );
+  connected = false;
+  const archived = a.p.waitForEvent("download");
+  await press(a.p, "PDF");
+  assert.deepEqual(await readFile(await (await archived).path()), pdf);
   const substitute = await artifact(a.p, 0, "Übungsbanner", "Korrektur");
   assert.notDeepEqual(substitute, pdf);
   connected = true;
   await sync(a.p);
+  const secondPull = b.p.waitForResponse(
+    (r) =>
+      r.ok() &&
+      r.url().endsWith("/api/sync") &&
+      r.request().postDataJSON()?.Prints,
+  );
   await sync(b.p);
+  const archiveRows = (await (await secondPull).json()).entries
+    .filter((r) => r.Kind === "original")
+    .sort((a, b) => a.Data.Number - b.Data.Number);
+  const snapshots = archiveRows.map((r) => JSON.parse(r.Data.Note));
+  assert.equal(snapshots[0].templateVersionID, "invoice_transfer_a4@standard");
+  assert.equal(snapshots[1].templateVersionID, "invoice_transfer_a4@1");
+  assert.equal(snapshots[1].title, "Überarbeitete Übungsrechnung");
+  for (const snap of snapshots) {
+    assert.match(snap.archive.renderBuild.sourceSHA256, /^[0-9a-f]{64}$/);
+    assert.ok(
+      snap.archive.renderBuild.libraries.jspdf &&
+        snap.archive.renderBuild.libraries.docx &&
+        snap.archive.fontPreset,
+    );
+  }
+  console.log(
+    "PASS Vorlagenfreigabe, bytegleicher Nachdruck des früheren Originals und neue Vorlagen-/Rendernachweise im Korrekturbeleg",
+  );
+  await press(b.p, "Kontakte & Preise");
+  const sponsorRow = b.p
+    .getByRole("row")
+    .filter({ hasText: "Extern übergeben" });
+  await sponsorRow.getByText(/Ohne Versandvermerk/).waitFor();
+  assert.ok((await sponsorRow.innerText()).includes("20,00"));
   await press(b.p, "Dokumente");
   assert.equal(
     await b.p.getByRole("button", { name: "PDF", exact: true }).count(),
@@ -409,7 +492,10 @@ try {
     "Kontakte & Preise",
     "sponsorship",
     "Test ohne weitere Digitalnummer",
-    { amount: "3,00", Contact: "Übungsfirma " + eventID.slice(0, 8) },
+    {
+      amount: "3,00",
+      Contact: "Übungsfirma " + eventID.slice(0, 8) + " · Musterplatz 8",
+    },
   );
   await press(a.p, "Dokumente");
   await a.p

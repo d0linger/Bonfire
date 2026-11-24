@@ -35,6 +35,8 @@ Bei doppelten Belegen die Zahlungsreferenz und beide Fassungen unter **Gerät & 
 
 Für Karten und Gästepreislisten steht im Dokumentformular der beim letzten Abgleich übernommene Preisverlauf zur Auswahl. Bei Widersprüchen zwischen zwei Portionsangaben die Quellangaben separat erhalten, die zutreffende Ausgabeeinheit eintragen und die Entscheidung begründen. Die erste Migration archiviert den vorhandenen Preisstand. Frühere Ausgaben bleiben als vorhandene Dateien belegt.
 
+Unter **Kontakte & Preise** können Name, Adresse und dokumentierte Abgrenzung in der Kontaktauswahl gesucht werden. Gleichnamige Offline-Neuanlagen prüft die Leitung. Eine begründete getrennte Neuanlage behält beide Adressen. Bei Sponsoringforderungen zeigt die Anwendung Zusage, Zahlungen, offenen Rest und je nummeriertem Beleg den externen Übergabevermerk. Eine tatsächlich erfolgte Übergabe wird mit Nachweis manuell erfasst. Ein Korrekturbeleg erhält einen eigenen Versandstand.
+
 Bei einer freigegebenen Importzeile sichert der Server die Quellenstelle über alle Veranstaltungen gegen Doppelübernahme. Die Leitung kann die Quelldatei im eigenen Arbeitsbereich prüfen. Ein Kassenprofil erhält die Quellenreferenz. Formeln, Summenzeilen und Folgevorlagen bleiben in der historischen Vorschau Vergleichsdaten.
 
 ## Wiederanlauf aus einer Sicherung

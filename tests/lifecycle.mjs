@@ -92,6 +92,75 @@ await send(
   422,
 );
 assert.equal(out.entries.find((r) => r.ID === id).Revision, 3);
+const left = await prepare("Kontakt Ost"),
+  right = await prepare("Kontakt West");
+const sameName = "Namenstest " + randomUUID().slice(0, 10);
+const ids = [randomUUID(), randomUUID()];
+const proposals = [left, right].map((device, i) =>
+  make(
+    1,
+    0,
+    {
+      Date: day,
+      Label: sameName,
+      Address: i === 0 ? "Übungsort Ost 12" : "Übungsort West 34",
+    },
+    "contact",
+    ids[i],
+  ),
+);
+const results = await Promise.all(
+  [left, right].map((d, i) => send(d, { Ops: [proposals[i]] })),
+);
+const index = results.findIndex((r, i) =>
+  r.conflicts.some((c) => c.ID === proposals[i].ID),
+);
+assert.ok(index >= 0);
+const winner = 1 - index;
+assert.ok(results[winner].entries.some((r) => r.ID === ids[winner]));
+const accepted = await send(a, {
+  Resolve: proposals[index].ID,
+  Choice: "übernehmen",
+  Last: 0,
+  Reason: "Zweite Person mit eigener Anschrift",
+});
+for (let i = 0; i < 2; i++) {
+  const entry = accepted.entries.find((r) => r.ID === ids[i]);
+  assert.equal(entry.Data.Address, proposals[i].Data.Address);
+  assert.equal(entry.Revision, 1);
+}
+assert.equal(
+  accepted.entries.find((r) => r.ID === ids[index]).Data.Fields.distinct,
+  "Zweite Person mit eigener Anschrift",
+);
+const multi = await send(left, {
+  Ops: [
+    make(
+      2,
+      0,
+      { Date: day, Label: "Übungsbanner", Amount: 500, Contact: ids[winner] },
+      "sponsorship",
+      randomUUID(),
+    ),
+    make(
+      3,
+      0,
+      { Date: day, Label: "Übungsspende", Amount: 200, Contact: ids[winner] },
+      "donation",
+      randomUUID(),
+    ),
+  ],
+});
+assert.deepEqual(
+  multi.entries
+    .filter((x) => x.Data.Contact === ids[winner])
+    .map((x) => x.Kind)
+    .sort(),
+  ["donation", "sponsorship"],
+);
+console.log(
+  "PASS unabhängige Neuanlagen mit gleichem Namen, getrennte Anschriften und Doppelfunktion Sponsor/Spender",
+);
 console.log(
   "PASS Archivierung gegen veraltete Bearbeitung, blockierter Neubezug, explizite Wiederherstellung und unveränderte Finanzhistorie",
 );

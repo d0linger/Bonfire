@@ -97,7 +97,7 @@ await post("sync", auth(a), {
       Base: 0,
       Kind: "contact",
       Data: {
-        Label: "Fiktiver Kontakt",
+        Label: "Fiktiver Kontakt " + Target.slice(0, 8),
         Date: "2030-08-01",
         Fields: { birth: "2000-03-06" },
       },

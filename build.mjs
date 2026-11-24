@@ -51,6 +51,14 @@ const svg =
   '<svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="#F08B64" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
   path +
   "</svg>";
+const brandHash = createHash("sha256").update(svg).digest("hex");
+if (
+  brandHash !==
+  "f12b47ae30d1c088420b3407eae7ad912218208440d851c8c848772ec7f46119"
+)
+  throw Error(
+    "Die aus der Designübergabe übernommene Flamme hat sich verändert.",
+  );
 await mkdir("dist", { recursive: true });
 await writeFile("dist/logo-original.svg", svg);
 await copyFile("node_modules/lucide/LICENSE", "dist/lucide-license.txt");
@@ -72,9 +80,41 @@ for (const size of [32, 192, 512]) {
     .png()
     .toFile("dist/icon-" + size + ".png");
 }
-for (const file of ["index.html", "word-renderer.html", "app.css", "manifest.webmanifest"])
+for (const file of [
+  "index.html",
+  "word-renderer.html",
+  "app.css",
+  "manifest.webmanifest",
+])
   await copyFile("web/" + file, "dist/" + file);
+const lock = JSON.parse(await readFile("package-lock.json", "utf8"));
+const inputHash = createHash("sha256");
+const inputs = (await readdir("web"))
+  .filter((name) => /\.(js|html|json|css|webmanifest)$/.test(name))
+  .sort()
+  .map((name) => "web/" + name);
+for (const path of ["build.mjs", "package-lock.json", ...inputs]) {
+  inputHash
+    .update(path)
+    .update("\0")
+    .update(
+      createHash("sha256")
+        .update(await readFile(path))
+        .digest(),
+    );
+}
+const renderBuild = {
+  sourceSHA256: inputHash.digest("hex"),
+  brandSHA256: brandHash,
+  libraries: Object.fromEntries(
+    ["jspdf", "docx", "pdf-lib", "docx-preview", "html2canvas"].map((name) => [
+      name,
+      lock.packages["node_modules/" + name].version,
+    ]),
+  ),
+};
 await build({
+  define: { __BONFIRE_RENDER_BUILD__: JSON.stringify(renderBuild) },
   plugins: [validators],
   entryPoints: ["web/app.js"],
   bundle: true,
@@ -83,7 +123,13 @@ await build({
   target: "es2022",
   outfile: "dist/app.js",
 });
-await build({entryPoints:["web/word-renderer.js"],bundle:true,minify:true,target:"es2022",outfile:"dist/word-renderer.js"});
+await build({
+  entryPoints: ["web/word-renderer.js"],
+  bundle: true,
+  minify: true,
+  target: "es2022",
+  outfile: "dist/word-renderer.js",
+});
 const files = (await readdir("dist")).filter((f) => f !== "sw.js").sort();
 const hash = createHash("sha256");
 for (const f of files) hash.update(await readFile("dist/" + f));
@@ -100,9 +146,4 @@ await writeFile(
     ";\n" +
     sw,
 );
-console.log(
-  "Offlinepaket",
-  version,
-  "Logo SHA-256",
-  createHash("sha256").update(svg).digest("hex"),
-);
+console.log("Offlinepaket", version, "Logo SHA-256", brandHash);

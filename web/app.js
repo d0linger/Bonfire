@@ -1,3 +1,4 @@
+import { sponsorshipStatus } from "./sponsorship.js";
 import { denominationNeeds } from "./domain.js";
 import { zipSync } from "fflate";
 import { historyPreview } from "./historical.js";
@@ -269,7 +270,14 @@ function choices(kinds) {
           kinds.includes(r.Kind) &&
           (!r.Data.Retired || edit?.Data?.Contact === r.ID),
       )
-      .map((r) => [r.ID, r.Data.Label]),
+      .map((r) => [
+        r.ID,
+        r.Kind === "contact"
+          ? [r.Data.Label, r.Data.Address, r.Data.Fields?.distinct]
+              .filter(Boolean)
+              .join(" · ")
+          : r.Data.Label,
+      ]),
   ];
 }
 function refs(name, title, kinds) {
@@ -419,9 +427,13 @@ function devicePage() {
   const conflicts = s.conflicts
     .map((c) => {
       const cur = s.entries.find((r) => r.ID === c.Target);
+      const sameName = c.Kind === "contact" && !cur && c.Base === 0;
       return panel(
         "Konflikt · " + c.Data.Label,
-        "<p>Ausgangsrevision " +
+        (sameName
+          ? "<p>Kontaktneuanlage prüfen. Bei gleichem Namen für eine getrennte Person oder Firma die Abgrenzung begründen. Vorhandene Adressen bleiben erhalten.</p>"
+          : "") +
+          "<p>Ausgangsrevision " +
           esc(c.Base) +
           " · gespeicherte Revision " +
           esc(cur?.Revision ?? 0) +
@@ -736,8 +748,14 @@ function formFields(k) {
         "Rechnungspositionen (optional, eine pro Zeile: Menge | Leistung | Einzelpreis)",
         '<textarea name="positions"></textarea>',
       ) +
+      select(
+        "field_pledge",
+        "Zusage",
+        ["Offen", "Zugesagt", "Zurückgezogen"].map((v) => [v, v]),
+      ) +
       field("field_due", "Fälligkeit", "date") +
-      field("field_service", "Leistungszeitraum");
+      field("field_service", "Leistungszeitraum") +
+      field("field_paymentRef", "Zahlungsreferenz für Überweisungen");
   if (k === "price")
     f +=
       field("field_guest", "Gästebezeichnung") +
@@ -956,24 +974,62 @@ function records() {
       .join("");
   }
   if (page === "Kontakte & Preise") {
-    detail = rows()
-      .filter((r) => r.Kind === "sponsorship")
-      .map(
-        (r) =>
-          "<p>" +
-          esc(r.Data.Label) +
-          " · Offene Forderung " +
-          eur(
-            r.Data.Amount -
-              rows()
-                .filter(
-                  (p) => p.Kind === "payment" && p.Data.Reference === r.ID,
-                )
-                .reduce((a, p) => a + p.Data.Amount, 0),
-          ) +
-          "</p>",
-      )
-      .join("");
+    const claims = sponsorshipStatus(rows());
+    if (claims.length) {
+      const originals = claims.flatMap((c) =>
+        c.originals.map((doc) => [
+          doc.id,
+          c.claim.Data.Label + " · Nr. " + doc.number,
+        ]),
+      );
+      detail = panel(
+        "Sponsoring",
+        '<div class="list"><table><tr><th>Forderung</th><th>Zusage</th><th>Betrag</th><th>Bezahlt</th><th>Offen</th><th>Belege und Versand</th></tr>' +
+          claims
+            .map(
+              (c) =>
+                "<tr><td>" +
+                esc(c.claim.Data.Label) +
+                "</td><td>" +
+                esc(c.pledge) +
+                "</td><td>" +
+                eur(c.claim.Data.Amount) +
+                "</td><td>" +
+                eur(c.paid) +
+                "</td><td>" +
+                eur(c.outstanding) +
+                "</td><td>" +
+                (c.originals
+                  .map((o) => "Nr. " + o.number + " · " + esc(o.dispatch))
+                  .join("<br>") || "Kein Original ausgestellt") +
+                "</td></tr>",
+            )
+            .join("") +
+          "</table></div>" +
+          (s.role === "Leitung" && originals.length
+            ? form(
+                "dispatch",
+                select("original", "Ausgestellter Beleg", originals) +
+                  select(
+                    "delivery",
+                    "Extern erfolgte Übergabe",
+                    [
+                      "Extern übergeben",
+                      "Extern versandt",
+                      "Vermerk aufgehoben",
+                    ].map((v) => [v, v]),
+                  ) +
+                  field(
+                    "evidence",
+                    "Nachweis oder Korrekturgrund",
+                    "text",
+                    true,
+                  ),
+                "Übergabe dokumentieren",
+              )
+            : ""),
+      );
+    }
   }
   if (page === "Perioden" && s.role !== "Kassa") {
     detail =
@@ -2081,6 +2137,32 @@ async function submit(f) {
         ? await preview(importFile, rows())
         : await historyPreview(importFile, importRole, vals.year);
   }
+  if (id === "dispatch") {
+    const target = "dispatch:" + vals.original,
+      existing = rows().find((r) => r.ID === target);
+    if (
+      s.role !== "Leitung" ||
+      vals.evidence.trim().length < 3 ||
+      (!existing && vals.delivery === "Vermerk aufgehoben")
+    )
+      throw Error("Leitung, gültigen Übergabestatus und Nachweis angeben.");
+    const original = rows().find(
+      (r) => r.ID === vals.original && r.Kind === "original",
+    );
+    if (!original) throw Error("Ausgestellten Beleg wählen.");
+    await queue(
+      "dispatch",
+      {
+        Date: today(),
+        Label: "Beleg " + original.Data.Number,
+        Reference: original.ID,
+        Status: vals.delivery,
+        Note: vals.evidence,
+      },
+      target,
+      existing?.Revision || 0,
+    );
+  }
   if (id === "importRow") {
     if (s.role !== "Leitung")
       throw Error("Importfreigabe durch Leitung erforderlich.");
@@ -2542,6 +2624,8 @@ async function submit(f) {
         device: s.device,
         user: s.user,
         issuedAt: new Date().toISOString(),
+        renderBuild: __BONFIRE_RENDER_BUILD__,
+        fontPreset: snap.font,
         pdfSHA256: await digest(blobs.pdf),
         docxSHA256: await digest(blobs.docx),
         appAssets: (await caches.keys()).filter((k) =>

@@ -1,5 +1,5 @@
 import { wordFiles } from "./word-profile.js";
-import { exportContext } from "./context.js";
+import { invoiceReference, exportContext } from "./context.js";
 import { t8, t9, t10 } from "bonfire:validators";
 import { tablesFor, renderTables } from "./layouts.js";
 import { lineCents } from "./positions.js";
@@ -125,12 +125,17 @@ export function snapshot(index, s, rows, opts) {
         .reduce((n, r) => n + r.Data.Amount, 0);
       add("Bereits bezahlt", eur(paid));
       add("Offen", eur(v.Amount - paid));
-      if (paid < v.Amount) add("Zahlungsreferenz", v.Reference || v.Label);
+      if (paid < v.Amount)
+        add("Zahlungsreferenz", invoiceReference(v, opts.number));
     }
     if (index === 1) {
       const parent = rows.find((r) => r.ID === v.Reference);
       if (!parent || !v.Wallet)
         throw Error("Forderung und tatsächliche Barkassa angeben.");
+      if (opts.number && (!org.Fields?.legal || !parent.Data.Fields?.service))
+        throw Error(
+          "Für den Barbeleg fehlen freigegebener Rechtstext oder Leistungszeitraum.",
+        );
       const paid = rows
         .filter((r) => r.Kind === "payment" && r.Data.Reference === v.Reference)
         .reduce((n, r) => n + r.Data.Amount, 0);
@@ -219,10 +224,14 @@ export function snapshot(index, s, rows, opts) {
         r.Data.Amount == null ? "" : eur(r.Data.Amount),
       );
   }
+  const versionID =
+    profileID(index) +
+    "@" +
+    (opts.version === "draft" ? "entwurf" : (tpl?.Revision ?? "standard"));
   const context = exportContext(index, s, rows, {
     ...opts,
     title,
-    versionID: profileID(index) + "@" + (tpl?.Revision || 1),
+    versionID,
   });
   const validate = { 7: t8, 8: t9, 9: t10 }[index];
   if (validate && !validate(context))
@@ -256,7 +265,8 @@ export function snapshot(index, s, rows, opts) {
     number: opts.number || null,
     status: opts.number ? "Original" : "Arbeitsfassung",
     subject: chosen?.ID || null,
-    templateVersion: tpl?.Revision || 1,
+    templateVersion: tpl?.Revision ?? 0,
+    templateVersionID: versionID,
     font: config.Fields?.font || "helvetica",
     margin: Math.max(8, Math.min(35, Number(config.Fields?.margin) || 15)),
     layoutMargin: config.Fields?.margin

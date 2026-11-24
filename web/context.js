@@ -2,6 +2,14 @@ import { types, denom, today } from "./domain.js";
 import { lineCents } from "./positions.js";
 import registry from "./variables.json" with { type: "json" };
 
+export function invoiceReference(bill, number) {
+  return (
+    bill.Fields?.paymentRef?.trim() ||
+    bill.Reference?.trim() ||
+    (number ? "Rechnung " + number : bill.Label)
+  );
+}
+
 export function closure(rows, accounts, approved) {
   const expected = new Map(),
     observed = new Map();
@@ -181,7 +189,8 @@ export function exportContext(i, s, rows, opts) {
     "payment.account_holder": org.Fields?.holder,
     "payment.bank_name": org.Fields?.bank,
     "payment.iban": org.Fields?.IBAN,
-    "payment.reference": v.Reference,
+    "payment.reference":
+      i === 0 ? invoiceReference(bill, opts.number) : v.Reference,
     "donation.id": r?.Kind === "donation" ? r.ID : null,
     "donation.amount_cents": r?.Kind === "donation" ? v.Amount : null,
     "donor.given_name": recipient.Fields?.given,

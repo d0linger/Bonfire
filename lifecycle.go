@@ -7,6 +7,20 @@ import (
 	"strings"
 )
 
+// Serialize independent offline creations even when the devices generated different IDs.
+func contactNameAvailable(ctx context.Context, tx pgx.Tx, o op) (bool, error) {
+	if o.Base != 0 || len(strings.TrimSpace(o.Data.Fields["distinct"])) >= 3 {
+		return true, nil
+	}
+	name := strings.ToLower(strings.Join(strings.Fields(o.Data.Label), " "))
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,1))", name); err != nil {
+		return false, err
+	}
+	var available bool
+	err := tx.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM directory WHERE id<>$1 AND lower(regexp_replace(trim(data->>'Label'),'[[:space:]]+',' ','g'))=$2)`, o.Target, name).Scan(&available)
+	return available, err
+}
+
 func lifecycle(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error) {
 	var revision int64
 	var archived bool

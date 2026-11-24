@@ -1,10 +1,66 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { closure } from "../web/context.js";
+import { closure, invoiceReference } from "../web/context.js";
 import { denominationNeeds, summary } from "../web/domain.js";
 import { donationReport } from "../web/donors.js";
+import { sponsorshipStatus } from "../web/sponsorship.js";
 import { tablesFor } from "../web/layouts.js";
 const row = (Kind, Data, ID = Kind) => ({ ID, Kind, Data });
+test("Überweisungsbezug bleibt bei Altbestand verwendbar und folgt bei Originalen der zugeteilten Nummer", () => {
+  const bill = { Label: "Übungsforderung" };
+  assert.equal(invoiceReference(bill), bill.Label);
+  assert.equal(invoiceReference(bill, 73), "Rechnung 73");
+  assert.equal(invoiceReference({ ...bill, Reference: "ALT-1" }, 73), "ALT-1");
+  assert.equal(
+    invoiceReference({ ...bill, Fields: { paymentRef: "  FEST-1 " } }, 73),
+    "FEST-1",
+  );
+});
+test("100 EUR Zusage, 40 EUR Zahlung und eine dokumentierte Übergabe haben getrennte Zustände", () => {
+  const claim = row(
+    "sponsorship",
+    { Label: "Übungsforderung", Amount: 10000, Fields: { pledge: "Zugesagt" } },
+    "s1",
+  );
+  const payment = row("payment", { Amount: 4000, Reference: "s1" }, "p1");
+  const issued = row(
+    "original",
+    { Number: 32001, Reference: "s1" },
+    "original:s1",
+  );
+  const receipt = row("dispatch", {
+    Reference: issued.ID,
+    Status: "Extern übergeben",
+  });
+  const records = [claim, payment, issued, receipt];
+  const [status] = sponsorshipStatus(records);
+  assert.deepEqual(
+    [
+      status.pledge,
+      status.paid,
+      status.outstanding,
+      status.originals[0].dispatch,
+    ],
+    ["Zugesagt", 4000, 6000, "Extern übergeben"],
+  );
+  const paid = [
+    ...records,
+    row("payment", { Amount: 6000, Reference: "s1" }, "p2"),
+  ];
+  assert.equal(sponsorshipStatus(paid)[0].outstanding, 0);
+  const bill = tablesFor(
+    0,
+    { context: { "payment.reference": "ÜBUNG" } },
+    paid,
+    "s1",
+    {},
+  );
+  assert.ok(
+    !bill.after.some(
+      (s) => s.includes("Verwendungszweck") || s.includes("Fällig"),
+    ),
+  );
+});
 test("Meldejahr separat, anonyme Spende ohne Identität, fehlende Angaben sichtbar", () => {
   const rows = [
     row("contact", { Fields: { given: "Mona", family: "Muster" } }, "fiktiv"),

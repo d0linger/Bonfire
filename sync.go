@@ -54,7 +54,7 @@ type request struct {
 
 var key = regexp.MustCompile("^[a-zA-Z0-9_.:-]{1,160}$")
 var idPattern = regexp.MustCompile("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
-var kinds = strings.Fields("income expense refund deposit deposit-return transfer outlay reimbursement card fee payout donation sponsorship payment presale price contact bar wallet shift count plan supply skim return opening actual period template attachment attachment-file original organization handover import-source account paper reserve")
+var kinds = strings.Fields("income expense refund deposit deposit-return transfer outlay reimbursement card fee payout donation sponsorship payment presale price contact bar wallet shift count plan supply skim return opening actual period template attachment attachment-file original dispatch organization handover import-source account paper reserve")
 var money = strings.Fields("income expense refund deposit deposit-return transfer outlay reimbursement card fee payout donation sponsorship payment presale price supply skim return opening actual")
 var denoms = map[string]int64{"20000": 20000, "10000": 10000, "5000": 5000, "2000": 2000, "1000": 1000, "500": 500, "200": 200, "100": 100, "50": 50, "20": 20, "10": 10, "5": 5, "2": 2, "1": 1}
 
@@ -90,6 +90,13 @@ func validate(o op, accounts bool) error {
 		if err := validatePrice(v); err != nil {
 			return err
 		}
+	}
+	if o.Kind == "sponsorship" && !slices.Contains([]string{"", "Offen", "Zugesagt", "Zurückgezogen"}, v.Fields["pledge"]) {
+		return fail("Zusagestatus ungültig.")
+	}
+	if o.Kind == "dispatch" && (!strings.HasPrefix(v.Reference, "original:") || o.Target != "dispatch:"+v.Reference ||
+		!slices.Contains([]string{"Extern übergeben", "Extern versandt", "Vermerk aufgehoben"}, v.Status) || (v.Status == "Vermerk aufgehoben" && o.Base == 0) || len(strings.TrimSpace(v.Note)) < 3) {
+		return fail("Originalbeleg, Übergabestatus und Nachweis angeben.")
 	}
 	if o.Kind == "organization" && o.Target != "organization" {
 		return fail("Organisationsprofil ungültig.")
@@ -168,6 +175,13 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 	if o.Kind == "contact" {
 		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", o.Target); err != nil {
 			return "", err
+		}
+		available, err := contactNameAvailable(ctx, tx, o)
+		if err != nil {
+			return "", err
+		}
+		if !available {
+			return "Konflikt", nil
 		}
 		ok, err := lifecycle(ctx, tx, d, o)
 		if err != nil {
@@ -349,7 +363,7 @@ func accept(ctx context.Context, tx pgx.Tx, d *device, o op) error {
 	if err = validate(o, false); err != nil {
 		return err
 	}
-	if (slices.Contains([]string{"opening", "period", "template", "organization", "import-source"}, o.Kind) || strings.HasPrefix(o.Target, "import:") || strings.HasPrefix(o.Data.Reference, "source:")) && d.Role != "Leitung" {
+	if (slices.Contains([]string{"opening", "period", "template", "organization", "import-source", "dispatch"}, o.Kind) || strings.HasPrefix(o.Target, "import:") || strings.HasPrefix(o.Data.Reference, "source:")) && d.Role != "Leitung" {
 		return problem{403, "Leitungsrecht erforderlich."}
 	}
 	outcome := "Konflikt"
@@ -438,6 +452,18 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 				return nil, fail("Stand inzwischen geändert. Erneut prüfen.")
 			}
 			o.Base = current
+			if o.Kind == "contact" && current == 0 {
+				available, err := contactNameAvailable(ctx, tx, o)
+				if err != nil {
+					return nil, err
+				}
+				if !available {
+					if o.Data.Fields == nil {
+						o.Data.Fields = map[string]string{}
+					}
+					o.Data.Fields["distinct"] = q.Reason
+				}
+			}
 			if q.Account != "" || q.Destination != "" {
 				if !d.Accounts || !slices.Contains(accountEntries, o.Kind) || q.Destination != "" && !slices.Contains(transferEntries, o.Kind) {
 					return nil, fail("Kontoklärung passt nicht zum Vorgang.")

@@ -21,8 +21,8 @@ for index in range(1, 12):
         pdf_text = " ".join(" ".join(page.extract_text() for page in pdf.pages).split())
         docx_text = " ".join(" ".join(word.element.body.xpath(".//w:t/text()")).split())
         expected_fields = {
-            1: ("Musterplatz 8", "Übungsbanner", "€ 40,00", "Bereits bezahlt: € 20,00", "Offener Betrag: € 20,00", "Fällig am 2026-12-01", "TESTKONTO"),
-            2: ("Musterplatz 8", "Übungsbanner", "€ 40,00", "Bar erhalten am", "Offener Betrag: € 20,00"),
+            1: ("Musterplatz 8", "Übungsbanner", "€ 40,00", "Bereits bezahlt: € 20,00", "Offener Betrag: € 20,00", "Fällig am 2026-12-01", "TESTKONTO", "Testweg 1", "Verwendungszweck: SPONSOR-UEBUNG-42"),
+            2: ("Musterplatz 8", "Übungsbanner", "€ 40,00", "Bar erhalten am", "Offener Betrag: € 20,00", "Barkassa: Kasse Blau", "Testweg 1"),
             3: ("Anonym", "Testspende", "Testweg 1", "€ 5,50"),
             7: ("Dankesbrief", "€ 5,50", "Mit freundlichen Grüßen"),
         }[index]

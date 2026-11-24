@@ -40,6 +40,7 @@ export function tablesFor(i, s, rows, subject, opts) {
       .reduce((n, r) => n + r.Data.Amount, 0);
     return {
       invoice: true,
+      senderAddress: org?.Address,
       logo: org?.File || "",
       address: [
         contact?.Label || "Empfänger offen",
@@ -73,6 +74,13 @@ export function tablesFor(i, s, rows, subject, opts) {
         i === 1
           ? "Bar erhalten am " + v.Date + ": " + eur(v.Amount)
           : "Bereits bezahlt: " + eur(paid),
+        ...(i === 1
+          ? [
+              "Barkassa: " +
+                (rows.find((r) => r.ID === v.Wallet)?.Data.Label ||
+                  "Zuordnung offen"),
+            ]
+          : []),
         "Offener Betrag: " + eur(amount - paid),
         ...(i === 0 && amount > paid
           ? [
@@ -81,6 +89,7 @@ export function tablesFor(i, s, rows, subject, opts) {
                 : "Fälligkeit offen",
               org?.Fields?.holder,
               org?.Fields?.IBAN,
+              "Verwendungszweck: " + s.context["payment.reference"],
             ]
           : []),
         org?.Fields?.legal,
@@ -423,7 +432,11 @@ export async function renderTables(s) {
       );
     }
     y = 66;
-    flow(s.organization, 11, true);
+    flow(
+      [s.organization, spec.senderAddress].filter(Boolean).join(" · "),
+      10,
+      true,
+    );
     if (y > 78) throw Error("Absender passt nicht in das Adressfenster.");
     const metaX = s.width - left - 60;
     pdf.setFont(family, "normal");
