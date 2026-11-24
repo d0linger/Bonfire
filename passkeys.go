@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,9 +41,17 @@ func passkeyPolicy() (*webauthn.WebAuthn, error) {
 	if net.ParseIP(host) != nil || (u.Scheme != "https" && !(u.Scheme == "http" && host == "localhost")) {
 		return nil, bad
 	}
-	origin := u.Scheme + "://" + strings.ToLower(u.Host)
-	if (u.Scheme == "http" && u.Port() == "80") || (u.Scheme == "https" && u.Port() == "443") {
-		origin = u.Scheme + "://" + host
+	origin := u.Scheme + "://" + host
+	if port := u.Port(); port != "" {
+		number, err := strconv.ParseUint(port, 10, 16)
+		if err != nil || number == 0 {
+			return nil, bad
+		}
+		if !(u.Scheme == "http" && number == 80 || u.Scheme == "https" && number == 443) {
+			origin += ":" + strconv.FormatUint(number, 10)
+		}
+	} else if strings.HasSuffix(u.Host, ":") {
+		return nil, bad
 	}
 	p, err := webauthn.New(&webauthn.Config{
 		RPID: host, RPDisplayName: "BONFIRE", RPOrigins: []string{origin},
@@ -104,8 +113,8 @@ func challengeCookie(kind, token, origin string, age int) *http.Cookie {
 	if kind == "register" {
 		path = "/api/account/passkeys/register"
 	}
-	return &http.Cookie{Name: "bonfire_passkey_" + kind, Path: path, Value: token, MaxAge: age,
-		Secure: strings.HasPrefix(origin, "https://"), HttpOnly: true, SameSite: http.SameSiteStrictMode}
+	cookie := &http.Cookie{Name: "bonfire_passkey_" + kind, Path: path, Value: token, MaxAge: age, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}
+	return cookie
 }
 
 // Store only a digest of the browser's ceremony token. Serialize issuance to bound the

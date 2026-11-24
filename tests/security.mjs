@@ -1,12 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { testPassword } from "./test-password.mjs";
 import { randomUUID, createHmac } from "node:crypto";
 import assert from "node:assert/strict";
 const base = process.env.BONFIRE_URL || "http://127.0.0.1:8137",
   pass =
-    process.env.BONFIRE_ADMIN_PASSWORD ||
-    (await readFile(".env", "utf8"))
-      .match(/^BONFIRE_ADMIN_PASSWORD=(.+)$/m)[1]
-      .trim();
+    testPassword();
 const basic = (u, p) => "Basic " + Buffer.from(u + ":" + p).toString("base64"),
   admin = basic("leitung", pass);
 async function post(path, headers, body, status = 200) {

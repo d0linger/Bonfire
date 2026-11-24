@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,7 +49,10 @@ func stateManifest(ctx context.Context, tx pgx.Tx, schema int) (backupManifest, 
 		if err != nil {
 			return m, err
 		}
-		io.WriteString(h, table)
+		if _, err := io.WriteString(h, table); err != nil {
+			rows.Close()
+			return m, err
+		}
 		for rows.Next() {
 			var sum []byte
 			if err = rows.Scan(&sum); err != nil {
@@ -66,7 +70,15 @@ func stateManifest(ctx context.Context, tx pgx.Tx, schema int) (backupManifest, 
 }
 
 func (b *backupWorker) pgTool(ctx context.Context, name, dbname string, args ...string) error {
-	cmd := exec.CommandContext(ctx, name, args...)
+	var cmd *exec.Cmd
+	switch name {
+	case "pg_dump":
+		cmd = exec.CommandContext(ctx, "pg_dump", args...) // #nosec G204 -- internal pg_dump options only, credentials are supplied via the environment.
+	case "pg_restore":
+		cmd = exec.CommandContext(ctx, "pg_restore", args...) // #nosec G204 -- internal options and a private staging file, no shell.
+	default:
+		return errors.New("unsupported PostgreSQL client")
+	}
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "PGHOST=" + b.db.Host, "PGPORT=" + fmt.Sprint(b.db.Port), "PGUSER=" + b.db.User, "PGPASSWORD=" + b.db.Password, "PGDATABASE=" + dbname, "PGCLIENTENCODING=UTF8", "PGSSLMODE=" + os.Getenv("BONFIRE_BACKUP_PGSSLMODE")}
 	if os.Getenv("BONFIRE_BACKUP_PGSSLMODE") == "" {
 		cmd.Env[len(cmd.Env)-1] = "PGSSLMODE=prefer"
@@ -113,14 +125,15 @@ func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (stri
 	if err = tx.Commit(ctx); err != nil {
 		return "", err
 	}
-	input, err := os.Open(dump)
+	input, err := os.OpenInRoot(dir, "db.dump")
 	if err != nil {
 		return "", err
 	}
 	defer input.Close()
 	name := "bonfire-" + time.Now().UTC().Format("20060102T150405Z") + "-" + uuid() + ".dump.enc"
 	tmp := filepath.Join(dir, name)
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	// The destination is generated in this worker-owned private temporary directory.
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600) // #nosec G304 -- server-generated UUID filename inside MkdirTemp.
 	if err != nil {
 		return "", err
 	}
@@ -138,6 +151,13 @@ func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (stri
 		err = b.putS3(ctx, name, tmp)
 	} else {
 		err = os.Rename(tmp, filepath.Join(backupHome, name))
+		if err == nil {
+			var dir *os.File
+			dir, err = os.Open(backupHome)
+			if err == nil {
+				err = errors.Join(dir.Sync(), dir.Close())
+			}
+		}
 	}
 	return name, err
 }
@@ -157,7 +177,7 @@ func (b *backupWorker) stage(ctx context.Context, target, name string) (string, 
 	}
 	defer src.Close()
 	plain := filepath.Join(dir, "candidate.dump")
-	file, err := os.OpenFile(plain, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	file, err := os.OpenFile(plain, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600) // #nosec G304 -- fixed filename inside worker-owned MkdirTemp.
 	if err != nil {
 		return "", m, "", err
 	}
@@ -185,7 +205,9 @@ func (b *backupWorker) stage(ctx context.Context, target, name string) (string, 
 		if !keep {
 			clean, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			admin.Exec(clean, "DROP DATABASE IF EXISTS "+dbIdent(db)+" WITH (FORCE)")
+			if _, err := admin.Exec(clean, "DROP DATABASE IF EXISTS "+dbIdent(db)+" WITH (FORCE)"); err != nil {
+				log.Print("Failed to remove temporary restore database")
+			}
 		}
 	}()
 	if err = b.pgTool(ctx, "pg_restore", db, "--exit-on-error", "--single-transaction", "--no-owner", "--dbname="+db, plain); err != nil {
@@ -285,7 +307,7 @@ func retainIssuedNumbers(ctx context.Context, frozen, staged *pgx.Conn) error {
 
 func (b *backupWorker) recoverSwap(ctx context.Context, c *pgx.Conn) error {
 	path := filepath.Join(backupHome, ".swap.json")
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- fixed backupHome/.swap.json, never a request path.
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -339,7 +361,7 @@ func (b *backupWorker) promote(ctx context.Context, c *pgx.Conn, stage, user str
 		return err
 	}
 	_, err = dest.Exec(ctx, "DELETE FROM sessions; DELETE FROM password_changes; DELETE FROM login_challenges; DELETE FROM mfa_enrollments; DELETE FROM passkey_challenges; UPDATE devices SET secret=sha256(uuid_send(gen_random_uuid())) WHERE NOT online_actor")
-	dest.Close(ctx)
+	err = errors.Join(err, dest.Close(ctx))
 	if err != nil {
 		return err
 	}
@@ -373,10 +395,11 @@ func (b *backupWorker) promote(ctx context.Context, c *pgx.Conn, stage, user str
 		return err
 	}
 	if err = retainIssuedNumbers(ctx, before, staged); err != nil {
-		staged.Close(ctx)
+		return errors.Join(err, staged.Close(ctx))
+	}
+	if err = staged.Close(ctx); err != nil {
 		return err
 	}
-	staged.Close(ctx)
 	if err = before.Close(ctx); err != nil {
 		return err
 	}

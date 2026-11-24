@@ -1,3 +1,4 @@
+import { testPassword } from "./test-password.mjs";
 import { chromium } from "playwright";
 import { api, admin, auth } from "./local-api.mjs";
 import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
@@ -20,6 +21,8 @@ import {
   ImageRun,
 } from "docx";
 const upstream = process.env.BONFIRE_URL || "http://127.0.0.1:8137";
+const destination = new URL(upstream);
+assert.equal(destination.hostname, "127.0.0.1");
 let connected = true;
 let dropOriginalAck;
 const proxy = http.createServer((req, res) => {
@@ -31,8 +34,7 @@ const proxy = http.createServer((req, res) => {
   if (dropOriginalAck && req.url === "/api/sync")
     req.on("data", (chunk) => body.push(chunk));
   const out = http.request(
-    new URL(req.url, upstream),
-    { method: req.method, headers: req.headers },
+    { hostname: "127.0.0.1", port: destination.port, path: req.url, method: req.method, headers: req.headers },
     (r) => {
       if (
         dropOriginalAck &&
@@ -59,10 +61,7 @@ const proxy = http.createServer((req, res) => {
 });
 await new Promise((ok) => proxy.listen(0, "127.0.0.1", ok));
 const base = "http://127.0.0.1:" + proxy.address().port;
-const localEnv = await readFile(".env", "utf8").catch(() => "");
-const password =
-  process.env.BONFIRE_ADMIN_PASSWORD ||
-  localEnv.match(/^BONFIRE_ADMIN_PASSWORD=(.+)$/m)?.[1].trim();
+const password = testPassword();
 const credentials =
   "Basic " + Buffer.from("leitung:" + password).toString("base64");
 const eventName = "Übungsfest " + randomUUID().slice(0, 8);
@@ -114,7 +113,7 @@ async function press(p, text) {
 async function ready(p, name) {
   await by(p, "user").fill("leitung");
   await p.locator("#login [name=pass]").fill(password);
-  await press(p, "Anmelden");
+  await press(p, "Sign in");
   await p.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
   await by(p, "workspace").selectOption(eventID);
   await p.waitForFunction(

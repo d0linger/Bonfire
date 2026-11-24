@@ -43,14 +43,14 @@ export function tablesFor(i, s, rows, subject, opts) {
       senderAddress: org?.Address,
       logo: org?.File || "",
       address: [
-        contact?.Label || "Empfänger offen",
-        ...(contact?.Address || "Anschrift offen").split(/\r?\n/),
+        contact?.Label || "Recipient pending",
+        ...(contact?.Address || "Address pending").split(/\r?\n/),
       ],
-      meta: [s.date, s.number ? "Beleg " + s.number : s.status],
+      meta: [s.date, s.number ? "Receipt " + s.number : s.status],
       intro: bill.Fields?.service || bill.Label || v.Label,
       blocks: [
         {
-          headers: ["Anzahl", "Art", "Betrag"],
+          headers: ["Quantity", "Type", "Amount"],
           widths: [29, 93.5, 37.5],
           rows: (bill.Lines?.length
             ? bill.Lines
@@ -67,29 +67,29 @@ export function tablesFor(i, s, rows, subject, opts) {
               l.Description,
               eur(lineCents(l)),
             ])
-            .concat([["", "Gesamt", eur(amount)]]),
+            .concat([["", "Total", eur(amount)]]),
         },
       ],
       after: [
         i === 1
-          ? "Bar erhalten am " + v.Date + ": " + eur(v.Amount)
-          : "Bereits bezahlt: " + eur(paid),
+          ? "Cash received on " + v.Date + ": " + eur(v.Amount)
+          : "Already paid: " + eur(paid),
         ...(i === 1
           ? [
-              "Barkassa: " +
+              "Cash wallet: " +
                 (rows.find((r) => r.ID === v.Wallet)?.Data.Label ||
-                  "Zuordnung offen"),
+                  "Unassigned"),
             ]
           : []),
-        "Offener Betrag: " + eur(amount - paid),
+        "Outstanding amount: " + eur(amount - paid),
         ...(i === 0 && amount > paid
           ? [
               bill.Fields?.due
-                ? "Fällig am " + bill.Fields.due
-                : "Fälligkeit offen",
+                ? "Due on " + bill.Fields.due
+                : "Due date pending",
               org?.Fields?.holder,
               org?.Fields?.IBAN,
-              "Verwendungszweck: " + s.context["payment.reference"],
+              "Payment reference: " + s.context["payment.reference"],
             ]
           : []),
         org?.Fields?.legal,
@@ -103,7 +103,7 @@ export function tablesFor(i, s, rows, subject, opts) {
     );
     const blocks = [...new Set(prices.map((r) => r.Data.Category))].map(
       (category) => ({
-        headers: [category, "Einheit", "Preis"],
+        headers: [category, "Unit", "Price"],
         widths: [s.width - 105, 37, 38],
         rows: prices
           .filter((r) => r.Data.Category === category)
@@ -127,16 +127,16 @@ export function tablesFor(i, s, rows, subject, opts) {
         ...(contact?.Address || "").split(/\r?\n/),
       ].filter(Boolean),
       meta: [s.date],
-      intro: contact?.Fields?.salutation || "Guten Tag,",
+      intro: contact?.Fields?.salutation || "Dear supporter,",
       blocks: [],
       after: [
         s.note ||
-          "herzlichen Dank für Ihre Unterstützung " +
-            (v.Amount != null ? "in Höhe von " + eur(v.Amount) : "") +
-            " bei " +
+          "Thank you for your support " +
+            (v.Amount != null ? "of " + eur(v.Amount) : "") +
+            " at " +
             s.event +
-            ". Ihre Spende unterstützt die Arbeit unserer Feuerwehr.",
-        "Mit freundlichen Grüßen",
+            ". Your donation supports the work of our fire brigade.",
+        "Yours sincerely",
         s.organization,
       ],
     };
@@ -156,14 +156,14 @@ export function tablesFor(i, s, rows, subject, opts) {
     const qty = (c, obj) => (obj?.Pieces ? String(obj.Pieces[c] ?? 0) : "");
     return {
       intro: row
-        ? (pooled ? "Alle Geldtaschen · " : "") +
+        ? (pooled ? "All wallets · " : "") +
           v.Phase +
           " · " +
-          (v.Status || "Unbestätigt")
-        : "Leeres Zählblatt",
+          (v.Status || "Unconfirmed")
+        : "Blank cash count",
       blocks: [
         {
-          headers: ["Nennwert", "Plan", "Anfang", "Ende", "Wert Ende", "Notiz"],
+          headers: ["Denomination", "Planned", "Opening", "Closing", "Closing value", "Note"],
           widths: [30, 25, 30, 25, 30, 40],
           rows: denom.map((c) => [
             eur(c),
@@ -177,11 +177,11 @@ export function tablesFor(i, s, rows, subject, opts) {
       ],
       after: [
         row
-          ? "Erfasste Summe: " + eur(v.Amount)
-          : "Geldtasche: ____________________",
-        "Erfassung: ____________________     Gegenprüfung: ____________________",
+          ? "Counted total: " + eur(v.Amount)
+          : "Wallet: ____________________",
+        "Counted by: ____________________     Checked by: ____________________",
         v.Status === "Bestätigt"
-          ? "Bestätigt: " +
+          ? "Confirmed: " +
             v.Fields?.confirmedBy +
             " · " +
             v.Fields?.confirmedAt
@@ -200,14 +200,14 @@ export function tablesFor(i, s, rows, subject, opts) {
     if (!bar) {
       const common = summary(list.filter((r) => !r.Data.Bar));
       detail.push([
-        "Gemeinsam",
+        "Shared costs",
         eur(common.receipts),
         eur(common.costs),
         eur(common.result),
       ]);
     }
     detail.push([
-      bar ? "Direkter Überschuss" : "Gesamtveranstaltung",
+      bar ? "Direct surplus" : "Whole event",
       eur(all.receipts),
       eur(all.costs),
       eur(all.result),
@@ -216,14 +216,14 @@ export function tablesFor(i, s, rows, subject, opts) {
       intro: bar ? bar.Data.Label : s.event,
       blocks: [
         {
-          headers: ["Bereich", "Eingänge", "Kosten", "Ergebnis"],
+          headers: ["Area", "Receipts", "Costs", "Result"],
           widths: [54, 42, 42, 42],
           rows: detail,
         },
       ],
       after: [
-        "Zahlungsüberschuss: " + eur(all.ear),
-        "Offene Privatauslagen: " + eur(all.outstanding),
+        "Cash surplus: " + eur(all.ear),
+        "Outstanding reimbursements: " + eur(all.outstanding),
       ],
     };
   }
@@ -232,7 +232,7 @@ export function tablesFor(i, s, rows, subject, opts) {
       actual = new Map();
     for (const r of list) {
       const d = r.Data,
-        k = opts.accounts ? d.Account || "Nicht zugeordnet" : "Gesamtbestand";
+        k = opts.accounts ? d.Account || "Unassigned" : "Total balance";
       if (d.Amount == null) continue;
       if (r.Kind === "actual") {
         actual.set(k, (actual.get(k) || 0) + d.Amount);
@@ -269,13 +269,13 @@ export function tablesFor(i, s, rows, subject, opts) {
       }
     }
     const keys = new Set([...balance.keys(), ...actual.keys()]);
-    if (!keys.size) keys.add("Gesamtbestand");
-    const incomplete = keys.has("Nicht zugeordnet");
+    if (!keys.size) keys.add("Total balance");
+    const incomplete = keys.has("Unassigned");
     return {
       intro: period ? period.Data.Label : s.event,
       blocks: [
         {
-          headers: ["Bestand", "Soll", "Ist", "Differenz"],
+          headers: ["Balance", "Expected", "Actual", "Difference"],
           widths: [60, 38, 38, 38],
           rows: [...keys].map((k) => {
             const a = actual.get(k),
@@ -291,10 +291,10 @@ export function tablesFor(i, s, rows, subject, opts) {
       ],
       after: [
         opts.closed
-          ? "Veranstaltungsabschluss bestätigt"
-          : "Vorläufiger Arbeitsstand",
-        "Offene Konflikte im letzten Abgleich: " + opts.conflicts,
-        "Geräte ohne bestätigtes Ende: " + (opts.pending ?? "Unbekannt"),
+          ? "Event closure confirmed"
+          : "Provisional statement",
+        "Unresolved conflicts: " + opts.conflicts,
+        "Devices awaiting confirmation: " + (opts.pending ?? "Unknown"),
       ],
     };
   }
@@ -302,10 +302,10 @@ export function tablesFor(i, s, rows, subject, opts) {
     return {
       intro: period
         ? period.Data.Label
-        : "Gesamter lokaler Veranstaltungsstand",
+        : "Event records",
       blocks: [
         {
-          headers: ["Datum", "Art", "Beschreibung", "Zahlungsart", "Betrag"],
+          headers: ["Date", "Type", "Description", "Payment method", "Amount"],
           widths: [30, 46, 118, 44, 35],
           rows: list
             .filter((r) =>
@@ -335,19 +335,19 @@ export function tablesFor(i, s, rows, subject, opts) {
             ]),
         },
         {
-          headers: ["Beleg", "Zuordnung", "Verfügbarkeit"],
+          headers: ["Document", "Allocation", "Availability"],
           widths: [110, 90, 73],
           rows: list
             .filter((r) => r.Kind === "attachment")
             .map((r) => [
               r.Data.Filename || r.Data.Label,
               rows.find((x) => x.ID === r.Data.Reference)?.Data.Label ||
-                "Offen",
+                "Outstanding",
               r.Data.uploadPending
-                ? "Lokal, Upload ausständig"
+                ? "Local file, upload pending"
                 : r.Data.File
-                  ? "Lokal verfügbar"
-                  : "Metadaten, Datei ausständig",
+                  ? "Available locally"
+                  : "Metadata available, file pending",
             ]),
         },
       ],

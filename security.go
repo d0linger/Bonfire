@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505 -- RFC 6238 HMAC-SHA1 for existing authenticator enrollments.
 	"crypto/subtle"
 	"encoding/base32"
 	"encoding/binary"
@@ -24,6 +24,9 @@ func otpMatch(secret, code string, at time.Time) (int64, bool) {
 		return 0, false
 	}
 	for step := at.Unix()/30 - 1; step <= at.Unix()/30+1; step++ {
+		if step < 0 {
+			continue
+		}
 		var msg [8]byte
 		binary.BigEndian.PutUint64(msg[:], uint64(step))
 		h := hmac.New(sha1.New, key)
@@ -45,7 +48,7 @@ func (a *app) logout(ctx context.Context, w http.ResponseWriter, r *http.Request
 			return nil, err
 		}
 	}
-	http.SetCookie(w, &http.Cookie{Name: "bonfire_session", Path: "/api", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	writeSessionCookie(w, r, "", -1)
 	return true, nil
 }
 func loginName(value string) string {
@@ -69,40 +72,42 @@ var factorRequired = problem{401, "Zweiter Faktor erforderlich."}
 func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
 	// Bind the entire password/MFA exchange to the version checked before verification.
 	// A concurrent reset or session revocation cannot mint a fresh session afterwards.
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
 	var candidate string
 	var revision int64
 	token, completing := strings.CutPrefix(r.Header.Get("Authorization"), "Bonfire-Challenge ")
 	identifier, _, _ := r.BasicAuth()
 	var lookup pgx.Row
 	if completing {
-		lookup = a.db.QueryRow(ctx, "SELECT u.name,u.account_revision FROM users u JOIN login_challenges c ON c.username=u.name WHERE c.token=$1", hash(token))
+		lookup = tx.QueryRow(ctx, "SELECT u.name,u.account_revision FROM users u JOIN login_challenges c ON c.username=u.name WHERE c.token=$1", hash(token))
 	} else {
-		lookup = a.db.QueryRow(ctx, "SELECT name,account_revision FROM users WHERE coalesce(login_alias,name)=$1", loginName(identifier))
+		lookup = tx.QueryRow(ctx, "SELECT name,account_revision FROM users WHERE coalesce(login_alias,name)=$1", loginName(identifier))
 	}
 	if err := lookup.Scan(&candidate, &revision); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
-	var err error
 	if completing {
-		_, _, err = a.completeLogin(ctx, token, r.Header.Get("X-Bonfire-OTP"))
+		_, _, err = completeLogin(ctx, tx, token, r.Header.Get("X-Bonfire-OTP"))
 	} else {
-		_, _, err = a.auth(ctx, r)
+		_, _, err = a.authenticate(ctx, tx, r)
 	}
 	pendingFactor := errors.Is(err, factorRequired) && r.Header.Get("X-Bonfire-Login") == "staged"
 	if err != nil && !pendingFactor {
 		var p problem
 		if errors.As(err, &p) && p.code == 401 && !errors.Is(err, factorRequired) {
-			if logErr := a.logDeniedLogin(ctx, r); logErr != nil {
+			if logErr := logDeniedLogin(ctx, tx, r); logErr != nil {
 				return nil, logErr
+			}
+			if commitErr := tx.Commit(ctx); commitErr != nil {
+				return nil, commitErr
 			}
 		}
 		return nil, err
 	}
-	tx, err := a.db.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
 	var role string
 	var change bool
 	err = tx.QueryRow(ctx, "SELECT role,password_change_required FROM users WHERE name=$1 AND account_revision=$2 AND active FOR UPDATE", candidate, revision).Scan(&role, &change)
@@ -145,15 +150,10 @@ func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request)
 	return role, nil
 }
 
-func (a *app) completeLogin(ctx context.Context, token, code string) (string, string, error) {
+func completeLogin(ctx context.Context, tx pgx.Tx, token, code string) (string, string, error) {
 	expired := problem{410, "Anmeldung abgelaufen. Bitte erneut anmelden."}
-	tx, err := a.db.Begin(ctx)
-	if err != nil {
-		return "", "", err
-	}
-	defer tx.Rollback(ctx)
 	var name, role, otpSecret string
-	err = tx.QueryRow(ctx, `SELECT u.name,u.role,u.otp_secret FROM login_challenges c JOIN users u ON c.username=u.name
+	err := tx.QueryRow(ctx, `SELECT u.name,u.role,u.otp_secret FROM login_challenges c JOIN users u ON c.username=u.name
 		WHERE c.token=$1 AND c.expires>now() AND c.remaining>0 AND u.active AND u.otp_secret IS NOT NULL
 		FOR UPDATE OF u`, hash(token)).Scan(&name, &role, &otpSecret)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -170,23 +170,11 @@ func (a *app) completeLogin(ctx context.Context, token, code string) (string, st
 		return "", "", expired
 	}
 	if err = verifyCode(ctx, tx, name, otpSecret, code); err != nil {
-		var denied problem
-		if errors.As(err, &denied) {
-			if commitErr := tx.Commit(ctx); commitErr != nil {
-				return "", "", commitErr
-			}
-		}
 		return "", "", err
 	}
 	if _, err = tx.Exec(ctx, "DELETE FROM login_challenges WHERE token=$1", hash(token)); err != nil {
 		return "", "", err
 	}
-	if err = tx.Commit(ctx); err != nil {
-		return "", "", err
-	}
-	a.mu.Lock()
-	delete(a.attempts, name)
-	a.mu.Unlock()
 	return name, role, nil
 }
 
@@ -245,9 +233,9 @@ func (a *app) mfa(ctx context.Context, w http.ResponseWriter, r *http.Request) (
 	}
 	return codes, tx.Commit(ctx)
 }
-func (a *app) factor(ctx context.Context, name, code string) error {
+func factor(ctx context.Context, db authDB, name, code string) error {
 	var secret *string
-	if err := a.db.QueryRow(ctx, "SELECT otp_secret FROM users WHERE name=$1", name).Scan(&secret); err != nil {
+	if err := db.QueryRow(ctx, "SELECT otp_secret FROM users WHERE name=$1", name).Scan(&secret); err != nil {
 		return err
 	}
 	if secret == nil {
@@ -256,7 +244,7 @@ func (a *app) factor(ctx context.Context, name, code string) error {
 	if code == "" {
 		return factorRequired
 	}
-	return verifyCode(ctx, a.db, name, *secret, code)
+	return verifyCode(ctx, db, name, *secret, code)
 }
 
 type factorExecutor interface {

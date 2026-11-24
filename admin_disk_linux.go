@@ -2,7 +2,10 @@
 
 package main
 
-import "syscall"
+import (
+	"math"
+	"syscall"
+)
 
 // These figures describe the app filesystem. PostgreSQL may use another volume.
 func appDiskCapacity() map[string]uint64 {
@@ -10,5 +13,12 @@ func appDiskCapacity() map[string]uint64 {
 	if err := syscall.Statfs("/", &s); err != nil {
 		return nil
 	}
-	return map[string]uint64{"total": s.Blocks * uint64(s.Bsize), "free": s.Bavail * uint64(s.Bsize)}
+	if s.Bsize <= 0 {
+		return nil
+	}
+	size := uint64(s.Bsize)
+	if s.Blocks > math.MaxUint64/size || s.Bavail > math.MaxUint64/size {
+		return nil
+	}
+	return map[string]uint64{"total": s.Blocks * size, "free": s.Bavail * size}
 }

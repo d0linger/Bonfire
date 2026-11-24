@@ -109,7 +109,7 @@ function editFields(action, user, events) {
     html +=
       field("Anzeigename", "Label", "text", user?.Label, "maxlength=160") +
       field(
-        "E-Mail-Adresse oder Benutzername",
+        "Email or username",
         "Login",
         "text",
         user?.Login,

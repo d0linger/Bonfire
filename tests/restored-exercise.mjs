@@ -5,6 +5,7 @@ import { admin } from "./local-api.mjs";
 const fixture = JSON.parse(
   await readFile("test-results/gesamtfall.json", "utf8"),
 );
+assert.match(fixture.event, /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
 const snapshot = await fetch(
   new URL(
     "/api/workplace?event=" + encodeURIComponent(fixture.event),

@@ -2,20 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
+	"github.com/jackc/pgx/v5"
 	"net/http"
 	"strings"
 )
 
 func (a *app) access(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
-	actor, role, err := a.auth(ctx, r)
-	if err != nil {
-		return nil, err
-	}
-	if role != roleAdmin {
-		return nil, problem{403, "Adminrecht erforderlich."}
-	}
 	var q struct{ Name, Event, Action, Reason string }
-	if err = read(r, &q); err != nil {
+	if err := read(r, &q); err != nil {
 		return nil, err
 	}
 	q.Name = loginName(q.Name)
@@ -30,6 +25,30 @@ func (a *app) access(ctx context.Context, w http.ResponseWriter, r *http.Request
 	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock_shared(751025)"); err != nil {
 		return nil, err
 	}
+	var actor string
+	if _, _, basic := r.BasicAuth(); !basic {
+		actor, err = accountManager(ctx, tx, r, true)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var role string
+		actor, role, err = a.authenticate(ctx, tx, r)
+		if err != nil {
+			return nil, err
+		}
+		if role != roleAdmin {
+			return nil, problem{403, "Administrator access required."}
+		}
+	}
+	var target string
+	err = tx.QueryRow(ctx, "SELECT name FROM users WHERE coalesce(login_alias,name)=$1 OR name=$1 FOR UPDATE", q.Name).Scan(&target)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, problem{404, "Account not found."}
+	}
+	if err != nil {
+		return nil, err
+	}
 	tag, err := tx.Exec(ctx, "SELECT id FROM events WHERE id=$1 FOR UPDATE", q.Event)
 	if err != nil {
 		return nil, err
@@ -39,19 +58,19 @@ func (a *app) access(ctx context.Context, w http.ResponseWriter, r *http.Request
 	}
 	switch q.Action {
 	case "grant":
-		_, err = tx.Exec(ctx, "INSERT INTO grants_event VALUES($1,$2) ON CONFLICT DO NOTHING", q.Name, q.Event)
+		_, err = tx.Exec(ctx, "INSERT INTO grants_event VALUES($1,$2) ON CONFLICT DO NOTHING", target, q.Event)
 	case "revoke":
-		_, err = tx.Exec(ctx, "DELETE FROM grants_event WHERE username=$1 AND event=$2", q.Name, q.Event)
+		_, err = tx.Exec(ctx, "DELETE FROM grants_event WHERE username=$1 AND event=$2", target, q.Event)
 	default:
 		return nil, fail("Unbekannte Rechteaktion.")
 	}
 	if err != nil {
 		return nil, err
 	}
-	if _, err = tx.Exec(ctx, "UPDATE users SET account_revision=account_revision+1 WHERE name=$1", q.Name); err != nil {
+	if _, err = tx.Exec(ctx, "UPDATE users SET account_revision=account_revision+1 WHERE name=$1", target); err != nil {
 		return nil, err
 	}
-	if err = audit(ctx, tx, q.Event, actor, q.Action+" "+q.Reason, q.Name); err != nil {
+	if err = audit(ctx, tx, q.Event, actor, q.Action+" "+q.Reason, target); err != nil {
 		return nil, err
 	}
 	return true, tx.Commit(ctx)

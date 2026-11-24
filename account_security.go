@@ -90,8 +90,12 @@ func createAccountSession(ctx context.Context, tx pgx.Tx, r *http.Request, usern
 }
 
 func setAccountSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
-	http.SetCookie(w, &http.Cookie{Name: "bonfire_session", Value: token, Path: "/api", MaxAge: 1800, HttpOnly: true,
-		Secure: r.TLS != nil || strings.HasPrefix(r.Header.Get("Origin"), "https://"), SameSite: http.SameSiteStrictMode})
+	writeSessionCookie(w, r, token, 1800)
+}
+
+func writeSessionCookie(w http.ResponseWriter, r *http.Request, token string, age int) {
+	cookie := &http.Cookie{Name: "bonfire_session", Value: token, Path: "/api", MaxAge: age, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}
+	http.SetCookie(w, cookie)
 }
 
 type personalSession struct {

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -59,13 +60,15 @@ func route(fn endpoint) http.HandlerFunc {
 			var p problem
 			if !errors.As(err, &p) {
 				p = problem{500, "Datenbankvorgang fehlgeschlagen."}
-				log.Printf("request failed %s %T", r.Pattern, err)
+				log.Printf("request handler failed (%T)", err)
 			}
 			http.Error(w, p.message, p.code)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(result)
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			failedRequests.Add(1)
+		}
 	}
 }
 func read(r *http.Request, v any) error {
@@ -90,41 +93,62 @@ func secret() string {
 }
 func hash(s string) []byte { b := sha256.Sum256([]byte(s)); return b[:] }
 func (a *app) auth(ctx context.Context, r *http.Request) (string, string, error) {
+	return a.authenticate(ctx, a.db, r)
+}
+
+type authDB interface {
+	factorExecutor
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func (a *app) authenticate(ctx context.Context, db authDB, r *http.Request) (string, string, error) {
 	name, pw, ok := r.BasicAuth()
 	name = loginName(name)
 	deny := problem{401, "Anmeldung fehlgeschlagen."}
 	if !ok && r.URL.Path != "/api/login" {
 		if c, err := r.Cookie("bonfire_session"); err == nil {
 			var role string
-			err = a.db.QueryRow(ctx, "SELECT u.name,u.role FROM sessions s JOIN users u ON u.name=s.username WHERE s.token=$1 AND s.expires>now() AND u.active AND NOT u.password_change_required", hash(c.Value)).Scan(&name, &role)
+			err = db.QueryRow(ctx, "SELECT u.name,u.role FROM sessions s JOIN users u ON u.name=s.username WHERE s.token=$1 AND s.expires>now() AND u.active AND NOT u.password_change_required", hash(c.Value)).Scan(&name, &role)
 			if err == nil {
 				return name, role, nil
 			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return "", "", err
+			}
 		}
 	}
-	if !ok || len(pw) > 72 {
+	if !ok || !validLoginName(name) || len(pw) > 72 {
 		return "", "", deny
 	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	bucket := host + "|" + name
 	a.mu.Lock()
 	if time.Now().After(a.reset) {
 		clear(a.attempts)
 		a.reset = time.Now().Add(time.Minute)
 	}
-	if a.attempts[name] >= 12 {
+	if a.attempts[bucket] >= 12 || (a.attempts[bucket] == 0 && len(a.attempts) >= 16384) {
 		a.mu.Unlock()
 		return "", "", problem{429, "Bitte später erneut anmelden."}
 	}
-	a.attempts[name]++
+	a.attempts[bucket]++
 	a.mu.Unlock()
 	var digest, role, account string
-	if err := a.db.QueryRow(ctx, "SELECT password,role,name FROM users WHERE coalesce(login_alias,name)=$1 AND active AND (NOT password_change_required OR $2)", name, r.URL.Path == "/api/login").Scan(&digest, &role, &account); err != nil || bcrypt.CompareHashAndPassword([]byte(digest), []byte(pw)) != nil {
+	err = db.QueryRow(ctx, "SELECT password,role,name FROM users WHERE coalesce(login_alias,name)=$1 AND active AND (NOT password_change_required OR $2)", name, r.URL.Path == "/api/login").Scan(&digest, &role, &account)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", "", err
+	}
+	if err != nil || bcrypt.CompareHashAndPassword([]byte(digest), []byte(pw)) != nil {
 		return "", "", deny
 	}
-	if err := a.factor(ctx, account, r.Header.Get("X-Bonfire-OTP")); err != nil {
+	if err := factor(ctx, db, account, r.Header.Get("X-Bonfire-OTP")); err != nil {
 		return "", "", err
 	}
 	a.mu.Lock()
-	delete(a.attempts, name)
+	delete(a.attempts, bucket)
 	a.mu.Unlock()
 	return account, role, nil
 }
