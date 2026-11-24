@@ -263,7 +263,13 @@ export async function preview(file, existing) {
     };
   });
 }
-export async function evidence(s, rows, reports = {}) {
+async function fileDigest(bytes) {
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(hash), (value) =>
+    value.toString(16).padStart(2, "0"),
+  ).join("");
+}
+export async function evidence(s, rows, reports = {}, scope = {}) {
   const files = {
     "Journal.csv": new Uint8Array(await csv(rows).arrayBuffer()),
     "Journal.xlsx": new Uint8Array(await workbook(rows).arrayBuffer()),
@@ -284,13 +290,39 @@ export async function evidence(s, rows, reports = {}) {
         names.push({
           id: r.ID,
           path,
-          sha256: Array.from(
-            new Uint8Array(await crypto.subtle.digest("SHA-256", files[path])),
-            (v) => v.toString(16).padStart(2, "0"),
-          ).join(""),
+          sha256: await fileDigest(files[path]),
         });
       }
   }
+  const requiredReports = [
+    "Pruefbericht.pdf",
+    "Pruefbericht.docx",
+    "Belegjournal.pdf",
+    "Belegjournal.docx",
+  ];
+  const missingReports = requiredReports.filter((name) => !files[name]?.length);
+  const missingFiles = rows.flatMap((r) => {
+    if (r.Kind === "attachment" && (!r.Data.File || r.Data.uploadPending))
+      return [{ id: r.ID, format: "Belegdatei" }];
+    if (r.Kind === "original")
+      return ["PDF", "DOCX"]
+        .filter((k) => !r.Data[k])
+        .map((format) => ({ id: r.ID, format }));
+    return [];
+  });
+  const approved =
+    s.closed === true &&
+    !scope.period &&
+    s.pending === 0 &&
+    !s.ops.length &&
+    !s.conflicts.length &&
+    !missingFiles.length &&
+    !missingReports.length;
+  const outputs = await Promise.all(
+    Object.keys(files)
+      .filter((path) => !path.startsWith("dateien/"))
+      .map(async (path) => ({ path, sha256: await fileDigest(files[path]) })),
+  );
   files["manifest.json"] = strToU8(
     JSON.stringify(
       {
@@ -317,7 +349,21 @@ export async function evidence(s, rows, reports = {}) {
           })),
         ausstehend: s.ops.length,
         konflikte: s.conflicts.length,
-        freigegeben: s.closed === true,
+        manifestVersion: 2,
+        veranstaltung: s.event?.ID || null,
+        periode: scope.period || null,
+        veranstaltungAbgeschlossen: s.closed === true,
+        freigegeben: approved,
+        paketstatus: approved
+          ? "Geprüft und vollständig"
+          : "Vorbereitung / unvollständig",
+        fehlendeDateien: missingFiles,
+        fehlendeBerichte: missingReports,
+        offeneGeraete: (s.devices || [])
+          .filter((d) => !d.Sealed)
+          .map((d) => ({ id: d.ID, name: d.Name })),
+        vorlagenstaende: scope.templates || {},
+        exportdateien: outputs,
         dateien: names,
       },
       null,

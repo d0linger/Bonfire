@@ -117,8 +117,18 @@ try {
         ops: [],
         conflicts: [],
         pending: 1,
+        closed: true,
+        devices: [{ ID: "geraet-sued", Name: "Süd", Sealed: false }],
       },
-      rows,
+      [
+        ...rows,
+        {
+          ID: "fehlende-kopie",
+          Kind: "original",
+          Revision: 1,
+          Data: { Date: "2026-07-15", Label: "Ausstehende Kopie" },
+        },
+      ],
       { "Pruefbericht.pdf": new Blob(["TEST"]) },
     );
     const zip = b.unzipSync(new Uint8Array(await evidence.arrayBuffer()));
@@ -136,7 +146,7 @@ try {
       ]),
       runs,
       rejected,
-      manifest: !!zip["manifest.json"],
+      manifest: JSON.parse(b.strFromU8(zip["manifest.json"])),
       report: !!zip["Pruefbericht.pdf"],
     };
   });
@@ -158,7 +168,17 @@ try {
     ["C3", "expense", null, true, "Datum prüfen"],
   ]);
   assert.equal(result.runs, "{{organization.name}}");
-  assert.ok(result.rejected && result.manifest && result.report);
+  assert.ok(result.rejected && result.report);
+  assert.equal(result.manifest.freigegeben, false);
+  assert.equal(result.manifest.veranstaltungAbgeschlossen, true);
+  assert.deepEqual(result.manifest.offeneGeraete, [
+    { id: "geraet-sued", name: "Süd" },
+  ]);
+  assert.deepEqual(result.manifest.fehlendeDateien, [
+    { id: "fehlende-kopie", format: "PDF" },
+    { id: "fehlende-kopie", format: "DOCX" },
+  ]);
+  assert.ok(result.manifest.fehlendeBerichte.includes("Belegjournal.pdf"));
   console.log(
     "PASS: typed XLSX/quoted CSV roundtrip, duplicate review, manual source year, formula versus cached sum, blocked D8, split Word tokens and evidence package",
   );

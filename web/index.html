@@ -12,17 +12,36 @@
     <script type="module" src="/app.js"></script>
   </head>
   <body>
-    <aside>
+    <a class="skip" href="#content">Zum Inhalt</a>
+    <aside id="sidebar">
       <header>
         <img src="/logo-original.svg" alt="" />
         <div><strong>BONFIRE</strong><small>Feuerwehrfinanzen</small></div>
       </header>
+      <div class="stripe" aria-hidden="true"></div>
       <nav aria-label="Arbeitsbereiche"></nav>
     </aside>
     <main>
-      <div id="state" role="status"></div>
-      <div id="notice" role="alert"></div>
-      <article></article>
+      <div class="topbar">
+        <button
+          id="menu-toggle"
+          type="button"
+          aria-label="Navigation öffnen oder schließen"
+          aria-expanded="false"
+          aria-controls="sidebar"
+        >
+          Menü</button
+        ><span id="station" class="station"></span><span id="crumb"></span
+        ><span id="connection"></span>
+      </div>
+      <div class="work-area">
+        <div class="workspace-line">
+          <div id="workspace-picker"></div>
+          <div id="state" role="status"></div>
+        </div>
+        <div id="notice" role="alert"></div>
+        <article id="content" tabindex="-1"></article>
+      </div>
     </main>
   </body>
 </html>

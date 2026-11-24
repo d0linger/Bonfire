@@ -1,3 +1,22 @@
+import { displayProof } from "./document-preview.js";
+import {
+  icon,
+  esc,
+  flowAmount,
+  moduleList,
+  titleOf,
+  sectionOf,
+  route,
+  navigation,
+  tabs,
+  eventTabs,
+  adminTabs,
+  recordKinds,
+  overview,
+  bookings,
+  ledger,
+  dat,
+} from "./workplace.js";
 import { sponsorshipStatus } from "./sponsorship.js";
 import { denominationNeeds } from "./domain.js";
 import { zipSync } from "fflate";
@@ -44,14 +63,6 @@ const article = document.querySelector("article"),
   nav = document.querySelector("nav"),
   notice = document.querySelector("#notice"),
   state = document.querySelector("#state");
-const esc = (v) =>
-  String(v ?? "").replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        c
-      ],
-  );
 const option = (v, t) =>
   '<option value="' + esc(v) + '">' + esc(t) + "</option>";
 const label = (t, c) => "<label>" + esc(t) + c + "</label>";
@@ -291,21 +302,6 @@ function refs(name, title, kinds) {
     ) + dropdown
   );
 }
-function counts() {
-  const a = summary(rows());
-  return panel(
-    "Zahlungsjournal",
-    '<p class="sum">' +
-      esc(eur(a.ear)) +
-      "</p><p>Eingänge " +
-      esc(eur(a.receipts)) +
-      " · Ausgänge " +
-      esc(eur(a.paid)) +
-      "</p><p>Offene Privatauslagen " +
-      esc(eur(a.outstanding)) +
-      "</p>",
-  );
-}
 function table(list, editable = false) {
   if (!list.length) return '<p class="muted">Keine Einträge.</p>';
   return (
@@ -328,7 +324,7 @@ function table(list, editable = false) {
                 : " · Metadaten vorhanden, Datei ausständig"
             : "") +
           "</td><td>" +
-          esc(r.Data.Amount == null ? "—" : eur(r.Data.Amount)) +
+          esc(flowAmount(r)) +
           "</td><td>" +
           (r.Kind === "attachment" && r.Data.File
             ? '<button type="button" data-attachment="' +
@@ -878,10 +874,19 @@ function formFields(k) {
             eur(c),
             '<input name="coin' +
               c +
-              '" min="0" max="1000000" type="number" value="0" step="1">',
+              '" aria-label="Stückzahl ' +
+              esc(eur(c)) +
+              '" min="0" max="1000000" inputmode="numeric" type="number" value="0" step="1"><small data-piece="' +
+              c +
+              '">' +
+              esc(eur(0)) +
+              "</small>",
           ),
         )
-        .join("");
+        .join("") +
+      '</div><p class="count-total">Gezählter Betrag <output id="count-total" aria-live="polite">' +
+      esc(eur(0)) +
+      '</output></p><div class="form">';
   }
   return (
     f +
@@ -937,7 +942,7 @@ function journalFilterFields() {
   return fields;
 }
 function records() {
-  const kinds = groups[page] || ["template"];
+  const kinds = recordKinds(page);
   if (!kinds.includes(kind)) kind = kinds[0];
   const set = rows().filter(
     (r) =>
@@ -973,7 +978,7 @@ function records() {
       )
       .join("");
   }
-  if (page === "Kontakte & Preise") {
+  if (page === "Sponsoring") {
     const claims = sponsorshipStatus(rows());
     if (claims.length) {
       const originals = claims.flatMap((c) =>
@@ -1155,21 +1160,29 @@ function records() {
   return (
     panel(
       "Einträge",
-      form(
-        "filter",
-        field(
+      '<details class="filter-box"' +
+        (filter || Object.values(journalFilters).some(Boolean) ? " open" : "") +
+        "><summary>Einträge filtern</summary>" +
+        form(
           "filter",
-          "Bezeichnung oder Kategorie suchen",
-          "search",
-          false,
-          filter,
-        ) + (page === "Journal" ? journalFilterFields() : ""),
-        "Filtern",
-      ) +
+          field(
+            "filter",
+            "Bezeichnung oder Kategorie suchen",
+            "search",
+            false,
+            filter,
+          ) + (page === "Journal" ? journalFilterFields() : ""),
+          "Filtern",
+        ) +
+        "</details>" +
         table(set, true) +
         detail,
     ) +
-    (!s.sealed && !s.closed && s.role !== "Prüfung"
+    ((entryOpen || edit) &&
+    !s.sealed &&
+    !s.closed &&
+    s.role !== "Prüfung" &&
+    (page !== "Verwaltung" || s.role === "Leitung")
       ? panel(
           edit ? "Eintrag berichtigen" : "Eintrag erfassen",
           select(
@@ -1182,7 +1195,7 @@ function records() {
               formFields(kind),
               edit ? "Berichtigung speichern" : "Lokal speichern",
             ) +
-            (edit ? button("cancel", "Abbrechen", true) : ""),
+            button("cancel", "Abbrechen", true),
         )
       : "")
   );
@@ -1377,6 +1390,101 @@ function reportRows() {
       (r.Data.Date >= period.Data.Date && r.Data.Date <= period.Data.To),
   );
 }
+function installStudio() {
+  const options = document.querySelector("#export").closest("section");
+  const editor = document.querySelector("#template").closest("section");
+  const studio = document.createElement("div");
+  studio.className = "document-studio";
+  options.before(studio);
+  const controls = document.createElement("div");
+  controls.className = "doc-controls";
+  controls.append(options, editor);
+  studio.innerHTML =
+    '<div class="proof-tabs"><button type="button" data-act="docInputs">Eingabe</button><button type="button" data-act="docProof">Druckvorschau</button></div>';
+  studio.append(controls);
+  const proof = document.createElement("section");
+  proof.className = "proof";
+  proof.innerHTML =
+    '<h2>Druckvorschau</h2><p id="proof-status">Profil und Fachvorgang wählen, um die Arbeitsfassung zu prüfen.</p><div id="proof-sheet"></div>' +
+    button("docProof", "Vorschau aktualisieren", true);
+  studio.append(proof);
+  document
+    .querySelector("#export .actions")
+    .insertAdjacentHTML(
+      "beforeend",
+      button("docProof", "Druckvorschau öffnen", true),
+    );
+  document
+    .querySelector("#template")
+    .insertAdjacentHTML(
+      "beforeend",
+      button("draftProof", "Änderungen ansehen", true),
+    );
+}
+async function proofDocument(editing) {
+  const studio = document.querySelector(".document-studio"),
+    host = studio.querySelector("#proof-sheet"),
+    status = studio.querySelector("#proof-status");
+  studio.classList.add("view-proof");
+  host.replaceChildren();
+  status.textContent = "Arbeitsfassung wird lokal aufgebaut …";
+  try {
+    const vals = Object.fromEntries(
+      new FormData(document.querySelector("#export")),
+    );
+    let source = s,
+      index = Number(vals.profile);
+    if (editing) {
+      const form = Object.fromEntries(
+          new FormData(document.querySelector("#template")),
+        ),
+        ref = form.Reference;
+      index = profiles.findIndex((_, i) => profileID(i) === ref);
+      const base =
+        s.drafts?.[ref] ||
+        (s.pinnedTemplates || s.entries).find((r) => r.ID === "template:" + ref)
+          ?.Data ||
+        {};
+      source = {
+        ...s,
+        drafts: {
+          ...s.drafts,
+          [ref]: {
+            ...base,
+            Label: form.Label,
+            Note: form.Note,
+            Fields: {
+              ...base.Fields,
+              font: form.font,
+              footer: form.footer,
+              margin: form.margin,
+              header: form.header,
+              copies: form.copies,
+              firstColumn: form.firstColumn,
+              paper: form.paper,
+            },
+          },
+        },
+      };
+      vals.version = "draft";
+    }
+    const snap = snapshot(index, source, rows(), { ...vals, number: null });
+    const files = await renderDocument(snap);
+    await displayProof(host, files.docx);
+    status.textContent =
+      profiles[index] +
+      " · " +
+      snap.width +
+      " × " +
+      snap.height +
+      " mm · " +
+      (vals.version === "draft" ? "Entwurf" : snap.templateVersionID) +
+      " · Word-Arbeitsfassung";
+  } catch (err) {
+    status.textContent = err.message;
+    throw err;
+  }
+}
 function docs() {
   const originals = rows().filter((r) => r.Kind === "original");
   return (
@@ -1408,7 +1516,7 @@ function docs() {
             "Organisation",
             "text",
             true,
-            "Übungsfeuerwehr",
+            rows().find((r) => r.Kind === "organization")?.Data.Label || "",
           ) +
           ((s.priceHistory || []).length
             ? select("priceVersion", "Preisstand für Karten und Gästeliste", [
@@ -1555,193 +1663,407 @@ function docs() {
     )
   );
 }
+function preparePanel() {
+  return panel(
+    "Veranstaltung vorbereiten",
+    events.some((e) => !e.Closed)
+      ? form(
+          "prepare",
+          select(
+            "event",
+            "Veranstaltung",
+            events.filter((e) => !e.Closed).map((e) => [e.ID, e.Name]),
+          ) +
+            field("name", "Gerätename", "text", true) +
+            field(
+              "digitalCount",
+              "Benötigte digitale Belegnummern (0–1000)",
+              "number",
+              true,
+              onlineUser?.role === "Prüfung" ? "0" : "1000",
+            ) +
+            select("donor", "Meldedaten auf diesem Gerät", [
+              ["", "Standardprofil"],
+              ...(onlineUser?.role === "Leitung"
+                ? [["ja", "Belegprofil mit sensiblen Daten (Leitung)"]]
+                : []),
+            ]) +
+            field(
+              "pass",
+              "Lokales Passwort (mindestens 10 Zeichen)",
+              "password",
+              true,
+            ),
+          "Offlineprofil speichern",
+        )
+      : "<p>Keine offene Veranstaltung zugewiesen.</p>",
+  );
+}
+function onlineAdmin() {
+  return (
+    (onlineUser?.role === "Leitung"
+      ? panel(
+          "Veranstaltung anlegen",
+          form(
+            "event",
+            select("General", "Arbeitsbereich", [
+              ["", "Veranstaltung"],
+              ["ja", "Allgemeines Kassenbuch ohne Veranstaltung"],
+            ]) +
+              field("Name", "Name des Arbeitsbereichs", "text", true) +
+              field("Starts", "Beginn", "date", true, today()) +
+              field("Ends", "Ende", "date", true, today()) +
+              select("Accounts", "Kontozuordnung", [
+                ["", "Aus"],
+                ["ja", "Ein"],
+              ]),
+            "Veranstaltung speichern",
+          ),
+        ) +
+        panel(
+          "Benutzer zuweisen",
+          form(
+            "user",
+            field("Name", "Benutzername", "text", true) +
+              field("Password", "Startpasswort", "password", true) +
+              select("Role", "Rolle", [
+                ["Kassa", "Kassa"],
+                ["Prüfung", "Prüfung"],
+              ]) +
+              select(
+                "Event",
+                "Veranstaltung",
+                events.map((e) => [e.ID, e.Name]),
+              ),
+            "Benutzer anlegen",
+          ),
+        ) +
+        panel(
+          "Zugriff ändern",
+          form(
+            "access",
+            field("Name", "Bestehender Benutzer", "text", true) +
+              select(
+                "Event",
+                "Veranstaltung",
+                events.map((e) => [e.ID, e.Name]),
+              ) +
+              select("Action", "Zugriff", [
+                ["grant", "Zuweisen"],
+                ["revoke", "Entziehen"],
+              ]) +
+              field("Reason", "Begründung", "text", true),
+            "Zuweisung speichern",
+          ),
+        )
+      : "") +
+    panel(
+      "Zwei-Faktor-Anmeldung",
+      mfaCodes.length
+        ? "<p>Recoverycodes sicher aufbewahren</p><pre>" +
+            esc(mfaCodes.join("\n")) +
+            "</pre>"
+        : mfaSecret
+          ? "<p>Schlüssel in der Authenticator-App hinterlegen: " +
+            esc(mfaSecret) +
+            "</p>" +
+            form(
+              "mfa",
+              field("Code", "Bestätigungscode", "text", true),
+              "Faktor aktivieren",
+            )
+          : button("mfa", "Authenticator einrichten"),
+    )
+  );
+}
+function profileTools() {
+  return panel(
+    "Weitere Arbeitsprofile",
+    button("newProfile", "Neues Arbeitsprofil", true) +
+      profilesLocal
+        .map(
+          (k, i) =>
+            ' <a href="/?profil=' +
+            encodeURIComponent(k) +
+            '">Profil ' +
+            (i + 1) +
+            "</a>",
+        )
+        .join("") +
+      (!saved
+        ? form(
+            "recoverProfile",
+            label(
+              "Verschlüsselte Gerätesicherung",
+              '<input type="file" name="file" required>',
+            ) + field("pass", "Bisheriges lokales Passwort", "password", true),
+            "Als Lesearchiv öffnen",
+          )
+        : ""),
+  );
+}
+function signIn() {
+  return panel(
+    "An der Installation anmelden",
+    form(
+      "login",
+      field("user", "Benutzername", "text", true) +
+        field("pass", "Passwort", "password", true) +
+        field("otp", "Zweiter Faktor oder Recoverycode (falls eingerichtet)"),
+      "Anmelden",
+    ),
+  );
+}
+function unlockPanel() {
+  return panel(
+    "Lokales Profil",
+    form(
+      "unlock",
+      field("pass", "Lokales Passwort", "password", true),
+      "Entsperren",
+    ) + button("recover", "Verschlüsseltes Profil sichern", true),
+  );
+}
+let entryOpen = false;
+let overviewPeriod = "";
+let onlineUser = null,
+  onlineData = null,
+  preferredEvent = "",
+  destination = "Übersicht";
+const pageDescriptions = {
+  Journal: "Zahlungen, Belege und Berichtigungen im gewählten Arbeitsbereich.",
+  Kontakte: "Personen und Firmen für Sponsoring und Spenden.",
+  Spenden: "Spendeneingänge und Meldedaten im gewählten Arbeitsbereich.",
+  Dokumente: "Belege ausstellen, Originale nachdrucken und Vorlagen anpassen.",
+  Perioden: "Abrechnungszeitraum, Istbestände und Freigabe.",
+  Verwaltung: "Organisation, Benutzer und Geräte verwalten.",
+};
+function pageHead(title, description = "", action = "") {
+  return (
+    '<div class="page-head"><div>' +
+    heading(title) +
+    (description ? "<p>" + esc(description) + "</p>" : "") +
+    "</div>" +
+    action +
+    "</div>"
+  );
+}
+function prepareView() {
+  return (
+    pageHead(
+      "Gerät vorbereiten",
+      "Für lokale Erfassung, Belegausgabe und Arbeiten ohne Netz.",
+    ) +
+    preparePanel() +
+    "<details><summary>Weitere Profile und Wiederherstellung</summary>" +
+    profileTools() +
+    "</details>"
+  );
+}
+async function onlineStart(user) {
+  onlineUser = user;
+  events = await api("events");
+  const day = today(),
+    distance = (e) =>
+      day < e.Starts
+        ? Date.parse(e.Starts) - Date.parse(day)
+        : day > e.Ends
+          ? Date.parse(day) - Date.parse(e.Ends)
+          : 0;
+  const chosen =
+    events.find((e) => e.ID === preferredEvent) ||
+    [...events].sort(
+      (a, b) =>
+        Number(a.Closed) - Number(b.Closed) ||
+        distance(a) - distance(b) ||
+        a.Name.localeCompare(b.Name),
+    )[0];
+  onlineData = chosen
+    ? await api("workplace?event=" + encodeURIComponent(chosen.ID))
+    : null;
+  preferredEvent = chosen?.ID || "";
+  logged = true;
+}
+let serverReachable = null;
+let healthRequest = 0;
+function paintConnection() {
+  const online = navigator.onLine && serverReachable;
+  const status = !navigator.onLine
+    ? "Offline"
+    : serverReachable === null
+      ? "Verbindung wird geprüft"
+      : online
+        ? "Server erreichbar"
+        : "Server nicht erreichbar";
+  const network = document.querySelector("#connection");
+  network.innerHTML =
+    icon(online ? "Laptop" : "WifiOff") +
+    esc(status) +
+    (s
+      ? '<span class="connection-queue">' + s.ops.length + " ausstehend</span>"
+      : "");
+}
+async function checkConnection() {
+  const request = ++healthRequest;
+  if (document.hidden) return;
+  let available = false;
+  if (navigator.onLine) {
+    try {
+      const response = await fetch("/health", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(4500),
+      });
+      available = response.ok && (await response.json()) === "bereit";
+    } catch {
+      /* An unreachable server leaves the local profile usable. */
+    }
+  }
+  if (request === healthRequest) {
+    serverReachable = available;
+    paintConnection();
+  }
+}
+function shell() {
+  const active = !!s || logged,
+    who = s || onlineUser;
+  nav.innerHTML = navigation(page, who?.user, who?.role, active);
+  const org = s
+    ? rows().find((r) => r.Kind === "organization")?.Data
+    : onlineData?.entries.find((r) => r.Kind === "organization")?.Data;
+  document.querySelector("#crumb").textContent =
+    (org?.Label || "Feuerwehrfinanzen") +
+    "   /   " +
+    (active
+      ? page === "Einrichtung"
+        ? "Gerät vorbereiten"
+        : titleOf(page)
+      : saved
+        ? "Entsperren"
+        : "Anmeldung");
+  const mark = document.querySelector("#station");
+  mark.innerHTML =
+    org?.File || org?.Logo
+      ? '<img alt="" src="data:image/png;base64,' +
+        esc(org.File || org.Logo) +
+        '">'
+      : icon("Landmark");
+  const picker = document.querySelector("#workspace-picker");
+  picker.innerHTML =
+    logged && !s && events.length
+      ? select(
+          "workspace",
+          "Arbeitsbereich",
+          events.map((e) => [e.ID, e.Name]),
+        )
+      : "";
+  if (picker.firstChild) picker.querySelector("select").value = preferredEvent;
+  paintConnection();
+  document.querySelector("#menu-toggle").innerHTML = icon("Menu");
+  document.querySelector("#content").dataset.module = sectionOf(page);
+}
+function onlineView() {
+  if (page === "Einrichtung") return prepareView();
+  if (
+    page === "Verwaltung" ||
+    page === "Gerät & Sync" ||
+    page === "Datenaustausch"
+  )
+    return (
+      pageHead("Verwaltung", pageDescriptions.Verwaltung) +
+      route("Einrichtung", "Gerät vorbereiten", "secondary", "Laptop") +
+      onlineAdmin() +
+      "<details><summary>Profile und Sicherungen</summary>" +
+      profileTools() +
+      "</details>"
+    );
+  if (!onlineData)
+    return (
+      pageHead(
+        "Dein Arbeitsplatz",
+        "Es ist noch kein Arbeitsbereich zugewiesen.",
+      ) +
+      (onlineUser.role === "Leitung"
+        ? route("Verwaltung", "Arbeitsbereich anlegen", "primary", "Plus")
+        : "<p>Die Leitung kann dir eine Veranstaltung oder ein Kassenbuch zuweisen.</p>")
+    );
+  const { event: e, entries: list, pending, conflicts } = onlineData;
+  if (page === "Übersicht" || page === "Veranstaltungen")
+    return overview(
+      e,
+      list,
+      pending,
+      conflicts,
+      false,
+      page === "Veranstaltungen",
+      onlineUser.role,
+      overviewPeriod,
+    );
+  const isEvent = sectionOf(page) === "Veranstaltungen";
+  const content =
+    page === "Journal" || page === "Zahlungen"
+      ? ledger(bookings(list))
+      : page === "Dokumente"
+        ? '<ul class="catalog">' +
+          profiles
+            .map((p) => "<li>" + icon("Files") + esc(p) + "</li>")
+            .join("") +
+          "</ul>"
+        : moduleList(page, list);
+  return (
+    pageHead(
+      isEvent ? e.Name : titleOf(page),
+      pageDescriptions[page] || e.Name,
+      e.Closed
+        ? ""
+        : route(
+            "Einrichtung",
+            onlineUser.role === "Prüfung"
+              ? "Prüfprofil vorbereiten"
+              : "Erfassung vorbereiten",
+            "primary",
+            "Laptop",
+          ),
+    ) +
+    (isEvent ? tabs(eventTabs, page) : "") +
+    panel(
+      page === "Dokumente"
+        ? "Vorlagenprofile"
+        : isEvent
+          ? eventTabs.find(([k]) => k === page)[1]
+          : page === "Journal"
+            ? "Buchungen"
+            : "Einträge",
+      content,
+    )
+  );
+}
 function show() {
   notice.textContent = "";
-  nav.innerHTML = "";
   state.textContent = "";
+  shell();
   if (!s) {
-    article.innerHTML =
-      heading(saved ? "Gerät entsperren" : "Gerät vorbereiten") +
-      (!saved
-        ? "<p>Lokale Arbeitsprofile gehören zur Adresse <strong>" +
-          esc(location.origin) +
-          "</strong>. Für ein bereits vorbereitetes Gerät dieselbe Adresse und dasselbe Browserprofil öffnen.</p>"
-        : "") +
-      (saved
-        ? panel(
-            "Lokales Profil",
-            form(
-              "unlock",
-              field("pass", "Lokales Passwort", "password", true),
-              "Entsperren",
-            ) + button("recover", "Verschlüsseltes Profil sichern", true),
-          )
-        : !logged
-          ? panel(
-              "An der Installation anmelden",
-              form(
-                "login",
-                field("user", "Benutzername", "text", true) +
-                  field("pass", "Passwort", "password", true) +
-                  field(
-                    "otp",
-                    "Zweiter Faktor oder Recoverycode (falls eingerichtet)",
-                  ),
-                "Anmelden",
-              ),
-            )
-          : panel(
-              "Veranstaltung vorbereiten",
-              events.length
-                ? form(
-                    "prepare",
-                    select(
-                      "event",
-                      "Veranstaltung",
-                      events
-                        .filter((e) => !e.Closed)
-                        .map((e) => [e.ID, e.Name]),
-                    ) +
-                      field("name", "Gerätename", "text", true) +
-                      field(
-                        "digitalCount",
-                        "Benötigte digitale Belegnummern (0–1000)",
-                        "number",
-                        true,
-                        "1000",
-                      ) +
-                      select("donor", "Meldedaten auf diesem Gerät", [
-                        ["", "Standardprofil"],
-                        ["ja", "Belegprofil mit sensiblen Daten (Leitung)"],
-                      ]) +
-                      field(
-                        "pass",
-                        "Lokales Passwort (mindestens 10 Zeichen)",
-                        "password",
-                        true,
-                      ),
-                    "Offlineprofil speichern",
-                  )
-                : "<p>Keine offene Veranstaltung zugewiesen.</p>",
-            ) +
-            panel(
-              "Veranstaltung anlegen",
-              form(
-                "event",
-                select("General", "Arbeitsbereich", [
-                  ["", "Veranstaltung"],
-                  ["ja", "Allgemeines Kassenbuch ohne Veranstaltung"],
-                ]) +
-                  field("Name", "Name des Arbeitsbereichs", "text", true) +
-                  field("Starts", "Beginn", "date", true, today()) +
-                  field("Ends", "Ende", "date", true, today()) +
-                  select("Accounts", "Kontozuordnung", [
-                    ["", "Aus"],
-                    ["ja", "Ein"],
-                  ]),
-                "Veranstaltung speichern",
-              ),
-            ) +
-            panel(
-              "Benutzer zuweisen",
-              form(
-                "user",
-                field("Name", "Benutzername", "text", true) +
-                  field("Password", "Startpasswort", "password", true) +
-                  select("Role", "Rolle", [
-                    ["Kassa", "Kassa"],
-                    ["Prüfung", "Prüfung"],
-                  ]) +
-                  select(
-                    "Event",
-                    "Veranstaltung",
-                    events.map((e) => [e.ID, e.Name]),
-                  ),
-                "Benutzer anlegen",
-              ),
-            ) +
-            panel(
-              "Zugriff ändern",
-              form(
-                "access",
-                field("Name", "Bestehender Benutzer", "text", true) +
-                  select(
-                    "Event",
-                    "Veranstaltung",
-                    events.map((e) => [e.ID, e.Name]),
-                  ) +
-                  select("Action", "Zugriff", [
-                    ["grant", "Zuweisen"],
-                    ["revoke", "Entziehen"],
-                  ]) +
-                  field("Reason", "Begründung", "text", true),
-                "Zuweisung speichern",
-              ),
-            ) +
-            panel(
-              "Zwei-Faktor-Anmeldung",
-              mfaCodes.length
-                ? "<p>Recoverycodes sicher aufbewahren</p><pre>" +
-                    esc(mfaCodes.join("\n")) +
-                    "</pre>"
-                : mfaSecret
-                  ? "<p>Schlüssel in der Authenticator-App hinterlegen: " +
-                    esc(mfaSecret) +
-                    "</p>" +
-                    form(
-                      "mfa",
-                      field("Code", "Bestätigungscode", "text", true),
-                      "Faktor aktivieren",
-                    )
-                  : button("mfa", "Authenticator einrichten"),
-            ));
-    article.innerHTML += panel(
-      "Weitere Arbeitsprofile",
-      button("newProfile", "Neues Arbeitsprofil", true) +
-        profilesLocal
-          .map(
-            (k, i) =>
-              ' <a href="/?profil=' +
-              encodeURIComponent(k) +
-              '">Profil ' +
-              (i + 1) +
-              "</a>",
-          )
-          .join("") +
-        (!saved
-          ? form(
-              "recoverProfile",
-              label(
-                "Verschlüsselte Gerätesicherung",
-                '<input type="file" name="file" required>',
-              ) +
-                field("pass", "Bisheriges lokales Passwort", "password", true),
-              "Als Lesearchiv öffnen",
-            )
-          : ""),
-    );
+    article.innerHTML = logged
+      ? onlineView()
+      : pageHead(
+          saved ? "Gerät entsperren" : "Willkommen bei BONFIRE",
+          saved
+            ? "Das Arbeitsprofil ist auf diesem Gerät gespeichert."
+            : "Melde dich an, um deinen Finanzarbeitsplatz zu öffnen.",
+        ) +
+        (saved ? unlockPanel() : signIn()) +
+        "<details><summary>Geräteprofile und Wiederherstellung</summary><p>Lokale Profile gehören zur Adresse <strong>" +
+        esc(location.origin) +
+        "</strong> und zu diesem Browserprofil.</p>" +
+        profileTools() +
+        "</details>";
+    const selector = article.querySelector("#prepare [name=event]");
+    if (
+      selector &&
+      [...selector.options].some((o) => o.value === preferredEvent)
+    )
+      selector.value = preferredEvent;
     return;
   }
-  const pages = [
-    "Übersicht",
-    ...Object.keys(groups),
-    "Dokumente",
-    "Datenaustausch",
-    "Gerät & Sync",
-  ];
-  nav.innerHTML =
-    pages
-      .map(
-        (n) =>
-          '<button data-page="' +
-          esc(n) +
-          '" ' +
-          (n === page ? 'aria-current="page"' : "") +
-          ">" +
-          esc(n) +
-          "</button>",
-      )
-      .join("") + button("lock", "Gerät sperren");
   state.textContent =
     s.event.Name +
     "   /   " +
@@ -1752,33 +2074,68 @@ function show() {
         : s.ending
           ? "Erfassungsende ausstehend"
           : "Lokaler Arbeitsstand") +
+    (s.synced
+      ? " · Letzter Abgleich " + new Date(s.synced).toLocaleString("de-AT")
+      : " · Erster Abgleich offen") +
+    (s.conflicts.length ? " · " + s.conflicts.length + " Klärfälle" : "") +
     "   ·   " +
     s.ops.length +
     " ausstehend";
+  const isEvent = sectionOf(page) === "Veranstaltungen",
+    isAdmin = sectionOf(page) === "Verwaltung";
   article.innerHTML =
-    heading(page) +
-    (page === "Übersicht"
-      ? counts() +
-        panel(
-          "Veranstaltung",
-          "<p>" +
-            esc(s.event.Name) +
-            " · " +
-            esc(s.event.Starts) +
-            " bis " +
-            esc(s.event.Ends) +
-            "</p><p>Kontozuordnung " +
-            (s.event.Accounts ? "aktiv" : "aus") +
-            "</p>",
+    page === "Übersicht" || page === "Veranstaltungen"
+      ? overview(
+          { ...s.event, Closed: s.closed },
+          rows(),
+          s.pending ?? 0,
+          s.conflicts.length,
+          true,
+          page === "Veranstaltungen",
+          s.role,
+          overviewPeriod,
+        )
+      : pageHead(
+          isEvent ? s.event.Name : titleOf(page),
+          pageDescriptions[page] || s.event.Name,
+          recordKinds(page).length &&
+            !s.closed &&
+            !s.sealed &&
+            s.role !== "Prüfung"
+            ? button(
+                "focusEntry",
+                page === "Journal" ? "Buchung erfassen" : "Eintrag erfassen",
+              )
+            : "",
         ) +
-        panel("Letzte Vorgänge", table(rows().slice(-6).reverse()))
-      : page === "Datenaustausch"
-        ? exchange()
-        : page === "Dokumente"
-          ? docs()
-          : page === "Gerät & Sync"
-            ? devicePage()
-            : records());
+        (isEvent
+          ? tabs(eventTabs, page)
+          : isAdmin
+            ? tabs(adminTabs, page)
+            : "") +
+        (page === "Datenaustausch"
+          ? exchange()
+          : page === "Dokumente"
+            ? docs()
+            : page === "Gerät & Sync"
+              ? devicePage()
+              : records()) +
+        (page === "Verwaltung"
+          ? panel(
+              "Weitere Arbeitsbereiche",
+              button("newProfile", "Anderen Arbeitsbereich öffnen", true),
+            )
+          : "") +
+        (page === "Spenden" ? donationPanel() : "") +
+        (page === "Preise"
+          ? route(
+              "Dokumente",
+              "Preisliste und Karten drucken",
+              "secondary",
+              "Files",
+            )
+          : "");
+  if (page === "Dokumente") installStudio();
   const periodSelect = article.querySelector("[name=reportPeriod]");
   if (periodSelect) periodSelect.value = chosenPeriod;
   const type = article.querySelector("[name=type]");
@@ -1822,6 +2179,7 @@ function show() {
             if (f.elements["coin" + coin]) f.elements["coin" + coin].value = n;
       }
     if (f?.elements.Note) f.elements.Note.value = "";
+    if (f?.querySelector("#count-total")) updateCount(f);
   }
 }
 let backgroundSync;
@@ -1930,20 +2288,22 @@ async function submit(f) {
       headers: { Authorization: candidate, "X-Bonfire-OTP": vals.otp },
     });
     if (!res.ok) throw Error(await res.text());
-    events = await api("events");
-    logged = true;
+    await onlineStart({ user: vals.user, role: await res.json() });
+    page = destination;
   }
   if (id === "mfa") {
     mfaCodes = await api("mfa", { Secret: mfaSecret, ...vals });
     mfaSecret = "";
   }
   if (id === "event") {
-    await api("events", {
+    const created = await api("events", {
       ...vals,
       Accounts: !!vals.Accounts,
       General: !!vals.General,
     });
-    events = await api("events");
+    preferredEvent = created.ID;
+    await onlineStart(onlineUser);
+    page = "Einrichtung";
   }
   if (id === "user") {
     await api("users", vals);
@@ -1973,6 +2333,11 @@ async function submit(f) {
     };
     await createVault(vals.pass, next);
     s = next;
+    page = destination === "Einrichtung" ? "Übersicht" : destination;
+    logged = false;
+    onlineUser = null;
+    onlineData = null;
+    events = [];
     saved = true;
     auth = "";
     await api("logout", {});
@@ -1980,6 +2345,7 @@ async function submit(f) {
   }
   if (id === "unlock") {
     s = await unlock(vals.pass);
+    page = destination;
     setTimeout(tryAutoSync, 500);
   }
   if (id === "recoverProfile") {
@@ -2427,6 +2793,7 @@ async function submit(f) {
     )
       throw Error("Zugehörigen Vorgang auswählen.");
     await queue(kind, d, target, edit?.Revision || 0);
+    entryOpen = false;
     edit = null;
   }
   if (id === "lfk") {
@@ -2674,7 +3041,33 @@ document.addEventListener("submit", (e) => {
     e.target.dataset.mode = e.submitter?.dataset.release ? "release" : "draft";
   action(() => submit(e.target));
 });
+function updateCount(form) {
+  const pieces = {};
+  let valid = true;
+  for (const coin of denom) {
+    const input = form.elements["coin" + coin];
+    const count = Number(input.value || 0);
+    valid = valid && input.validity.valid;
+    pieces[coin] = count;
+    form.querySelector('[data-piece="' + coin + '"]').textContent = input
+      .validity.valid
+      ? eur(coin * count)
+      : "Stückzahl prüfen";
+  }
+  form.querySelector("#count-total").textContent = valid
+    ? eur(totalPieces(pieces))
+    : "Stückzahlen prüfen";
+}
 document.addEventListener("input", (e) => {
+  if (e.target.matches(".pieces input")) updateCount(e.target.form);
+  if (
+    ["export", "template"].includes(e.target.form?.id) &&
+    document.querySelector("#proof-sheet iframe")
+  ) {
+    document.querySelector("#proof-sheet").replaceChildren();
+    document.querySelector("#proof-status").textContent =
+      "Eingaben geändert. Vorschau aktualisieren.";
+  }
   if (!e.target.matches("[data-contact-filter]")) return;
   const query = e.target.value.trim().toLocaleLowerCase("de"),
     select = e.target.form?.elements.Contact;
@@ -2684,6 +3077,11 @@ document.addEventListener("input", (e) => {
       !!option.value && !option.text.toLocaleLowerCase("de").includes(query);
 });
 document.addEventListener("change", (e) => {
+  if (e.target.name === "overview-period") {
+    overviewPeriod = e.target.value;
+    show();
+    return;
+  }
   if (e.target.form?.id === "template" && e.target.name === "Reference") {
     const f = e.target.form,
       ref = e.target.value;
@@ -2730,7 +3128,20 @@ document.addEventListener("click", (e) => {
   )
     return;
   if (b.dataset.page) {
+    if (!s && !logged) {
+      destination = b.dataset.page;
+      show();
+      article.querySelector("input")?.focus();
+      return;
+    }
+    if (b.dataset.page === "Einrichtung")
+      destination = page === "Verwaltung" ? "Übersicht" : page;
+    entryOpen = false;
     page = b.dataset.page;
+    document.body.classList.remove("menu-open");
+    document
+      .querySelector("#menu-toggle")
+      .setAttribute("aria-expanded", "false");
     filter = "";
     journalFilters = {};
     edit = null;
@@ -2828,6 +3239,24 @@ document.addEventListener("click", (e) => {
       return;
     }
     switch (b.dataset.act) {
+      case "refreshWorkplace":
+        await onlineStart(onlineUser);
+        break;
+      case "focusEntry":
+        entryOpen = true;
+        show();
+        document.querySelector("#record")?.scrollIntoView({ block: "center" });
+        document.querySelector("#record [name=Label]")?.focus();
+        return;
+      case "docInputs":
+        document
+          .querySelector(".document-studio")
+          .classList.remove("view-proof");
+        return;
+      case "docProof":
+      case "draftProof":
+        await proofDocument(b.dataset.act === "draftProof");
+        return;
       case "newProfile":
         location.href = "/?profil=" + crypto.randomUUID();
         return;
@@ -2844,6 +3273,7 @@ document.addEventListener("click", (e) => {
         show();
         return;
       case "lock":
+        if (logged && !s) await api("logout", {});
         location.reload();
         return;
       case "csv":
@@ -2854,20 +3284,30 @@ document.addEventListener("click", (e) => {
         return;
       case "evidence":
         {
-          const reports = {};
+          const reports = {},
+            templates = {};
+          const organization =
+            rows().find((r) => r.Kind === "organization")?.Data.Label || "";
           for (const [i, name] of [
             [9, "Pruefbericht"],
             [10, "Belegjournal"],
           ]) {
             const snap = snapshot(i, s, rows(), {
               period: chosenPeriod,
-              organization: "Feuerwehr",
+              organization,
             });
+            templates[name] = snap.templateVersionID;
             const docs = await renderDocument(snap);
             reports[name + ".pdf"] = docs.pdf;
             reports[name + ".docx"] = docs.docx;
           }
-          download(await evidence(s, reportRows(), reports), "Pruefpaket.zip");
+          download(
+            await evidence(s, reportRows(), reports, {
+              period: chosenPeriod,
+              templates,
+            }),
+            "Pruefpaket.zip",
+          );
         }
         return;
       case "donors":
@@ -2967,6 +3407,7 @@ document.addEventListener("click", (e) => {
         await sync();
         break;
       case "cancel":
+        entryOpen = false;
         edit = null;
         break;
       case "sync":
@@ -3031,6 +3472,50 @@ async function tryAutoSync() {
   }
 }
 window.addEventListener("online", tryAutoSync);
+window.addEventListener("online", checkConnection);
+window.addEventListener("offline", checkConnection);
+document.addEventListener("visibilitychange", checkConnection);
+setInterval(checkConnection, 30000);
+void checkConnection();
 profilesLocal = await slots();
 saved = !!(await readVault());
+if (!saved) {
+  try {
+    const identity = await api("workplace");
+    await onlineStart(identity);
+  } catch {
+    /* Anmeldung ist ohne aktive Serversitzung erforderlich. */
+  }
+}
 show();
+
+document.querySelector("#menu-toggle").addEventListener("click", () => {
+  const open = document.body.classList.toggle("menu-open");
+  document
+    .querySelector("#menu-toggle")
+    .setAttribute("aria-expanded", String(open));
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.body.classList.contains("menu-open")) {
+    document.body.classList.remove("menu-open");
+    const btn = document.querySelector("#menu-toggle");
+    btn.setAttribute("aria-expanded", "false");
+    btn.focus();
+  }
+});
+document.querySelector("#workspace-picker").addEventListener("change", (e) =>
+  action(async () => {
+    try {
+      const fresh = await api(
+        "workplace?event=" + encodeURIComponent(e.target.value),
+      );
+      overviewPeriod = "";
+      onlineData = fresh;
+      preferredEvent = fresh.event.ID;
+      show();
+    } catch (err) {
+      e.target.value = preferredEvent;
+      throw err;
+    }
+  }),
+);

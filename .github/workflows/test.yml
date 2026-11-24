@@ -38,6 +38,7 @@ jobs:
           node tests/attachments.mjs
           node tests/layout-limits.mjs
           npx playwright install --with-deps chromium
+          BONFIRE_URL=http://127.0.0.1:8137 node tests/workplace.mjs
           node tests/offline.mjs
           node tests/documents.mjs
           node tests/storage.mjs
@@ -49,4 +50,4 @@ jobs:
           node ops/crypt.mjs keygen $key
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $archive = & ./ops/rotate-backup.ps1 -Directory test-results -KeyFile $key
-          & ./ops/verify-restore.ps1 -Path $archive -KeyFile $key
+          & ./ops/verify-restore.ps1 -Path $archive -KeyFile $key -VerifyExercise

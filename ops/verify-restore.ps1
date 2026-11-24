@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Path,[string]$KeyFile)
+param([Parameter(Mandatory=$true)][string]$Path,[string]$KeyFile,[switch]$VerifyExercise)
 $ErrorActionPreference='Stop'
 if(!(Test-Path -LiteralPath 'test-results/replay.json')){throw 'Zuerst node tests/api.mjs mit fiktiven Daten ausführen.'}
 if($KeyFile){
@@ -43,6 +43,10 @@ try {
   $ready=$false
   for($i=0;$i -lt 30;$i++){try{Invoke-RestMethod -Uri ($env:BONFIRE_URL+'/health') -ErrorAction Stop | Out-Null;$ready=$true;break}catch{Start-Sleep -Milliseconds 300}}
   if(!$ready){throw 'Wiederhergestellte App nicht bereit.'}
+  if($VerifyExercise){
+    node tests/restored-exercise.mjs
+    if($LASTEXITCODE){throw 'Zusammenhängender Offline-Gesamtfall im wiederhergestellten System unvollständig.'}
+  }
   node tests/api.mjs --replay
   if($LASTEXITCODE -ne 0){throw 'Sync nach Wiederherstellung fehlgeschlagen.'}
   Write-Output ("Originale mit übereinstimmenden PDF- und DOCX-Hashes: "+$after.Count)

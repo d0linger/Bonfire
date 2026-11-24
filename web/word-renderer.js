@@ -29,6 +29,27 @@ addEventListener(
       const pages = [...root.querySelectorAll("section.docx")];
       if (!pages.length || pages.length > 50)
         throw Error("Das Word-Layout benötigt 1 bis 50 Seiten.");
+      if (e.data.mode === "preview") {
+        const sheetWidth = Math.max(
+          ...pages.map((page) => page.getBoundingClientRect().width),
+        );
+        const fit = () => {
+          root.style.zoom = String(
+            Math.min(
+              1,
+              (document.documentElement.clientWidth - 16) / sheetWidth,
+            ),
+          );
+        };
+        document.body.style.margin = "0";
+        root.style.overflow = "hidden";
+        const wrap = root.querySelector(".docx-wrapper");
+        if (wrap) wrap.style.padding = "8px 0";
+        fit();
+        addEventListener("resize", fit);
+        parent.postMessage({ id: e.data.id, pages: pages.length }, e.origin);
+        return;
+      }
       const pdf = new jsPDF({ unit: "mm", format: "a4", compress: true });
       for (const [i, page] of pages.entries()) {
         const rect = page.getBoundingClientRect();

@@ -1,9 +1,10 @@
 import { chromium } from "playwright";
+import { api, admin, auth, basic } from "./local-api.mjs";
 import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import http from "node:http";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { unzipSync } from "fflate";
 import {
@@ -65,13 +66,14 @@ const password =
 const credentials =
   "Basic " + Buffer.from("leitung:" + password).toString("base64");
 const eventName = "Übungsfest " + randomUUID().slice(0, 8);
+const exerciseDay = new Date().toISOString().slice(0, 10);
 const event = await fetch(base + "/api/events", {
   method: "POST",
   headers: { Authorization: credentials, "Content-Type": "application/json" },
   body: JSON.stringify({
     Name: eventName,
-    Starts: "2026-06-01",
-    Ends: "2026-06-06",
+    Starts: exerciseDay,
+    Ends: exerciseDay,
   }),
 });
 assert.equal(event.status, 200);
@@ -96,23 +98,64 @@ async function start(name, offline = false) {
 }
 const by = (p, n) => p.locator('[name="' + n + '"]');
 async function press(p, text) {
-  await p.getByRole("button", { name: text, exact: true }).click();
+  const control = p.getByRole("button", { name: text, exact: true });
+  if (
+    !(await control.isVisible()) &&
+    (await p.locator("#menu-toggle").isVisible()) &&
+    (await p
+      .locator("nav")
+      .getByRole("button", { name: text, exact: true, includeHidden: true })
+      .count())
+  ) {
+    await p.locator("#menu-toggle").click();
+  }
+  await control.click();
 }
 async function ready(p, name) {
   await by(p, "user").fill("leitung");
   await p.locator("#login [name=pass]").fill(password);
   await press(p, "Anmelden");
+  await p.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
+  await by(p, "workspace").selectOption(eventID);
+  await press(p, "Erfassung vorbereiten");
   await by(p, "event").selectOption(eventID);
   await by(p, "name").fill(name);
   await by(p, "digitalCount").fill(name === "Nord" ? "2" : "0");
   await p.locator("#prepare [name=pass]").fill(pin);
   await press(p, "Offlineprofil speichern");
-  await p.getByRole("heading", { name: "Übersicht", exact: true }).waitFor();
+  await p
+    .getByRole("heading", { name: "Finanzen im Überblick", exact: true })
+    .waitFor();
 }
 async function record(p, group, type, label, values = {}) {
-  await press(p, group);
+  const section =
+    {
+      Journal: "Kassenbuch",
+      Geldtaschen: "Veranstaltungen",
+      Perioden: "Abschluss",
+    }[group] ||
+    {
+      organization: "Verwaltung",
+      contact: "Kontakte",
+      donation: "Spenden",
+      payment: "Veranstaltungen",
+      sponsorship: "Veranstaltungen",
+      price: "Veranstaltungen",
+    }[type];
+  await press(p, section);
+  if (section === "Veranstaltungen")
+    await press(
+      p,
+      group === "Geldtaschen"
+        ? "Geldtaschen"
+        : type === "price"
+          ? "Preise & Druck"
+          : "Sponsoren & Rechnungen",
+    );
+  await p.locator('[data-act="focusEntry"]').click();
   await by(p, "type").selectOption(type);
   await by(p, "Label").fill(label);
+  await by(p, "Date").fill(exerciseDay);
   for (const [name, value] of Object.entries(values)) {
     const input = by(p, name);
     if (name === "Contact") {
@@ -131,10 +174,18 @@ async function record(p, group, type, label, values = {}) {
       await input.selectOption({ label: value });
     else await input.fill(value);
   }
+  if (values.coin200) {
+    assert.ok(
+      (await p.locator("#count-total").textContent()).includes(
+        (Number(values.coin200) * 2).toFixed(2).replace(".", ","),
+      ),
+    );
+  }
   await press(p, "Lokal speichern");
   await p.getByRole("cell", { name: label, exact: true }).first().waitFor();
 }
 async function sync(p) {
+  await press(p, "Verwaltung");
   await press(p, "Gerät & Sync");
   const completed = p.waitForResponse(
     (r) =>
@@ -215,6 +266,18 @@ try {
   await by(a.p, "subject").selectOption({ label: "Übungsbanner" });
   await by(a.p, "format").selectOption("Original");
   await by(a.p, "version").selectOption("active");
+  await press(a.p, "Druckvorschau öffnen");
+  await a.p
+    .locator("#proof-status")
+    .filter({ hasText: "Word-Arbeitsfassung" })
+    .waitFor();
+  await a.p
+    .frameLocator("#proof-sheet iframe")
+    .getByText("Übungsbanner", { exact: true })
+    .first()
+    .waitFor();
+  assert.ok((await a.p.locator("#state").innerText()).includes("ausstehend"));
+  await a.p.screenshot({ path: "test-results/ansichten-dokumente.png" });
   const before = await a.p.locator("#state").innerText();
   let outputs = 0;
   const countOutput = () => outputs++;
@@ -259,6 +322,7 @@ try {
     dropOriginalAck = resolve;
   });
   connected = true;
+  await press(a.p, "Verwaltung");
   await press(a.p, "Gerät & Sync");
   await press(a.p, "Jetzt abgleichen");
   let timer;
@@ -297,7 +361,7 @@ try {
   await press(b.p, "Klärung speichern");
   await b.p.waitForFunction(() => !document.querySelector("[id^=resolve-]"));
   await sync(a.p);
-  await press(a.p, "Journal");
+  await press(a.p, "Kassenbuch");
   await a.p.getByRole("cell", { name: "Eintritt Sammelbetrag" }).waitFor();
   connected = false;
   await record(a.p, "Kontakte & Preise", "payment", "Zahlung Übungsbanner", {
@@ -322,6 +386,14 @@ try {
     amount: "3,40",
   });
   await mkdir("test-results/exports", { recursive: true });
+  async function currentJournal() {
+    await press(a.p, "Verwaltung");
+    await press(a.p, "Datenaustausch");
+    const file = a.p.waitForEvent("download");
+    await press(a.p, "Journal als CSV");
+    return readFile(await (await file).path());
+  }
+  const journalBeforeExports = await currentJournal();
   for (let i = 0; i < 11; i++) {
     const subject = {
       0: "Übungsbanner",
@@ -338,6 +410,7 @@ try {
     assert.ok(word["word/document.xml"]);
     assert.ok(word["[Content_Types].xml"]);
   }
+  assert.deepEqual(await currentJournal(), journalBeforeExports);
   const template = new Document({
     sections: [
       {
@@ -403,7 +476,8 @@ try {
   console.log(
     "PASS: offline imported Word layout with table, image, header, footer and split tokens in PDF/DOCX",
   );
-  await press(a.p, "Kontakte & Preise");
+  await press(a.p, "Veranstaltungen");
+  await press(a.p, "Sponsoren & Rechnungen");
   await a.p
     .getByText(/Nr\. \d+ · Ohne Versandvermerk/)
     .first()
@@ -472,7 +546,8 @@ try {
   console.log(
     "PASS Vorlagenfreigabe, bytegleicher Nachdruck des früheren Originals und neue Vorlagen-/Rendernachweise im Korrekturbeleg",
   );
-  await press(b.p, "Kontakte & Preise");
+  await press(b.p, "Veranstaltungen");
+  await press(b.p, "Sponsoren & Rechnungen");
   const sponsorRow = b.p
     .getByRole("row")
     .filter({ hasText: "Extern übergeben" });
@@ -520,6 +595,112 @@ try {
   assert.equal(
     await a.p.getByRole("button", { name: "PDF", exact: true }).count(),
     2,
+  );
+  connected = true;
+  await record(a.p, "Perioden", "opening", "Eröffnungsbestand aus Zählblatt", {
+    amount: "100,00",
+  });
+  await record(a.p, "Geldtaschen", "count", "Gezählte Eröffnung Kasse Blau", {
+    Wallet: "Kasse Blau",
+    Phase: "Anfang",
+    coin200: "2",
+  });
+  await record(a.p, "Geldtaschen", "skim", "Gezählte Abschöpfung", {
+    Wallet: "Kasse Blau",
+    amount: "30,00",
+    Account: "Kasse Blau",
+    To: "Hauptkasse",
+  });
+  await press(a.p, "Sammelbetrag buchen");
+  await a.p.waitForFunction(
+    () => !document.querySelector('[aria-busy="true"]'),
+  );
+  await press(a.p, "Kassenbuch");
+  await a.p
+    .getByRole("cell", { name: "Barabrechnung Kasse Blau", exact: true })
+    .waitFor();
+  // 100.00 opening + 14.25 admission + (16.00 - 4.00 + 30.00) cash revenue.
+  await record(
+    a.p,
+    "Perioden",
+    "actual",
+    "Unabhängig gezählter Gesamtbestand",
+    { amount: "156,25" },
+  );
+  await sync(a.p);
+  const reviewer = "gesamt-" + eventID.slice(0, 8),
+    reviewerPassword = randomUUID();
+  await api("users", admin, {
+    Name: reviewer,
+    Password: reviewerPassword,
+    Role: "Prüfung",
+    Event: eventID,
+  });
+  const reviewDevice = await api("prepare", basic(reviewer, reviewerPassword), {
+    Event: eventID,
+    Name: "Abschlussprüfung",
+    DigitalCount: 0,
+  });
+  const review = (body) => api("sync", auth(reviewDevice), body);
+  await review({ Action: "Ende", Last: 0 });
+  await api("sync", auth(reviewDevice), { Action: "Abschluss" }, 422);
+  for (const p of [a.p, b.p]) {
+    await sync(p);
+    p.once("dialog", (dialog) => dialog.accept());
+    await press(p, "Mein Erfassungsende bestätigen");
+    await p.getByText("Erfassungsende bestätigt", { exact: true }).waitFor();
+  }
+  const closed = await review({ Action: "Abschluss" });
+  assert.equal(closed.closed, true);
+  assert.equal(closed.pending, 0);
+  assert.equal(closed.conflicts.length, 0);
+  await sync(a.p);
+  await press(a.p, "Datenaustausch");
+  const packageReady = a.p.waitForEvent("download");
+  await press(a.p, "Prüfpaket laden");
+  const archive = await readFile(await (await packageReady).path());
+  const contents = unzipSync(archive);
+  const manifest = JSON.parse(
+    new TextDecoder().decode(contents["manifest.json"]),
+  );
+  assert.equal(manifest.freigegeben, true);
+  assert.equal(manifest.veranstaltung, eventID);
+  assert.equal(
+    manifest.vorlagenstaende.Pruefbericht,
+    "closing_review_a4_new@standard",
+  );
+  assert.deepEqual(manifest.fehlendeDateien, []);
+  assert.deepEqual(manifest.offeneGeraete, []);
+  const covered = [...manifest.exportdateien, ...manifest.dateien];
+  assert.equal(covered.length, Object.keys(contents).length - 1);
+  for (const file of covered)
+    assert.equal(
+      createHash("sha256").update(contents[file.path]).digest("hex"),
+      file.sha256,
+      file.path,
+    );
+  assert.equal(manifest.konflikte, 0);
+  assert.equal(manifest.ausstehend, 0);
+  for (const f of [
+    "Pruefbericht.pdf",
+    "Pruefbericht.docx",
+    "Belegjournal.pdf",
+    "Belegjournal.docx",
+    "Journal.xlsx",
+    "Journal.csv",
+  ])
+    assert.ok(contents[f]?.length, f);
+  await writeFile("test-results/gesamtfall-pruefpaket.zip", archive);
+  await writeFile(
+    "test-results/gesamtfall.json",
+    JSON.stringify({
+      event: eventID,
+      actual: 15625,
+      originals: archiveRows.length,
+    }),
+  );
+  console.log(
+    "PASS derselbe Offline-Gesamtfall mit Rollenprüfung, manueller Istzählung, Gerätesiegeln, bestätigtem Abschluss und Prüfpaket",
   );
   console.log(
     "PASS Doppelklick vergibt ein Original; zwei reservierte Nummern verbraucht, Nullreserve sichtbar, weiterer PDF-Entwurf ohne neue Nummer",

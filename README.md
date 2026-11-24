@@ -11,19 +11,25 @@ Voraussetzungen sind Docker mit Compose und für die folgenden Betriebsbefehle P
 docker compose up -d --build --wait
 ```
 
-Auf bestehenden Entwicklungsinstallationen die vorhandene `.env` weiterverwenden. Die Oberfläche öffnet unter [localhost:8137](http://localhost:8137). Der Dienst `migrate` richtet Schema und Rollen ein und beendet sich anschließend. Der HTTP-Dienst läuft mit der eingeschränkten Datenbankrolle `bonfire_runtime`. `init.ps1` ergänzt deren Zufallskennwort auch bei bestehenden Entwicklungsinstallationen. Die erste Anmeldung verwendet `leitung` und den lokal generierten Wert von `BONFIRE_ADMIN_PASSWORD` aus `.env`. Das Startpasswort wird beim ersten Einrichten der Datenbank gehasht. Die Entwicklungsumgebung bindet den HTTP-Port an die Loopback-Adresse.
+Auf bestehenden Entwicklungsinstallationen die vorhandene `.env` weiterverwenden. Die Oberfläche öffnet unter [127.0.0.1:8137](http://127.0.0.1:8137). Der Dienst `migrate` richtet Schema und Rollen ein und beendet sich anschließend. Der HTTP-Dienst läuft mit der eingeschränkten Datenbankrolle `bonfire_runtime`. `init.ps1` ergänzt deren Zufallskennwort auch bei bestehenden Entwicklungsinstallationen. Die erste Anmeldung verwendet `leitung` und den lokal generierten Wert von `BONFIRE_ADMIN_PASSWORD` aus `.env`. Das Startpasswort wird beim ersten Einrichten der Datenbank gehasht. Die Entwicklungsumgebung bindet den HTTP-Port an die Loopback-Adresse.
+
+## Von der Anmeldung zum Finanzarbeitsplatz
+
+Nach der Anmeldung öffnet **Finanzen im Überblick** mit den Daten des oben ausgewählten Arbeitsbereichs. Die acht Module sind über die linke Navigation erreichbar, auf dem Handy über das Menü. Ein bestehendes gesperrtes Geräteprofil öffnet zunächst die lokale Entsperrung. **Erfassung vorbereiten** richtet den verschlüsselten Offlinezugang ein. Ein Wechsel zwischen localhost und 127.0.0.1 wechselt den Browserspeicher. Für vorbereitete Geräte dieselbe Adresse beibehalten. Bei einem Frontend-Update alle BONFIRE-Tabs und installierten App-Fenster schließen und die bisherige Adresse erneut öffnen. Im Browserspeicher liegen die verschlüsselten Arbeitsprofile samt noch ausstehenden Vorgängen.
 
 ## Von der Veranstaltung zum Abgleich
 
 1. Als Leitung anmelden und einen Arbeitsbereich mit frei wählbarem Zeitraum anlegen. Für laufende Buchungen außerhalb von Veranstaltungen steht das allgemeine Kassenbuch zur Auswahl. Die Kontozuordnung ist einstellbar. Bei Bedarf eigene Benutzer für Kassa oder Prüfung anlegen und der Veranstaltung zuweisen.
-2. Jeden vorgesehenen Browser separat vorbereiten. Ein eigenes lokales Passwort schützt den verschlüsselten Gerätespeicher. Das Offlinepaket muss beim Vorbereiten vollständig installiert sein. Die zeitlich begrenzte Freigabe gilt für den gewählten Arbeitsbereich. Mit persönlicher Onlineanmeldung kann ein unverändert berechtigtes Gerät dieselbe Freigabe verlängern. Nummern und ausstehende Vorgänge bleiben zugeordnet. Der Button „Gerät sperren“ verwirft den entsperrten Speicher im Tab.
+2. Jeden vorgesehenen Browser separat vorbereiten. Ein eigenes lokales Passwort schützt den verschlüsselten Gerätespeicher. Das Offlinepaket muss beim Vorbereiten vollständig installiert sein. Die zeitlich begrenzte Freigabe gilt für den gewählten Arbeitsbereich. Mit persönlicher Onlineanmeldung kann ein unverändert berechtigtes Gerät dieselbe Freigabe verlängern. Nummern und ausstehende Vorgänge bleiben zugeordnet. Der Button „Arbeitsplatz schließen“ verwirft den entsperrten Speicher im Tab.
 3. Geldtaschen und Bars anlegen und vor der Trennung auf allen Geräten abgleichen. Danach lassen sich Journal, Stückelung, Zählungen, Kontakte, Spenden, Forderungen und Artikel lokal bearbeiten. Gerätespeicher und Browserprofil auch nach Veranstaltungsende bis zur Prüfung erhalten.
 4. Unter **Dokumente** den Fachvorgang wählen. Die elf Profile erzeugen PDF oder DOCX lokal. Geänderte Vorlagen werden als Entwürfe gespeichert. Die Leitung gibt Fassungen frei. Andere Geräte übernehmen einen neuen Vorlagenstand ausdrücklich. Für Korrekturbelege sind Vorgänger und Grund erforderlich. Nummerierte Testoriginale werden mit beiden Dateiformaten verschlüsselt gespeichert und anschließend angeboten. Der gemeinsame Abgleich übernimmt die Dateien ins Archiv.
 5. Unter **Gerät & Sync** ausstehende Vorgänge übertragen und den Stand anderer Geräte abrufen. Bei einer konkurrierenden Änderung sieht die Leitung die gespeicherte Fassung und den Vorschlag. Eine begründete Entscheidung wird protokolliert.
 6. Eröffnungs- und Istbestand erfassen. Jedes vorbereitete Gerät bestätigt nach der letzten Erfassung sein Ende. Der Veranstaltungsabschluss verlangt eine Prüfrolle, passende Istbestände, alle Gerätesiegel und einen konfliktfreien Abgleich. Bei Geräteverlust sperrt die Leitung das Profil und dokumentiert die Lücke. Nach der Rückkehr prüft sie nachgereichte Vorgänge einzeln. Das Gerät bestätigt sein Erfassungsende selbst. Ein Erfassungsende darf erst nach tatsächlichem Abschluss der Arbeit bestätigt werden.
-7. Prüfpaket, Journal und Importvorschau stehen unter **Datenaustausch**. Die Vorschau zeigt Herkunft und Prüffälle. Die ausdrücklich bestätigte Übernahme einer geeigneten Zeile verknüpft die Buchung mit dem Quellstand. Im Entwicklungstest ausschließlich mit erfundenen Beispielen arbeiten.
+7. Prüfpaket, Journal und Importvorschau stehen unter **Verwaltung → Datenaustausch**. Das Paketmanifest enthält die SHA-256-Werte der beigefügten Dateien, die verwendeten Berichtsvorlagen sowie offene Geräte und fehlende Kopien. Die Vorschau zeigt Herkunft und Prüffälle. Die ausdrücklich bestätigte Übernahme einer geeigneten Zeile verknüpft die Buchung mit dem Quellstand. Im Entwicklungstest ausschließlich mit erfundenen Beispielen arbeiten.
 
 ## Entwicklung und Tests
+
+Der folgende Abnahmelauf erstellt ein eigenes Compose-Projekt mit leerer Datenbank und zufälligem Loopback-Port. Er entfernt anschließend sein Testvolume. Erzeugte Berichte, Screenshots und Sicherungen liegen lokal unter `test-results/`. Bestehende Testeinträge aus früheren Läufen in einer Arbeitsinstallation bleiben dort erhalten.
 
 ```powershell
 go test ./...
@@ -31,26 +37,8 @@ go vet ./...
 npm ci
 npm test
 npm run build
-node tests/api.mjs
-node tests/accounts.mjs
-node tests/import.mjs
-node tests/security.mjs
-node tests/incidents.mjs
-node tests/donation-reports.mjs
-node tests/wallet-settlement.mjs
-node tests/prices.mjs
-node tests/conflict-originals.mjs
-node tests/lifecycle.mjs
-node tests/account-mode.mjs
-node tests/carry-forward.mjs
-node tests/attachments.mjs
-node tests/layout-limits.mjs
 npx playwright install chromium
-node tests/offline.mjs
-node tests/documents.mjs
-node tests/storage.mjs
-node tests/word-layout.mjs
-./ops/verify-restore.ps1 -Path test-results/abnahme.dump
+./ops/acceptance.ps1
 ```
 
 Die API- und Browserprüfungen arbeiten gegen den laufenden lokalen Stack und verwenden neue erfundene Datensätze. Der Restore benötigt API-Fixture und mindestens ein synchronisiertes Original aus dem Browsertest. Der Dump-Pfad muss neu sein. Optional bezeichnet `BONFIRE_BROWSER` die ausführbare Datei eines bereits installierten Chromium-Browsers. Die Tests geben keine Gerätekennwörter oder Beleginhalte aus.

@@ -370,6 +370,7 @@ func main() {
 	mux.HandleFunc("POST /api/logout", route(a.logout))
 	mux.HandleFunc("POST /api/mfa", route(a.mfa))
 	mux.HandleFunc("POST /api/manage", route(a.manage))
+	mux.HandleFunc("GET /api/workplace", route(a.workplace))
 	mux.HandleFunc("GET /api/events", route(a.events))
 	mux.HandleFunc("POST /api/events", route(a.events))
 	mux.HandleFunc("POST /api/prepare", route(a.prepare))
