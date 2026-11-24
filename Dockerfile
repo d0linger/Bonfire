@@ -14,7 +14,8 @@ COPY *.go ./
 COPY migrations ./migrations
 RUN CGO_ENABLED=0 go build -trimpath -o /bonfire .
 
-FROM postgres:18-alpine AS backup-worker
+FROM alpine:3.24 AS backup-worker
+RUN apk add --no-cache postgresql18-client tzdata ca-certificates
 WORKDIR /app
 COPY --from=server /bonfire /app/bonfire
 RUN mkdir -p /var/lib/bonfire-backup /var/lib/bonfire-key /run/bonfire-backup && chown -R 65532:65532 /var/lib/bonfire-backup /var/lib/bonfire-key /run/bonfire-backup

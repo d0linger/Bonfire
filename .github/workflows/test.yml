@@ -25,6 +25,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - run: npm ci
       - run: make lint
       - run: make test
       - run: npm run build

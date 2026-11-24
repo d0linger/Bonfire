@@ -1,6 +1,6 @@
 module github.com/d0linger/bonfire
 
-go 1.27.0
+go 1.27.4
 
 require (
 	github.com/go-webauthn/webauthn v0.18.2
