@@ -230,22 +230,9 @@ let s,
   filter = "",
   journalFilters = {},
   busy = false;
-// The legacy worker can serve a prepared test installation after a cold restart.
-let offlineEnabled = false;
-try {
-  offlineEnabled =
-    (await (await fetch("/api/mode", { cache: "no-store" })).json()).offline ===
-    true;
-  if (offlineEnabled) localStorage.setItem("bonfire-legacy-mode", "1");
-  else localStorage.removeItem("bonfire-legacy-mode");
-} catch {
-  offlineEnabled = localStorage.getItem("bonfire-legacy-mode") === "1";
-}
-const sw = offlineEnabled
-  ? navigator.serviceWorker
-      ?.register("/sw.js")
-      .then(() => navigator.serviceWorker.ready)
-  : undefined;
+// Preserve legacy device data until a separate migration is agreed.
+const offlineEnabled = false;
+const sw = undefined;
 if (!offlineEnabled && navigator.serviceWorker)
   navigator.serviceWorker
     .getRegistration()

@@ -1,9 +1,18 @@
 name: Prüfung
-on: [push, pull_request]
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: bonfire-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
   test:
+    name: Online acceptance
+    timeout-minutes: 45
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -16,42 +25,30 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: go test ./... && go vet ./...
-      - run: npm ci && npm test && npm run build
-      - shell: bash
+      - run: make lint
+      - run: make test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - shell: pwsh
         run: |
-          printf 'BONFIRE_ADMIN_PASSWORD=%s\nBONFIRE_DB_PASSWORD=%s\n' "$(openssl rand -hex 24)" "$(openssl rand -hex 24)" > .env
-          printf 'BONFIRE_RUNTIME_PASSWORD=%s\n' "$(openssl rand -hex 24)" >> .env
-          npx playwright install --with-deps chromium
-          pwsh ./ops/accept-online.ps1
-          export BONFIRE_OFFLINE_ENABLED=true
-          docker compose up -d --build --wait
-          node tests/api.mjs
-          node tests/accounts.mjs
-          node tests/import.mjs
-          node tests/security.mjs
-          node tests/incidents.mjs
-          node tests/donation-reports.mjs
-          node tests/wallet-settlement.mjs
-          node tests/prices.mjs
-          node tests/conflict-originals.mjs
-          node tests/lifecycle.mjs
-          node tests/account-mode.mjs
-          node tests/carry-forward.mjs
-          node tests/attachments.mjs
-          node tests/layout-limits.mjs
-          BONFIRE_URL=http://127.0.0.1:8137 node tests/workplace.mjs
-          BONFIRE_URL=http://127.0.0.1:8137 node tests/login.mjs
-          node tests/offline.mjs
-          node tests/documents.mjs
-          node tests/storage.mjs
-          node tests/word-layout.mjs
-      - name: Verschlüsselte Wiederherstellung prüfen
-        shell: pwsh
-        run: |
-          $env:BONFIRE_OFFLINE_ENABLED = 'true'
-          $key = Join-Path $env:RUNNER_TEMP 'bonfire-ci.key'
-          node ops/crypt.mjs keygen $key
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          $archive = & ./ops/rotate-backup.ps1 -Directory test-results -KeyFile $key
-          & ./ops/verify-restore.ps1 -Path $archive -KeyFile $key -VerifyExercise
+          ./ops/init.ps1
+          ./ops/accept-online.ps1
+  container:
+    uses: ./.github/workflows/container.yml
+  security:
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      pull-requests: read
+  gate:
+    name: BONFIRE required checks
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    needs: [test, security, container]
+    env:
+      ONLINE: ${{ needs.test.result }}
+      CONTAINER: ${{ needs.container.result }}
+      SECURITY: ${{ needs.security.result }}
+    steps:
+      - run: test "$ONLINE" = success && test "$SECURITY" = success && test "$CONTAINER" = success

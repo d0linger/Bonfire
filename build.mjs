@@ -158,4 +158,4 @@ await writeFile(
     ";\n" +
     sw,
 );
-console.log("Offlinepaket", version, "Logo SHA-256", brandHash);
+console.log("Web-Build", version, "Logo SHA-256", brandHash);

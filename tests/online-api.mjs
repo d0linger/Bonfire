@@ -384,8 +384,7 @@ const first = make("income", "Barzahlung", 100),
   );
 }
 await Promise.all([
-  send({ Ops: [first] }),
-  send({ Ops: [first] }),
+  ...Array.from({ length: 5 }, () => send({ Ops: [first] })),
   send({ Ops: [other] }),
 ]);
 let current = await send({});

@@ -1,4 +1,20 @@
-# BONFIRE · Feuerwehrfinanzen
+<div align="center">
+
+<img src="docs/logo-original.svg" width="80" alt="BONFIRE">
+
+# BONFIRE
+
+**Self-hosted fire brigade finance ledger** for fiscal years, events, cash wallets, donations and receipts. Go, PostgreSQL and Docker Compose.
+
+[![CI](https://github.com/d0linger/bonfire/actions/workflows/test.yml/badge.svg?branch=dev)](https://github.com/d0linger/bonfire/actions/workflows/test.yml)
+
+</div>
+
+## Screenshots
+
+![BONFIRE-Anmeldung im Hellmodus](docs/login-light.png)
+
+## Features
 
 ### Kassenalltag der beiden Kassiere
 
@@ -83,23 +99,20 @@ Für einen vollständigen S3-Probelauf mit einem lokalen S3-kompatiblen Dienst u
 
 ## Entwicklung und Tests
 
-Der folgende Abnahmelauf erstellt eigene Compose-Projekte für Online- und Offlineprüfungen mit jeweils leerer Datenbank und zufälligem Loopback-Port. Er entfernt anschließend die Testvolumes. Erzeugte Berichte, Screenshots und Sicherungen liegen lokal unter `test-results/`. Bestehende Testeinträge aus früheren Läufen in einer Arbeitsinstallation bleiben dort erhalten.
+Die Onlineabnahme verwendet ein eigenes Compose-Projekt mit PostgreSQL, synthetischen Daten und zufälligem lokalen Port. Sie prüft die Anmeldung, Geschäftsjahre, Buchungen und den Restore. Für die Browserprüfungen Chromium installieren.
 
 ```powershell
+./ops/init.ps1
 go test ./...
 go vet ./...
 npm ci
 npm test
 npm run build
 npx playwright install chromium
-./ops/acceptance.ps1
+./ops/accept-online.ps1
 ```
 
-Die API- und Browserprüfungen arbeiten gegen den laufenden lokalen Stack und verwenden neue erfundene Datensätze. Die gesonderte historische Offlineprüfung verwendet ihre eigene API-Fixture und ein synchronisiertes Original aus dem Browsertest. Der Dump-Pfad muss neu sein. Optional bezeichnet `BONFIRE_BROWSER` die ausführbare Datei eines bereits installierten Chromium-Browsers. Die Tests geben keine Gerätekennwörter oder Beleginhalte aus.
-
-Eine optionale Übungsveranstaltung für eine isolierte lokale Installation erzeugt `node ops/seed.mjs`. `./ops/accept-online.ps1` prüft den normalen Jahres- und Buchungsablauf. Die vollständige Abnahme aktiviert den historischen Offlinebetrieb zusätzlich in einer getrennten Prüfinstallation.
-
-Für Dankesbriefe unterstützt der lokale Word-Layoutimport A4-DOCX mit Tabellen, PNG/JPEG, Kopf-/Fußteilen und expliziten Seitenumbrüchen. BONFIRE-Felder in doppelten geschweiften Klammern dürfen über mehrere Word-Textläufe verteilt sein. Im Entwurfsmodus lassen sich beide Formate vor der Freigabe prüfen. Das DOCX bleibt editierbar. Für das PDF dieser importierten Layouts werden die gerenderten Seiten lokal als Bilder eingebettet. Die Standardprofile erzeugen PDF mit auswählbarem Text.
+[Teststrategie](docs/testing.md) · [Referenzvergleich](docs/reference-reuse.md) · [Offline derzeit deaktiviert; Spezifikation offen](docs/offline-backlog.md) · [Issues](https://github.com/d0linger/bonfire/issues) · [Releases](https://github.com/d0linger/bonfire/releases)
 
 ## Betrieb, Aktualisierung und Sicherung
 
@@ -127,8 +140,8 @@ Die [Betriebsanleitung](docs/BETRIEB.md) beschreibt Rollen, Sicherungsprüfung u
 
 ## Technische Entscheidungen
 
-Go mit pgx, PostgreSQL und ein statisch gebündelter Browserclient halten die einzelne Schreibinstanz und den autonomen Offlinebetrieb getrennt. Beim Abgleich serialisiert eine Zeilensperre die Vorgänge derselben Veranstaltung. Der Server prüft Gerätefolge, Operationsidentität, Digest, erwartete Revision und fachliche Grenzen. Eine ID mit geändertem Inhalt wird abgelehnt. Gleich hohe Beträge verschiedener Vorgänge behalten eigene Identitäten.
+Der Browserclient sendet Buchungen über das Go-Backend an PostgreSQL. Beim Abgleich serialisiert eine Zeilensperre die Vorgänge derselben Veranstaltung. Der Server prüft Gerätefolge, Operationsidentität, Digest, erwartete Revision und fachliche Grenzen. Eine ID mit geändertem Inhalt wird abgelehnt. Gleich hohe Beträge verschiedener Vorgänge behalten eigene Identitäten.
 
 Die produktbezogene Marke kommt ausschließlich aus `lucide@1.17.0` (Flame), mit dokumentierten Farben, Abmessungen und Strichstärke 1,7. Der Build erzeugt das transparente SVG und Raster-Icons in 32, 192 und 512 Pixeln. SHA-256 des SVG ist `f12b47ae30d1c088420b3407eae7ad912218208440d851c8c848772ec7f46119`. Die Wortmarke nutzt die übergebenen HTML-Schriftparameter. Renderer und Marke werden lokal gebündelt.
 
-Die Cache-Navigation verwendet den kanonischen Pfad `/`. Die bereitgestellte Anwendung öffnet so auch nach Beenden des Browsers mit getrenntem Server. Quellen zu den eingesetzten Mechanismen: [Cache.addAll](https://developer.mozilla.org/en-US/docs/Web/API/Cache/addAll), [IndexedDB-Transaktionen](https://developer.mozilla.org/en-US/docs/Web/API/IDBDatabase/transaction), [PostgreSQL-Zeilensperren](https://www.postgresql.org/docs/current/explicit-locking.html).
+Die installierte PWA benötigt für die Finanzfunktionen ein erreichbares Backend. Offline-Erfassung, automatische Nachbuchung und Offline-Belegausgabe sind zurückgestellt.

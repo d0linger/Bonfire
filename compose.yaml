@@ -33,7 +33,6 @@ services:
         condition: service_completed_successfully
     environment:
       BONFIRE_BACKUP_SOCKET: /run/bonfire-backup/worker.sock
-      BONFIRE_OFFLINE_ENABLED: ${BONFIRE_OFFLINE_ENABLED:-false}
       BONFIRE_PASSKEY_ORIGIN: ${BONFIRE_PASSKEY_ORIGIN:-http://localhost:${BONFIRE_PORT:-8137}}
       DATABASE_URL: postgres://bonfire_runtime:${BONFIRE_RUNTIME_PASSWORD}@db/bonfire?sslmode=disable
     ports:

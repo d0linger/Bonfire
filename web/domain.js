@@ -104,7 +104,7 @@ export function cents(s) {
 }
 export function totalPieces(p) {
   return Object.entries(p).reduce((sum, [k, n]) => {
-    if (!denom.includes(+k) || !Number.isSafeInteger(n) || n < 0 || n > 1000000)
+    if (String(+k) !== k || !denom.includes(+k) || !Number.isSafeInteger(n) || n < 0 || n > 1000000)
       throw Error("Gültige ganze Stückzahlen eingeben.");
     return sum + n * +k;
   }, 0);

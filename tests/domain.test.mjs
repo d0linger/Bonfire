@@ -150,3 +150,12 @@ test("Erstattung und interne Umbuchung zählen einmal", () => {
   assert.equal(s.result, 7000);
   assert.equal(s.outstanding, 0);
 });
+
+test("R01 gemeinsame Referenzzählungen", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const cases = JSON.parse(await readFile(new URL("./cash-vectors.json", import.meta.url)));
+  for (const vector of cases) {
+    if (vector.valid) assert.equal(totalPieces(vector.pieces), vector.amount, vector.name);
+    else assert.throws(() => totalPieces(vector.pieces), undefined, vector.name);
+  }
+});

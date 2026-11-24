@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"os"
 
 	"github.com/jackc/pgx/v5"
 )
 
-func offlineEnabled() bool { return os.Getenv("BONFIRE_OFFLINE_ENABLED") == "true" }
+func offlineEnabled() bool { return false }
 
 // The server actor preserves the author and numbering of online transactions.
 // Its identifier is public. Only a live account session authorizes a request.

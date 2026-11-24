@@ -2,7 +2,7 @@
 
 ## Aktueller Onlinebetrieb
 
-Die Jahresauswahl, Anlage und Zuordnung vorhandener Arbeitsbereiche beschreibt der [lokale Einstieg](../README.md). Geschäftsjahreswahl und direkter Serverzugriff sind die Standardeinstellung. Die Anleitungen dieses Dokuments zu Geräteprofilen, Gerätesiegeln und Offlineabgleich gelten für den früheren Gerätebetrieb. Für dessen gesonderte Abnahme aktiviert das Prüfskript ausschließlich im Prüfstack `BONFIRE_OFFLINE_ENABLED=true`.
+Die Jahresauswahl, Anlage und Zuordnung vorhandener Arbeitsbereiche beschreibt der [lokale Einstieg](../README.md). Geschäftsjahreswahl und direkter Serverzugriff sind die Standardeinstellung. Die Anleitungen dieses Dokuments zu Geräteprofilen, Gerätesiegeln und Offlineabgleich gelten für den früheren Gerätebetrieb. Der Gerätebetrieb ist zurückgestellt. [Abgrenzung und Umgang mit Altbeständen](offline-backlog.md).
 
 ## Installation und Zuständigkeit
 
