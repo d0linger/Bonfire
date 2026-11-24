@@ -6,7 +6,7 @@ Der [Abgleich mit der Designübergabe](DESIGNABGLEICH.md) ordnet die acht Hauptm
 
 ## Geschäftsjahre und Onlineerfassung
 
-`tests/action-spacing.mjs` misst die sichtbaren Abstände von Schaltflächen, Links und aufklappbaren Bereichen in 31 Ansichten und Dialogzuständen bei 390 und 1440 Pixeln. Geprüft wurden unter anderem leere und gefüllte Kontaktlisten, Buchungserfassung, Veranstaltungsreiter und Verwaltungsdialoge. `tests/year-workplace.mjs` prüft zusätzlich, dass eine eingeklappte Belegreferenz gespeichert wird und beim Bearbeiten wieder zur Verfügung steht.
+`tests/action-spacing.mjs` misst die sichtbaren Abstände von Schaltflächen, Links und aufklappbaren Bereichen in 33 Ansichten und Dialogzuständen bei 390 und 1440 Pixeln. Der Browsertest legt Kontakte und Spenden im modalen Fenster an, berichtigt sie und prüft das Ergebnis in der Liste. Er prüft außerdem die Tastaturrückkehr nach dem Abbrechen einer Archivierung. `tests/year-workplace.mjs` prüft Geschäftsjahr, Veranstaltung und Buchung über die Erfassungsfenster, einschließlich Escape, Belegreferenz und Wiederholung einer Buchung nach Verbindungsabbruch.
 
 Die Jahresauswahl in der linken Navigation wurde mit einer überjährigen Periode und einem 390-Pixel-Browserfenster geprüft. Das ausgewählte Jahr steuert die Arbeitsbereichsliste. Der Zeitraum unter dem Jahr nennt das Kalenderjahr an jeder abweichenden Grenze. [Mockup der geöffneten Jahresauswahl](verwaltung-konzept/jahresauswahl-offen.png) · [Mobile Ansicht](verwaltung-konzept/jahresauswahl-mobil.png)
 

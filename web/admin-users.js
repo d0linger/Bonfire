@@ -253,12 +253,12 @@ export async function mountUsers(host, { api }) {
   function editor(action) {
     const user = data.users.find((u) => u.ID === selected);
     const dialog = document.createElement("dialog");
-    dialog.className = "account-editor";
+    dialog.className = "account-editor entry-modal";
     dialog.setAttribute("aria-labelledby", "account-editor-title");
     dialog.innerHTML =
-      '<form><h2 id="account-editor-title">' +
+      '<form><div class="panel-head"><h2 id="account-editor-title">' +
       titles[action] +
-      "</h2>" +
+      '</h2><button type="button" class="entry-close" data-account-close aria-label="Schließen">×</button></div>' +
       (action === "create" ? "" : "<p>" + esc(person(user)) + "</p>") +
       (summaries[action] ? "<p>" + summaries[action] + "</p>" : "") +
       editFields(action, action === "create" ? null : user, data.events) +
@@ -270,9 +270,9 @@ export async function mountUsers(host, { api }) {
     dialog.addEventListener("cancel", (e) => {
       if (saving) e.preventDefault();
     });
-    dialog.querySelector("[data-account-close]").onclick = () => {
-      if (!saving) dialog.close();
-    };
+    dialog.addEventListener("click", (e) => {
+      if (!saving && e.target.closest("[data-account-close]")) dialog.close();
+    });
     dialog.querySelector("form").onsubmit = async (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -319,6 +319,7 @@ export async function mountUsers(host, { api }) {
       }
     };
     dialog.showModal();
+    dialog.querySelector("input:not([type=hidden]), select, textarea")?.focus();
   }
   root.addEventListener("click", async (e) => {
     e.stopPropagation();

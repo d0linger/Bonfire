@@ -113,6 +113,84 @@ const form = (id, inner, submit, secondaryAction = "") =>
   secondaryAction +
   "</div></form>";
 const panel = (t, c) => "<section><h2>" + esc(t) + "</h2>" + c + "</section>";
+function popupForm(id, title, fields, submitLabel) {
+  return (
+    '<button type="button" data-open-form="' +
+    esc(id) +
+    '" aria-haspopup="dialog">' +
+    esc(title) +
+    "</button><template>" +
+    form(id, fields, submitLabel, button("cancel", "Abbrechen", true)) +
+    "</template>"
+  );
+}
+const entryDialog = document.querySelector("#entry-dialog");
+let entryTrigger;
+function openEditor(trigger, title, content, selector = "") {
+  entryTrigger = trigger;
+  entryDialog.innerHTML =
+    '<div class="panel-head"><h2 id="entry-title">' +
+    esc(title) +
+    '</h2><button type="button" class="entry-close" data-act="cancel" aria-label="Schließen">×</button></div>' +
+    selector +
+    content +
+    '<div class="entry-error" role="alert"></div>';
+  entryDialog.showModal();
+  entryDialog
+    .querySelector("form input:not([type=hidden]), form select, form textarea")
+    ?.focus();
+}
+function openReasonEditor(trigger, title, subject, saveReason) {
+  openEditor(
+    trigger,
+    title,
+    "<p>" +
+      esc(subject) +
+      "</p>" +
+      form(
+        "entry-reason",
+        field("reason", "Begründung", "text", true),
+        title,
+        button("cancel", "Abbrechen", true),
+      ),
+  );
+  entryDialog.querySelector("form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    action(async () => {
+      const reason = new FormData(event.target).get("reason").trim();
+      if (!reason) throw Error("Begründung angeben.");
+      await saveReason(reason);
+      show();
+      closeEditor();
+    });
+  });
+}
+function closeEditor() {
+  if (!entryDialog.open) return;
+  entryDialog.close();
+  entryDialog.replaceChildren();
+  edit = null;
+  const key = [
+    "data-edit",
+    "data-lifecycle",
+    "data-settle",
+    "data-open-form",
+    "data-act",
+  ].find((k) => entryTrigger?.hasAttribute(k));
+  const target = entryTrigger?.isConnected
+    ? entryTrigger
+    : key &&
+      article.querySelector(
+        "[" + key + '="' + CSS.escape(entryTrigger.getAttribute(key)) + '"]',
+      );
+  (target || article).focus({ preventScroll: true });
+  entryTrigger = null;
+}
+entryDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  if (!busy) closeEditor();
+});
 const heading = (t) => "<h1>" + esc(t) + "</h1>";
 let profilesLocal = [];
 let importFile = null,
@@ -511,8 +589,9 @@ function incidentPanel() {
         allowed.includes(d.IncidentState || ""),
     );
     if (choices.length && s.role === role)
-      content += form(
+      content += popupForm(
         id,
+        label,
         select(
           "device",
           "Betroffenes Gerät",
@@ -680,8 +759,9 @@ function devicePage() {
     (s.role === "Leitung"
       ? panel(
           "Veranstaltung verwalten",
-          form(
+          popupForm(
             "copy",
+            "Veranstaltung kopieren",
             field("name", "Name der neuen Veranstaltung", "text", true) +
               field("start", "Neuer Beginn", "date", true, s.event.Starts) +
               field("end", "Neues Ende", "date", true, s.event.Ends),
@@ -689,8 +769,9 @@ function devicePage() {
           ) +
             esc(syncDetail) +
             (s.closed
-              ? form(
+              ? popupForm(
                   "reopen",
+                  "Arbeitsbereich wieder öffnen",
                   field("reason", "Begründung", "text", true),
                   "Veranstaltung wieder öffnen",
                 )
@@ -1155,8 +1236,9 @@ function records() {
             .join("") +
           "</table></div>" +
           (s.role === "Leitung" && originals.length
-            ? form(
+            ? popupForm(
                 "dispatch",
+                "Übergabe dokumentieren",
                 select("original", "Ausgestellter Beleg", originals) +
                   select(
                     "delivery",
@@ -1215,8 +1297,9 @@ function records() {
         .join("");
   }
   if (page === "Perioden" && s.role !== "Kassa") {
-    detail += form(
+    detail += popupForm(
       "periodAction",
+      "Periodenstand ändern",
       refs("id", "Abrechnungsperiode", ["period"]) +
         select(
           "action",
@@ -1230,8 +1313,9 @@ function records() {
     );
   }
   if (page === "Perioden" && s.role === "Leitung")
-    detail += form(
+    detail += popupForm(
       "carry",
+      "Vorperiodenstand übernehmen",
       refs("period", "Zielperiode", ["period"]) +
         field("reason", "Begründung bei Austausch eines früheren Übertrags"),
       "Bestätigten Vorperiodenstand übernehmen",
@@ -1290,25 +1374,21 @@ function records() {
     !s.sealed &&
     s.role !== "Prüfung"
   ) {
-    detail +=
-      "<details><summary>Physische Übergabe dokumentieren (optional)</summary>" +
-      form(
-        "handover",
-        refs("wallet", "Geldtasche", ["wallet"]) +
-          select(
-            "to",
-            "Empfangendes Gerät",
-            (s.devices || [])
-              .filter((d) => !d.Sealed)
-              .map((d) => [d.ID, d.Name]),
-          ) +
-          select("status", "Übergabe", [
-            ["Angeboten", "Übergabe anbieten"],
-            ["Bestätigt", "Empfang bestätigen"],
-          ]),
-        "Übergabe dokumentieren",
-      ) +
-      "</details>";
+    detail += popupForm(
+      "handover",
+      "Physische Übergabe dokumentieren",
+      refs("wallet", "Geldtasche", ["wallet"]) +
+        select(
+          "to",
+          "Empfangendes Gerät",
+          (s.devices || []).filter((d) => !d.Sealed).map((d) => [d.ID, d.Name]),
+        ) +
+        select("status", "Übergabe", [
+          ["Angeboten", "Übergabe anbieten"],
+          ["Bestätigt", "Empfang bestätigen"],
+        ]),
+      "Übergabe dokumentieren",
+    );
   }
   return (
     "<section>" +
@@ -1333,34 +1413,57 @@ function records() {
     "</details>" +
     table(set, true) +
     detail +
-    "</section>" +
-    ((entryOpen || edit) &&
-    !s.sealed &&
-    !s.closed &&
-    s.role !== "Prüfung" &&
-    (page !== "Verwaltung" || s.role === "Leitung")
-      ? '<section class="record-editor"><div class="panel-head"><h2>' +
-        (edit ? "Eintrag berichtigen" : "Eintrag erfassen") +
-        "</h2>" +
-        select(
+    "</section>"
+  );
+}
+function recordForm() {
+  return form(
+    "record",
+    formFields(kind),
+    edit
+      ? "Berichtigung speichern"
+      : offlineEnabled
+        ? "Lokal speichern"
+        : "Speichern",
+    button("cancel", "Abbrechen", true),
+  );
+}
+function entryLabel(page) {
+  return (
+    {
+      Journal: "Buchung erfassen",
+      Kontakte: "Kontakt anlegen",
+      Spenden: "Spende erfassen",
+      Preise: "Preis anlegen",
+    }[page] || "Eintrag erfassen"
+  );
+}
+function openRecord(trigger, item = null) {
+  canWrite();
+  const kinds = recordKinds(page);
+  if (page === "Verwaltung" && s.role !== "Leitung") return;
+  edit = item;
+  kind = item?.Kind || (kinds.includes(kind) ? kind : kinds[0]);
+  const selector =
+    kinds.length > 1
+      ? select(
           "type",
           "Vorgang",
           kinds.map((k) => [k, types[k]]),
-        ) +
-        "</div>" +
-        form(
-          "record",
-          formFields(kind),
-          edit
-            ? "Berichtigung speichern"
-            : offlineEnabled
-              ? "Lokal speichern"
-              : "Speichern",
-          button("cancel", "Abbrechen", true),
-        ) +
-        "</section>"
-      : "")
+        )
+      : "";
+  openEditor(
+    trigger,
+    item ? types[kind] + " berichtigen" : entryLabel(page),
+    recordForm(),
+    selector,
   );
+  const type = entryDialog.querySelector("[name=type]");
+  if (type) {
+    type.value = kind;
+    type.disabled = !!item;
+  }
+  if (item) fillRecord(entryDialog.querySelector("#record"));
 }
 let donorReview;
 const donorRequest = (body) => api("donation-reports", body, bearer());
@@ -1418,8 +1521,9 @@ function donationPanel() {
   };
   const options =
     latest && latest.status !== "Korrektur" ? next[latest.status] : ["Geprüft"];
-  content += form(
+  content += popupForm(
     "donorDecision",
+    "Prüfvermerk erfassen",
     select(
       "step",
       "Entscheidung",
@@ -1531,8 +1635,9 @@ function exchange() {
               )
               .join("") +
             "</table></div>" +
-            form(
+            popupForm(
               "importRow",
+              "Importzeile prüfen",
               select(
                 "ix",
                 "Einzeln geprüfte Zeile",
@@ -1880,8 +1985,9 @@ const defaultDay = (scope) =>
     ? today()
     : scope.Starts;
 function yearForm() {
-  return form(
+  return popupForm(
     "fiscal-year",
+    "Geschäftsjahr anlegen",
     field("Name", "Bezeichnung", "text", true) +
       field("Starts", "Von", "date", true) +
       field("Ends", "Bis", "date", true),
@@ -1894,6 +2000,7 @@ function yearSetup() {
     pageHead(
       "Geschäftsjahre",
       "Wähle das Geschäftsjahr für eure Kassenführung.",
+      onlineUser.role === "Leitung" ? yearForm() : "",
     ) +
     (years.length
       ? panel(
@@ -1914,18 +2021,17 @@ function yearSetup() {
             .join(""),
         )
       : "") +
-    (onlineUser.role === "Leitung"
-      ? panel("Geschäftsjahr anlegen", yearForm())
-      : !years.length
-        ? "<p>Dir wurde noch kein Arbeitsbereich in einem Geschäftsjahr zugewiesen.</p>"
-        : "") +
+    (onlineUser.role !== "Leitung" && !years.length
+      ? "<p>Dir wurde noch kein Arbeitsbereich in einem Geschäftsjahr zugewiesen.</p>"
+      : "") +
     (old.length
       ? panel(
           "Bisherige Arbeitsbereiche",
           '<button class="secondary" data-year="unassigned">Ohne Jahreszuordnung öffnen</button>' +
             (onlineUser.role === "Leitung" && years.length
-              ? form(
+              ? popupForm(
                   "assign-year",
+                  "Geschäftsjahr zuordnen",
                   select(
                     "Event",
                     "Arbeitsbereich",
@@ -1946,19 +2052,17 @@ function yearSetup() {
 function eventForm() {
   const year = fiscalYear(),
     day = defaultDay(year);
-  return panel(
+  return popupForm(
+    "event",
     "Veranstaltung anlegen",
-    form(
-      "event",
-      field("Name", "Veranstaltungsname", "text", true) +
-        field("Starts", "Beginn", "date", true, day) +
-        field("Ends", "Ende", "date", true, day) +
-        select("Accounts", "Kontozuordnung", [
-          ["", "Aus"],
-          ["ja", "Ein"],
-        ]),
-      "Veranstaltung speichern",
-    ),
+    field("Name", "Veranstaltungsname", "text", true) +
+      field("Starts", "Beginn", "date", true, day) +
+      field("Ends", "Ende", "date", true, day) +
+      select("Accounts", "Kontozuordnung", [
+        ["", "Aus"],
+        ["ja", "Ein"],
+      ]),
+    "Veranstaltung speichern",
   );
 }
 function eventsOfYear() {
@@ -1967,6 +2071,7 @@ function eventsOfYear() {
     pageHead(
       "Veranstaltungen",
       fiscalYear()?.Name || "Bisherige Arbeitsbereiche",
+      fiscalYear() && onlineUser.role === "Leitung" ? eventForm() : "",
     ) +
     panel(
       "Veranstaltungen im Geschäftsjahr",
@@ -1986,8 +2091,7 @@ function eventsOfYear() {
             )
             .join("")
         : "<p>Für dieses Geschäftsjahr gibt es noch keine Veranstaltung.</p>",
-    ) +
-    (fiscalYear() && onlineUser.role === "Leitung" ? eventForm() : "")
+    )
   );
 }
 async function selectFiscalWorkspace(yearID, eventID) {
@@ -2005,7 +2109,6 @@ async function selectFiscalWorkspace(yearID, eventID) {
   events = spaces;
   preferredEvent = chosen?.ID || "";
   s = out ? onlineSnapshot(out) : null;
-  entryOpen = false;
   edit = null;
   filter = "";
   journalFilters = {};
@@ -2028,8 +2131,9 @@ function onlineAdmin() {
     (offlineEnabled && onlineUser?.role === "Leitung"
       ? panel(
           "Veranstaltung anlegen",
-          form(
+          popupForm(
             "event",
+            "Veranstaltung anlegen",
             select("General", "Arbeitsbereich", [
               ["", "Veranstaltung"],
               ["ja", "Allgemeines Kassenbuch ohne Veranstaltung"],
@@ -2046,8 +2150,9 @@ function onlineAdmin() {
         ) +
         panel(
           "Benutzer zuweisen",
-          form(
+          popupForm(
             "user",
+            "Benutzer anlegen",
             field("Name", "E-Mail-Adresse oder Benutzername", "text", true) +
               field("Password", "Startpasswort", "password", true) +
               select("Role", "Rolle", [
@@ -2064,8 +2169,9 @@ function onlineAdmin() {
         ) +
         panel(
           "Zugriff ändern",
-          form(
+          popupForm(
             "access",
+            "Zugriff ändern",
             field("Name", "Bestehender Benutzer", "text", true) +
               select(
                 "Event",
@@ -2213,7 +2319,6 @@ function authSurface() {
     "</div>"
   );
 }
-let entryOpen = false;
 let overviewPeriod = "";
 let onlineUser = null,
   onlineData = null,
@@ -2582,10 +2687,7 @@ function show() {
             !s.closed &&
             !s.sealed &&
             s.role !== "Prüfung"
-            ? button(
-                "focusEntry",
-                page === "Journal" ? "Buchung erfassen" : "Eintrag erfassen",
-              )
+            ? button("focusEntry", entryLabel(page))
             : "",
         ) +
         (isEvent
@@ -2629,49 +2731,43 @@ function show() {
   if (page === "Dokumente") installStudio();
   const periodSelect = article.querySelector("[name=reportPeriod]");
   if (periodSelect) periodSelect.value = chosenPeriod;
-  const type = article.querySelector("[name=type]");
-  if (type) {
-    type.value = kind;
-    type.disabled = !!edit;
-  }
-  if (edit) {
-    const f = article.querySelector("#record");
-    if (f)
-      for (const [k, v] of Object.entries(edit.Data)) {
-        if (f.elements.namedItem(k)) f.elements.namedItem(k).value = v ?? "";
-        if (k === "Amount" && f.elements.amount)
-          f.elements.amount.value =
-            v == null
-              ? ""
-              : Math.floor(v / 100) + "," + String(v % 100).padStart(2, "0");
-        if (k === "Lines" && f.elements.positions)
-          f.elements.positions.value = (v || [])
-            .map(
-              (l) =>
-                l.QuantityMilli / 1000 +
-                " | " +
-                l.Description +
-                " | " +
-                (l.UnitCents / 100).toFixed(2),
-            )
-            .join("\n");
-        if (k === "Allocations")
-          for (const [src, n] of Object.entries(v || {})) {
-            if (f.elements["alloc_" + src])
-              f.elements["alloc_" + src].value = (n / 100).toFixed(2);
-          }
-        if (k === "Fields")
-          for (const [name, value] of Object.entries(v || {})) {
-            if (f.elements["field_" + name])
-              f.elements["field_" + name].value = value;
-          }
-        if (k === "Pieces")
-          for (const [coin, n] of Object.entries(v || {}))
-            if (f.elements["coin" + coin]) f.elements["coin" + coin].value = n;
+}
+
+function fillRecord(f) {
+  for (const [k, v] of Object.entries(edit.Data)) {
+    if (f.elements.namedItem(k)) f.elements.namedItem(k).value = v ?? "";
+    if (k === "Amount" && f.elements.amount)
+      f.elements.amount.value =
+        v == null
+          ? ""
+          : Math.floor(v / 100) + "," + String(v % 100).padStart(2, "0");
+    if (k === "Lines" && f.elements.positions)
+      f.elements.positions.value = (v || [])
+        .map(
+          (l) =>
+            l.QuantityMilli / 1000 +
+            " | " +
+            l.Description +
+            " | " +
+            (l.UnitCents / 100).toFixed(2),
+        )
+        .join("\n");
+    if (k === "Allocations")
+      for (const [src, n] of Object.entries(v || {})) {
+        if (f.elements["alloc_" + src])
+          f.elements["alloc_" + src].value = (n / 100).toFixed(2);
       }
-    if (f?.elements.Note) f.elements.Note.value = "";
-    if (f?.querySelector("#count-total")) updateCount(f);
+    if (k === "Fields")
+      for (const [name, value] of Object.entries(v || {})) {
+        if (f.elements["field_" + name])
+          f.elements["field_" + name].value = value;
+      }
+    if (k === "Pieces")
+      for (const [coin, n] of Object.entries(v || {}))
+        if (f.elements["coin" + coin]) f.elements["coin" + coin].value = n;
   }
+  if (f?.elements.Note) f.elements.Note.value = "";
+  if (f.querySelector("#count-total")) updateCount(f);
 }
 let backgroundSync;
 async function action(fn) {
@@ -2682,7 +2778,21 @@ async function action(fn) {
   try {
     await fn();
   } catch (e) {
-    notice.textContent = e.message || "Vorgang fehlgeschlagen.";
+    const message = e.message || "Vorgang fehlgeschlagen.";
+    if (entryDialog.open) {
+      const alert = entryDialog.querySelector(".entry-error");
+      alert.textContent = message;
+      if (
+        entryDialog.querySelector("#record") &&
+        s &&
+        unconfirmedWrites.has(s.event.ID)
+      )
+        alert.insertAdjacentHTML(
+          "beforeend",
+          button("sync", "Serverstand aktualisieren", true),
+        );
+      alert.scrollIntoView({ block: "nearest" });
+    } else notice.textContent = message;
   } finally {
     article.setAttribute("aria-busy", "false");
     busy = false;
@@ -3331,7 +3441,6 @@ async function submit(f) {
     )
       throw Error("Zugehörigen Vorgang auswählen.");
     await queue(kind, d, target, edit?.Revision || 0);
-    entryOpen = false;
     edit = null;
   }
   if (id === "lfk") {
@@ -3580,7 +3689,12 @@ document.addEventListener("submit", (e) => {
   e.preventDefault();
   if (e.target.id === "template")
     e.target.dataset.mode = e.submitter?.dataset.release ? "release" : "draft";
-  action(() => submit(e.target));
+  action(async () => {
+    const inEditor = entryDialog.contains(e.target);
+    if (inEditor) entryDialog.querySelector(".entry-error").replaceChildren();
+    await submit(e.target);
+    if (inEditor) closeEditor();
+  });
 });
 function updateCount(form) {
   const pieces = {};
@@ -3655,9 +3769,17 @@ document.addEventListener("change", (e) => {
     chosenPeriod = e.target.value;
   }
   if (e.target.name === "type") {
+    if (!entryDialog.open || edit) return;
+    const previous = entryDialog.querySelector("#record");
+    const values = new FormData(previous);
     kind = e.target.value;
-    edit = null;
-    show();
+    previous.outerHTML = recordForm();
+    const current = entryDialog.querySelector("#record");
+    for (const name of ["Label", "Date", "amount", "Method", "Note"]) {
+      if (values.has(name) && current.elements.namedItem(name))
+        current.elements.namedItem(name).value = values.get(name);
+    }
+    entryDialog.querySelector(".entry-error").replaceChildren();
   }
 });
 document.addEventListener("click", (e) => {
@@ -3684,6 +3806,10 @@ document.addEventListener("click", (e) => {
     return;
   }
   if (b.closest(".admin-console")) return;
+  if (b.dataset.openForm) {
+    openEditor(b, b.textContent, b.nextElementSibling.innerHTML);
+    return;
+  }
   if (b.hasAttribute("data-fiscal")) {
     action(async () => {
       donorAccess = false;
@@ -3722,7 +3848,6 @@ document.addEventListener("click", (e) => {
     }
     if (b.dataset.page === "Einrichtung")
       destination = page === "Verwaltung" ? "Übersicht" : page;
-    entryOpen = false;
     page = b.dataset.page;
     document.body.classList.remove("menu-open");
     document
@@ -3736,36 +3861,37 @@ document.addEventListener("click", (e) => {
   }
   action(async () => {
     if (b.dataset.edit) {
-      edit = rows().find((r) => r.ID === b.dataset.edit);
-      kind = edit.Kind;
-      show();
-      document.querySelector("#record")?.scrollIntoView();
+      const row = rows().find((r) => r.ID === b.dataset.edit);
+      if (!row) throw Error("Der Eintrag ist nicht mehr verfügbar.");
+      openRecord(b, row);
       return;
     }
     if (b.dataset.lifecycle) {
       const row = rows().find((r) => r.ID === b.dataset.lifecycle);
-      const reason = prompt(
-        row.Data.Retired
-          ? "Grund für die Wiederherstellung"
-          : "Grund für die Archivierung",
-      )?.trim();
-      if (!reason) return;
-      if (reason.length < 3) throw Error("Begründung angeben.");
-      await queue(
-        row.Kind,
-        {
-          ...row.Data,
-          Retired: !row.Data.Retired,
-          Fields: {
-            ...row.Data.Fields,
-            lifecycle: row.Data.Retired ? "Wiederhergestellt" : "Archiviert",
-            lifecycleReason: reason,
-          },
+      openReasonEditor(
+        b,
+        row.Data.Retired ? "Eintrag wiederherstellen" : "Eintrag archivieren",
+        row.Data.Label,
+        async (reason) => {
+          if (reason.length < 3) throw Error("Begründung angeben.");
+          await queue(
+            row.Kind,
+            {
+              ...row.Data,
+              Retired: !row.Data.Retired,
+              Fields: {
+                ...row.Data.Fields,
+                lifecycle: row.Data.Retired
+                  ? "Wiederhergestellt"
+                  : "Archiviert",
+                lifecycleReason: reason,
+              },
+            },
+            row.ID,
+            row.Revision,
+          );
         },
-        row.ID,
-        row.Revision,
       );
-      show();
       return;
     }
     if (b.dataset.settle) {
@@ -3778,32 +3904,39 @@ document.addEventListener("click", (e) => {
       );
       if (amount === null || amount < 0)
         throw Error("Zählungen und zugeordnete Geldbewegungen prüfen.");
-      const reason = previous
-        ? prompt("Grund für die Berichtigung des Sammelbetrags")?.trim()
-        : "";
-      if (previous && !reason) return;
       const end = rows().find(
         (r) =>
           r.Kind === "count" &&
           r.Data.Wallet === wallet.ID &&
           r.Data.Phase === "Ende",
       );
-      await queue(
-        "income",
-        {
-          Label: "Barabrechnung " + wallet.Data.Label,
-          Date: previous?.Data.Date || end.Data.Date,
-          Note: reason,
-          Wallet: wallet.ID,
-          Bar: wallet.Data.Bar,
-          Account: wallet.ID,
-          Amount: amount,
-          Method: "Bar",
-          Reference: "wallet-settlement",
-        },
-        target,
-        previous?.Revision || 0,
-      );
+      const saveSettlement = (reason) =>
+        queue(
+          "income",
+          {
+            Label: "Barabrechnung " + wallet.Data.Label,
+            Date: previous?.Data.Date || end.Data.Date,
+            Note: reason,
+            Wallet: wallet.ID,
+            Bar: wallet.Data.Bar,
+            Account: wallet.ID,
+            Amount: amount,
+            Method: "Bar",
+            Reference: "wallet-settlement",
+          },
+          target,
+          previous?.Revision || 0,
+        );
+      if (previous) {
+        openReasonEditor(
+          b,
+          "Sammelbetrag berichtigen",
+          wallet.Data.Label + " · " + eur(amount),
+          saveSettlement,
+        );
+        return;
+      }
+      await saveSettlement("");
       show();
       return;
     }
@@ -3854,10 +3987,7 @@ document.addEventListener("click", (e) => {
         ).focus();
         return;
       case "focusEntry":
-        entryOpen = true;
-        show();
-        document.querySelector("#record")?.scrollIntoView({ block: "center" });
-        document.querySelector("#record [name=Label]")?.focus();
+        openRecord(b);
         return;
       case "docInputs":
         document
@@ -4018,16 +4148,14 @@ document.addEventListener("click", (e) => {
         await sync();
         break;
       case "cancel":
-        entryOpen = false;
-        edit = null;
-        break;
+        closeEditor();
+        return;
       case "sync": {
         const uncertain = !offlineEnabled && unconfirmedWrites.has(s.event.ID);
         await sync();
         if (uncertain) {
-          entryOpen = false;
-          edit = null;
           show();
+          closeEditor();
           notice.textContent =
             "Serverstand geladen. Prüfe hier, ob der zuletzt erfasste Vorgang vorhanden ist.";
           return;

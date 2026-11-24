@@ -97,10 +97,7 @@ try {
         process.env.BONFIRE_LAYOUT_SCREENSHOTS &&
         ["Erfassung", "Kontakte"].includes(name)
       ) {
-        const area =
-          name === "Erfassung"
-            ? page.locator(".record-editor")
-            : page.locator(".entry-list");
+        const area = name === "Erfassung" ? page : page.locator(".entry-list");
         await area.screenshot({
           path: "test-results/layout-" + name + "-" + width + ".png",
         });
@@ -140,26 +137,58 @@ try {
   await page.locator("#filter button").click();
   await page.getByText("Keine Einträge.", { exact: true }).waitFor();
   await check("Leere Kontakte");
-  await api("online?event=" + event.ID, {
-    Ops: [
-      {
-        ID: randomUUID(),
-        Target: randomUUID(),
-        Kind: "contact",
-        Data: { Date: day, Label: label },
-      },
-    ],
-  });
-  await page
-    .getByRole("button", { name: "Serverstand aktualisieren", exact: true })
-    .click();
-  await page.getByRole("cell", { name: label, exact: true }).waitFor();
+  async function createAndEdit(section, name) {
+    const dialog = page.getByRole("dialog");
+    await page
+      .getByRole("button", {
+        name: section === "Spenden" ? "Spende erfassen" : "Kontakt anlegen",
+        exact: true,
+      })
+      .click();
+    assert.ok(await dialog.evaluate((el) => el.matches(":modal")));
+    await dialog.getByLabel("Bezeichnung").fill(name);
+    if (section === "Spenden")
+      await dialog.getByLabel("Betrag in EUR").fill("5,50");
+    await dialog
+      .getByRole("button", { name: "Speichern", exact: true })
+      .click();
+    await dialog.waitFor({ state: "hidden" });
+    await page
+      .getByRole("row")
+      .filter({ hasText: name })
+      .getByRole("button", { name: "Bearbeiten" })
+      .click();
+    assert.equal(await dialog.getByLabel("Bezeichnung").inputValue(), name);
+    await dialog.getByLabel("Bezeichnung").fill(name + " bestätigt");
+    await dialog.getByLabel("Änderungsgrund").fill("Fiktive Berichtigung");
+    await dialog
+      .getByRole("button", { name: "Berichtigung speichern" })
+      .click();
+    await dialog.waitFor({ state: "hidden" });
+    await page
+      .getByRole("cell", { name: name + " bestätigt", exact: true })
+      .waitFor();
+  }
+  await createAndEdit("Kontakte", label);
   await check("Kontakte");
+  const archive = page
+    .getByRole("row")
+    .filter({ hasText: label })
+    .getByRole("button", { name: "Archivieren" });
+  await archive.click();
+  const reason = page.getByRole("dialog");
+  await reason.getByLabel("Begründung").waitFor();
+  assert.ok(await reason.evaluate((d) => d.matches(":modal")));
+  await check("Kontakt archivieren", reason);
+  await page.keyboard.press("Escape");
+  assert.ok(await archive.evaluate((b) => b === document.activeElement));
+  await nav("Spenden");
+  await createAndEdit("Spenden", "Übungsspende " + randomUUID().slice(0, 8));
   await nav("Journal");
   await page.locator("[data-act=focusEntry]").click();
-  await check("Erfassung");
+  await check("Erfassung", page.getByRole("dialog"));
   await page.locator(".record-extra summary").click();
-  await check("Erfassung mit Zusatzfeldern");
+  await check("Erfassung mit Zusatzfeldern", page.getByRole("dialog"));
   await page.locator("#record [data-act=cancel]").click();
   for (const key of [
     "Veranstaltungen",
@@ -235,8 +264,9 @@ try {
   }
   await page.locator("#fiscal-switch summary").click();
   await page.locator('#fiscal-switch [data-fiscal=""]').click();
-  await page.locator("#fiscal-year").waitFor();
   await check("Geschäftsjahre");
+  await page.getByRole("button", { name: "Geschäftsjahr anlegen" }).click();
+  await check("Geschäftsjahr anlegen", page.getByRole("dialog"));
   assert.deepEqual(failures, []);
   console.log(
     "PASS Aktionsabstände in " +

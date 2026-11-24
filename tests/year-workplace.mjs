@@ -59,6 +59,8 @@ try {
   };
   const createYear = async (label, start, end) => {
     await chooseYear("");
+    await button("Geschäftsjahr anlegen").click();
+    await page.getByRole("dialog", { name: "Geschäftsjahr anlegen" }).waitFor();
     const f = page.locator("#fiscal-year");
     await f.locator("[name=Name]").fill(label);
     await f.locator("[name=Starts]").fill(start);
@@ -77,12 +79,28 @@ try {
   };
   const yearA = await createYear("2046", "2046-01-01", "2046-10-31");
   await go("Veranstaltungen");
+  await button("Veranstaltung anlegen").click();
+  await page.getByRole("dialog", { name: "Veranstaltung anlegen" }).waitFor();
   const event = page.locator("#event");
   await event.locator("[name=Name]").fill("Übung Sommerfest");
   await event.locator("[name=Starts]").fill("2046-08-20");
   await event.locator("[name=Ends]").fill("2046-08-21");
   await submit("event");
   await go("Kassenbuch");
+  await button("Buchung erfassen").click();
+  const modal = page.getByRole("dialog", { name: "Buchung erfassen" });
+  await modal.waitFor();
+  assert.ok(
+    await modal.evaluate(
+      (d) => d.matches(":modal") && d.contains(document.activeElement),
+    ),
+  );
+  await page.keyboard.press("Escape");
+  assert.ok(
+    await button("Buchung erfassen").evaluate(
+      (b) => b === document.activeElement,
+    ),
+  );
   await button("Buchung erfassen").click();
   const booking = "Eintritt " + randomUUID();
   const editor = page.locator("#record");
@@ -141,7 +159,9 @@ try {
     .getByRole("alert")
     .getByText(/zuerst den Serverstand/)
     .waitFor();
-  await button("Serverstand aktualisieren").click();
+  await modal
+    .getByRole("button", { name: "Serverstand aktualisieren" })
+    .click();
   await page.getByRole("cell", { name: uncertain, exact: true }).waitFor();
   assert.equal(
     await page.getByRole("cell", { name: uncertain, exact: true }).count(),

@@ -117,6 +117,9 @@ async function ready(p, name) {
   await press(p, "Anmelden");
   await p.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
   await by(p, "workspace").selectOption(eventID);
+  await p.waitForFunction(
+    () => !document.querySelector('article[aria-busy="true"]'),
+  );
   await press(p, "Erfassung vorbereiten");
   await by(p, "event").selectOption(eventID);
   await by(p, "name").fill(name);
@@ -153,7 +156,7 @@ async function record(p, group, type, label, values = {}) {
           : "Sponsoren & Rechnungen",
     );
   await p.locator('[data-act="focusEntry"]').click();
-  await by(p, "type").selectOption(type);
+  if (await by(p, "type").count()) await by(p, "type").selectOption(type);
   await by(p, "Label").fill(label);
   await by(p, "Date").fill(exerciseDay);
   for (const [name, value] of Object.entries(values)) {
@@ -491,9 +494,13 @@ try {
     .getByText(/Nr\. \d+ · Ohne Versandvermerk/)
     .first()
     .waitFor();
+  await press(a.p, "Übergabe dokumentieren");
   await by(a.p, "delivery").selectOption("Extern übergeben");
   await by(a.p, "evidence").fill("Fiktive Übergabebestätigung");
-  await press(a.p, "Übergabe dokumentieren");
+  await a.p
+    .getByRole("dialog")
+    .getByRole("button", { name: "Übergabe dokumentieren" })
+    .click();
   await a.p
     .getByText(/Nr\. \d+ · Extern übergeben/)
     .first()
