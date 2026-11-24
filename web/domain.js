@@ -201,11 +201,12 @@ export function counted(rows, wallet) {
   );
   const count = (p) =>
     list.find((r) => r.Kind === "count" && r.Data.Phase === p)?.Data.Amount;
+  const cutoff=list.find(r=>r.Kind==="count" && r.Data.Phase==="Ende")?.Data.Date;
   const start = count("Anfang"),
     end = count("Ende");
   if (start == null || end == null) return null;
   return rows.reduce(
-    (n, r) => n + cashAdjustment(r, (id) => id === wallet),
+    (n, r) => cutoff && r.Data.Date>cutoff ? n : n + cashAdjustment(r, (id) => id === wallet),
     end - start,
   );
 }
@@ -222,7 +223,8 @@ export function pooledRevenue(rows) {
     rows.filter((r) => r.Kind === "wallet").map((r) => r.ID),
   );
   const separate = rows.filter((r) => r.Kind === "count" && r.Data.Wallet);
-  const end = poolCount(rows, "Ende")?.Data.Amount;
+  const closing = poolCount(rows, "Ende")?.Data;
+  const end = closing?.Amount;
   let start = poolCount(rows, "Anfang")?.Data.Amount;
   if (
     end == null ||
@@ -240,7 +242,7 @@ export function pooledRevenue(rows) {
     start = openings.reduce((n, r) => n + r.Data.Amount, 0);
   } else if (openings.length) return null;
   return rows.reduce((n, r) => {
-    if (r.ID === "settlement-total") return n;
+    if (r.ID === "settlement-total" || (closing.Date && r.Data.Date>closing.Date)) return n;
     return n + cashAdjustment(r, (id) => wallets.has(id), true);
   }, end - start);
 }

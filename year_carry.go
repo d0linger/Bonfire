@@ -24,10 +24,10 @@ func yearCarryLines(ctx context.Context, tx pgx.Tx, target string) ([]yearCarryL
 		a.account,coalesce(ac.data->>'Label',nullif(a.account,''),'Gesamtbestand'),sum(a.amount)::bigint
 	FROM previous_year y JOIN events e ON e.fiscal_year=y.id
 	JOIN destination d ON d.general_ledger=e.general_ledger
-	LEFT JOIN LATERAL (SELECT version,snapshot FROM event_closures WHERE event=e.id AND e.closed ORDER BY version DESC LIMIT 1) c ON true
+	LEFT JOIN LATERAL (SELECT version,snapshot,account_mode FROM event_closures WHERE event=e.id AND e.closed ORDER BY version DESC LIMIT 1) c ON true
 	LEFT JOIN period_closures p ON c.version IS NULL AND p.fiscal_year=y.id AND p.starts=y.starts AND p.ends=y.ends AND p.reopened_at IS NULL
 	CROSS JOIN LATERAL (
-		SELECT CASE WHEN e.accounts THEN coalesce(j->'Data'->>'Account','') ELSE '' END AS account,
+		SELECT CASE WHEN coalesce(c.account_mode,p.account_mode) THEN coalesce(j->'Data'->>'Account','') ELSE '' END AS account,
 			(j->'Data'->>'Amount')::bigint AS amount
 		FROM jsonb_array_elements(coalesce(c.snapshot,p.snapshot)) j
 		WHERE j->>'Kind'='actual' AND (c.version IS NOT NULL OR EXISTS(
@@ -80,7 +80,7 @@ func carryYear(ctx context.Context, tx pgx.Tx, d device, source, stamp string, a
 	}
 	var used bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT FROM entries WHERE kind='opening' AND (
-		(data->'Fields'->>'yearSource'=$1 AND event<>$2) OR ($3<>'' AND data->'Fields'->>'previous'=$3)))`, source, d.Event, origin.Period).Scan(&used)
+		(data->'Fields'->>'yearSource'=$1 AND event<>$2) OR ($3<>'' AND data->'Fields'->>'previous'=$3) OR EXISTS (SELECT FROM period_closures p JOIN events src ON src.id=$1::text::uuid JOIN fiscal_years y ON y.id=src.fiscal_year WHERE p.id::text=entries.data->'Fields'->>'previous' AND p.fiscal_year=y.id AND p.starts=y.starts AND p.ends=y.ends)))`, source, d.Event, origin.Period).Scan(&used)
 	if err != nil {
 		return nil, err
 	}

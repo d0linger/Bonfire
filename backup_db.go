@@ -19,7 +19,8 @@ import (
 )
 
 const backupHome = "/var/lib/bonfire-backup"
-const backupKeyPath = "/var/lib/bonfire-key/backup.key"
+const backupKeyDirectory = "/var/lib/bonfire-key"
+const backupKeyPath = backupKeyDirectory + "/backup.key"
 
 func (b *backupWorker) connect(ctx context.Context, name string) (*pgx.Conn, error) {
 	cfg := b.db.Copy()

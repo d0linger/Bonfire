@@ -450,8 +450,7 @@ func runBackupWorker() error {
 		if _, err = rand.Read(data); err != nil {
 			return err
 		}
-		dir := filepath.Dir(backupKeyPath)
-		f, err := os.CreateTemp(dir, ".key-")
+		f, err := os.CreateTemp(backupKeyDirectory, ".key-")
 		if err != nil {
 			return err
 		}
@@ -470,7 +469,7 @@ func runBackupWorker() error {
 		if removeErr != nil {
 			return removeErr
 		}
-		directory, err := os.Open(dir)
+		directory, err := os.Open(backupKeyDirectory)
 		if err != nil {
 			return err
 		}
