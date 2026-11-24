@@ -137,7 +137,8 @@ func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (stri
 	if err != nil {
 		return "", err
 	}
-	if err = sealBackup(input, out, b.key, m); err == nil {
+	fingerprint := sha256.New()
+	if err = sealBackup(input, io.MultiWriter(out, fingerprint), b.key, m); err == nil {
 		err = out.Sync()
 	}
 	cerr := out.Close()
@@ -158,6 +159,9 @@ func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (stri
 				err = errors.Join(dir.Sync(), dir.Close())
 			}
 		}
+	}
+	if err == nil {
+		_, err = c.Exec(ctx, "INSERT INTO backup_history(digest) VALUES($1)", hex.EncodeToString(fingerprint.Sum(nil)))
 	}
 	return name, err
 }
