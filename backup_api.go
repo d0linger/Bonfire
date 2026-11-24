@@ -122,5 +122,7 @@ func (a *app) proxyBackup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(res.StatusCode)
-	_, _ = io.Copy(w, res.Body)
+	if _, err := io.Copy(w, res.Body); err != nil {
+		panic(http.ErrAbortHandler)
+	}
 }

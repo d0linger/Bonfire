@@ -92,6 +92,9 @@ func (b *backupWorker) health(target string, now time.Time) backupHealth {
 		since = *h.LastAttempt
 	}
 	next := c.Next(since.In(time.Local))
+	if next.IsZero() {
+		return h
+	}
 	h.Next = &next
 	h.Due = !next.After(now)
 	return h
@@ -180,8 +183,15 @@ func (b *backupWorker) command(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *backupWorker) start(q backupCommand, actor string) error {
+	return b.startIfDue(q, actor, "")
+}
+
+func (b *backupWorker) startIfDue(q backupCommand, actor, schedule string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if schedule != "" && !b.health(schedule, backupNow()).Due {
+		return nil
+	}
 	if b.active {
 		return errors.New("Ein Sicherungsauftrag läuft bereits")
 	}
@@ -219,14 +229,20 @@ func (b *backupWorker) start(q backupCommand, actor string) error {
 	if q.Action == "probe" {
 		key = "probe"
 	}
+	previous, existed := b.state.Last[key]
 	if q.Action == "backup" || q.Action == "probe" {
-		h := b.state.Last[key]
+		h := previous
 		h.LastAttempt = &now
 		h.Outcome = "running"
 		b.state.Last[key] = h
 	}
 	if err := b.persist(); err != nil {
 		b.active = false
+		if existed {
+			b.state.Last[key] = previous
+		} else {
+			delete(b.state.Last, key)
+		}
 		return errors.New("Auftragsstatus konnte nicht gespeichert werden")
 	}
 	prev := b.state.Probe
@@ -353,7 +369,7 @@ func (b *backupWorker) tick() {
 			}
 			q = backupCommand{Action: "probe", Target: "local", Name: files[0].Name}
 		}
-		_ = b.start(q, "System")
+		_ = b.startIfDue(q, "System", target)
 		return
 	}
 }
@@ -373,7 +389,7 @@ func (b *backupWorker) download(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
 	if _, err := io.Copy(w, file); err != nil {
-		log.Print("Backup download interrupted")
+		panic(http.ErrAbortHandler)
 	}
 }
 
@@ -381,13 +397,6 @@ func (b *backupWorker) upload(w http.ResponseWriter, r *http.Request) {
 	dir := filepath.Join(backupHome, "uploads")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		http.Error(w, "Uploadspeicher nicht verfügbar.", 503)
-		return
-	}
-	// One uploaded candidate at a time; its random name and receipt bind the later takeover.
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.active {
-		http.Error(w, "Ein Auftrag läuft.", 409)
 		return
 	}
 	tmp, err := os.CreateTemp(dir, ".upload-")
@@ -400,6 +409,13 @@ func (b *backupWorker) upload(w http.ResponseWriter, r *http.Request) {
 	closeErr := tmp.Close()
 	if err != nil || closeErr != nil || size < 36 {
 		badBackup(w, "Upload unvollständig oder zu groß.")
+		return
+	}
+	// One uploaded candidate at a time; its random name and receipt bind the later takeover.
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.active {
+		http.Error(w, "Ein Auftrag läuft.", 409)
 		return
 	}
 	name := "bonfire-" + backupNow().Format("20060102T150405Z") + "-" + uuid() + ".dump.enc"

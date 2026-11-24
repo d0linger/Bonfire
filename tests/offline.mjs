@@ -21,6 +21,8 @@ import {
   ImageRun,
 } from "docx";
 const upstream = process.env.BONFIRE_URL || "http://127.0.0.1:8137";
+const destination = new URL(upstream);
+assert.equal(destination.hostname, "127.0.0.1");
 let connected = true;
 let dropOriginalAck;
 const proxy = http.createServer((req, res) => {
@@ -32,8 +34,7 @@ const proxy = http.createServer((req, res) => {
   if (dropOriginalAck && req.url === "/api/sync")
     req.on("data", (chunk) => body.push(chunk));
   const out = http.request(
-    new URL(req.url, upstream),
-    { method: req.method, headers: req.headers },
+    { hostname: "127.0.0.1", port: destination.port, path: req.url, method: req.method, headers: req.headers },
     (r) => {
       if (
         dropOriginalAck &&

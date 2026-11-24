@@ -8,6 +8,7 @@ import (
 	"errors"
 	"github.com/jackc/pgx/v5"
 	"strconv"
+	"strings"
 )
 
 func attachmentValid(o op) error {
@@ -16,7 +17,7 @@ func attachmentValid(o op) error {
 	digest := v.Fields["sha256"]
 	if digest != "" || o.Kind == "attachment-file" || v.File == "" {
 		expected, e := hex.DecodeString(digest)
-		if e != nil || len(expected) != 32 || size <= 0 || size > 4<<20 || err != nil {
+		if digest != strings.ToLower(digest) || e != nil || len(expected) != 32 || size <= 0 || size > 4<<20 || err != nil {
 			return fail("Beleggröße und SHA-256 erforderlich.")
 		}
 	}
@@ -40,17 +41,17 @@ func attachmentValid(o op) error {
 }
 
 func attachBody(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
-	var owner, day, digest, file string
+	var owner, day, digest, file, size string
 	var revision int64
 	v := o.Data
-	err := tx.QueryRow(ctx, `SELECT data->'Fields'->>'uploadDevice',data->>'Date',data->'Fields'->>'sha256',coalesce(data->>'File',''),revision FROM entries WHERE event=$1 AND id=$2 AND kind='attachment' AND data->'Fields'->>'sha256' IS NOT NULL`, d.Event, v.Reference).Scan(&owner, &day, &digest, &file, &revision)
+	err := tx.QueryRow(ctx, `SELECT data->'Fields'->>'uploadDevice',data->>'Date',data->'Fields'->>'sha256',coalesce(data->>'File',''),coalesce(data->'Fields'->>'size',''),revision FROM entries WHERE event=$1 AND id=$2 AND kind='attachment' AND data->'Fields'->>'sha256' IS NOT NULL`, d.Event, v.Reference).Scan(&owner, &day, &digest, &file, &size, &revision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "Konflikt", nil
 	}
 	if err != nil {
 		return "", err
 	}
-	if owner != d.ID || day != v.Date || digest != v.Fields["sha256"] || strconv.FormatInt(revision, 10) != v.Fields["revision"] {
+	if size != v.Fields["size"] || owner != d.ID || day != v.Date || digest != v.Fields["sha256"] || strconv.FormatInt(revision, 10) != v.Fields["revision"] {
 		return "Konflikt", nil
 	}
 	if file != "" && file != v.File {

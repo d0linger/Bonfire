@@ -337,7 +337,7 @@ func (a *app) changeRequiredPassword(ctx context.Context, w http.ResponseWriter,
 	if err != nil {
 		return nil, err
 	}
-	consumed, err := tx.Exec(ctx, "DELETE FROM password_changes WHERE token=$1 AND expires>now()", hash(q.Ticket))
+	consumed, err := tx.Exec(ctx, "DELETE FROM password_changes WHERE token=$1 AND expires>clock_timestamp()", hash(q.Ticket))
 	if err != nil {
 		return nil, err
 	}

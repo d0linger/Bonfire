@@ -151,6 +151,13 @@ func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (stri
 		err = b.putS3(ctx, name, tmp)
 	} else {
 		err = os.Rename(tmp, filepath.Join(backupHome, name))
+		if err == nil {
+			var dir *os.File
+			dir, err = os.Open(backupHome)
+			if err == nil {
+				err = errors.Join(dir.Sync(), dir.Close())
+			}
+		}
 	}
 	return name, err
 }
