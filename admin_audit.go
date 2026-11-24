@@ -39,15 +39,15 @@ var serverBuild = sync.OnceValue(func() string {
 })
 
 // Log the established account, never the credentials or a freely supplied identity.
-func (a *app) logDeniedLogin(ctx context.Context, r *http.Request) error {
+func logDeniedLogin(ctx context.Context, db factorExecutor, r *http.Request) error {
 	name, _, basic := r.BasicAuth()
 	if basic {
-		_, err := a.db.Exec(ctx, `INSERT INTO audit(username,action,subject)
+		_, err := db.Exec(ctx, `INSERT INTO audit(username,action,subject)
 			SELECT name,'Anmeldung abgewiesen','Passwort oder zweiter Faktor' FROM users WHERE coalesce(login_alias,name)=$1`, loginName(name))
 		return err
 	}
 	if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bonfire-Challenge "); ok {
-		_, err := a.db.Exec(ctx, `INSERT INTO audit(username,action,subject)
+		_, err := db.Exec(ctx, `INSERT INTO audit(username,action,subject)
 			SELECT username,'Anmeldung abgewiesen','Zweiter Faktor' FROM login_challenges WHERE token=$1`, hash(token))
 		return err
 	}

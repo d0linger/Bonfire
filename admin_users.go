@@ -48,6 +48,15 @@ func accountManager(ctx context.Context, tx pgx.Tx, r *http.Request, write bool)
 	if err != nil {
 		return "", err
 	}
+	if write {
+		var valid bool
+		if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM sessions WHERE token=$1 AND username=$2 AND expires>clock_timestamp() FOR SHARE)", hash(c.Value), name).Scan(&valid); err != nil {
+			return "", err
+		}
+		if !valid {
+			return "", problem{401, "Session expired."}
+		}
+	}
 	if role != roleAdmin {
 		return "", problem{403, "Benutzerverwaltung erfordert Adminrechte."}
 	}
