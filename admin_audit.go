@@ -86,7 +86,8 @@ type auditEntry struct {
 const auditJoins = ` FROM audit a
  LEFT JOIN event_records e ON e.id=a.event
  LEFT JOIN fiscal_years y ON y.id=e.fiscal_year
- LEFT JOIN operations o ON a.action IN ('Übernommen','Konflikt') AND o.event=a.event AND o.id=CASE WHEN a.subject ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$' THEN a.subject::uuid END
+ LEFT JOIN operations o ON (a.action IN ('Übernommen','Konflikt','Archiviert','Wiederhergestellt')
+ OR a.action LIKE ANY(ARRAY['Storno und Ersatz · %','Kontozuordnung geklärt · %','Eintrag entfernt · %','Buchung storniert · %','Eintrag umgebucht · %','Umbuchung aus Veranstaltung · %'])) AND o.event=a.event AND o.id=CASE WHEN a.subject ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$' THEN a.subject::uuid END
  LEFT JOIN devices d ON d.id=coalesce(a.actor_device,o.device)
  `
 
