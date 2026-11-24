@@ -120,7 +120,7 @@ const pass = randomUUID();
 await call("users", {
   Name: restricted,
   Password: pass,
-  Role: "Kassa",
+  Role: "Write",
   Event: source.ID,
 });
 const cashLogin = await fetch(new URL("/api/login", url), {

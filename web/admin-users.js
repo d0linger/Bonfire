@@ -1,6 +1,6 @@
 import { esc, icon } from "./workplace.js";
 
-const roles = ["Kassa", "Leitung", "Prüfung"];
+const roles = ["Admin", "Write", "Read"];
 const titles = {
   create: "Benutzer anlegen",
   edit: "Zugang bearbeiten",
@@ -74,7 +74,7 @@ function accessFields(events, allowed) {
     years.get(event.Year).push(event);
   }
   return (
-    '<fieldset class="account-grants"><legend>Arbeitsbereiche</legend><small>Leitung hat installationsweiten Zugriff. Für Kassa und Prüfung gelten die ausgewählten Freigaben.</small>' +
+    '<fieldset class="account-grants"><legend>Arbeitsbereiche</legend><small>Admin verwaltet die gesamte Installation und gibt Abschlüsse frei. Write kann in den ausgewählten Arbeitsbereichen buchen. Read hat dort Lesezugriff.</small>' +
     [...years]
       .map(
         ([year, spaces]) =>
@@ -120,7 +120,7 @@ function editFields(action, user, events) {
         .map(
           (role) =>
             "<option" +
-            (role === user?.Role ? " selected" : "") +
+            (role === (user?.Role || "Write") ? " selected" : "") +
             ">" +
             role +
             "</option>",
@@ -228,7 +228,7 @@ export async function mountUsers(host, { api }) {
         esc(user.Login) +
         "</dd><dt>Arbeitsbereiche</dt><dd>" +
         esc(
-          user.Role === "Leitung"
+          user.Role === "Admin"
             ? "Alle Geschäftsjahre und Arbeitsbereiche"
             : spaces.join(", ") || "Keine Freigabe",
         ) +

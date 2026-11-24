@@ -55,6 +55,7 @@ const event = await call("events", cash, {
 const path = "online?event=" + event.ID;
 const send = (body, status = 200) => call(path, cash, body, status);
 const snapshot = await send({});
+assert.equal(snapshot.role, "Admin");
 assert.equal(snapshot.event.Year, year.ID);
 assert.equal(snapshot.pending, 0);
 assert.equal(snapshot.nextNumber, snapshot.first);
@@ -128,7 +129,7 @@ const reviewer = "online-" + suffix,
 await api("users", admin, {
   Name: reviewer,
   Password: password,
-  Role: "Prüfung",
+  Role: "Read",
   Event: event.ID,
 });
 const review = await session(basic(reviewer, password));
@@ -137,10 +138,28 @@ const [ledger] = (await call("events?year=" + year.ID, cash)).filter(
   (e) => e.General,
 );
 await call("online?event=" + ledger.ID, review, {}, 403);
-await send({
-  Ops: [make("opening", "Anfang", 0), make("actual", "Istbestand", 300)],
+assert.equal((await call(path, review, {})).role, "Read");
+const writer = "buchung-" + suffix;
+await api("users", admin, {
+  Name: writer,
+  Password: password,
+  Role: "Write",
+  Event: event.ID,
 });
-assert.equal((await call(path, review, { Action: "Abschluss" })).closed, true);
+const writeSession = await session(basic(writer, password));
+await call("online?event=" + ledger.ID, writeSession, {}, 403);
+const payment = make("income", "Vereinsabend", 15);
+const posted = await call(path, writeSession, { Ops: [payment] });
+assert.equal(posted.role, "Write");
+assert.ok(posted.entries.some((row) => row.ID === payment.Target));
+await send({
+  Ops: [make("opening", "Anfang", 0), make("actual", "Istbestand", 315)],
+});
+for (const scoped of [review, writeSession]) {
+  await call(path, scoped, { Action: "Abschluss" }, 403);
+  await call("admin/users", scoped, undefined, 403);
+}
+assert.equal((await send({ Action: "Abschluss" })).closed, true);
 await send({ Ops: [make("income", "Verspätet", 10)] }, 403);
 await call("logout", cash, {});
 await send({}, 401);

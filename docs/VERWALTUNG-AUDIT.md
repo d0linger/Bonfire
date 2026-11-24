@@ -1,6 +1,6 @@
 # Audit-Log und Systemstatus
 
-Die Leitung öffnet beide Ansichten über **Verwaltung**. Die Rolle **Prüfung** sieht und exportiert ausschließlich das Audit zu ihren zugewiesenen Arbeitsbereichen. Das Installationsprotokoll und die Statusdaten sind der Leitung vorbehalten.
+**Admin** öffnet Audit und Systemstatus über **Verwaltung**. **Write** und **Read** können das Audit ihrer zugewiesenen Arbeitsbereiche einsehen und exportieren. Installationsprotokoll und Systemstatus erfordern **Admin**.
 
 ## Einen Vorgang prüfen
 

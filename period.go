@@ -41,8 +41,8 @@ func applyUpgrade(ctx context.Context, tx pgx.Tx, version int, path string) erro
 }
 
 func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, error) {
-	if d.Role != "Prüfung" {
-		return "", problem{403, "Prüfrolle erforderlich."}
+	if d.Role != roleAdmin {
+		return "", problem{403, "Adminrecht erforderlich."}
 	}
 	var start, end string
 	var year *string
@@ -64,12 +64,12 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 		AND ((e.starts<=$2::date AND e.ends>=$1::date) OR EXISTS(
 			SELECT 1 FROM entries j WHERE j.event=e.id AND (j.data->>'Date')::date BETWEEN $1::date AND $2::date))`
 	var missing bool
-	err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM ("+scope+") s WHERE NOT EXISTS(SELECT 1 FROM grants_event g WHERE g.event=s.id AND g.username=$4) OR EXISTS(SELECT 1 FROM devices d WHERE d.event=s.id AND NOT d.online_actor AND NOT d.sealed) OR EXISTS(SELECT 1 FROM operations o WHERE o.event=s.id AND o.outcome='Konflikt'))", start, end, year, d.User).Scan(&missing)
+	err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM ("+scope+") s WHERE EXISTS(SELECT 1 FROM devices d WHERE d.event=s.id AND NOT d.online_actor AND NOT d.sealed) OR EXISTS(SELECT 1 FROM operations o WHERE o.event=s.id AND o.outcome='Konflikt'))", start, end, year).Scan(&missing)
 	if err != nil {
 		return "", err
 	}
 	if missing {
-		return "", fail("Fehlende Prüfzuständigkeit, offene Geräte oder ungeklärte Konflikte.")
+		return "", fail("Offene Geräte oder ungeklärte Konflikte.")
 	}
 	var accountMode, allAccounts bool
 	err = tx.QueryRow(ctx, "SELECT coalesce(bool_or(accounts),false),coalesce(bool_and(accounts),false) FROM events WHERE id IN ("+scope+")", start, end, year).Scan(&accountMode, &allAccounts)
@@ -122,8 +122,8 @@ func periodAction(ctx context.Context, tx pgx.Tx, d device, action, id, reason s
 		}
 		return result, tx.Commit(ctx)
 	}
-	if d.Role != "Leitung" || len(strings.TrimSpace(reason)) < 5 {
-		return nil, fail("Leitung und Begründung erforderlich.")
+	if d.Role != roleAdmin || len(strings.TrimSpace(reason)) < 5 {
+		return nil, fail("Adminrecht und Begründung erforderlich.")
 	}
 	var source string
 	err := tx.QueryRow(ctx, `SELECT p.id::text FROM period_closures p JOIN entries e ON e.id=p.period_id AND e.kind='period' WHERE e.event=$1 AND p.period_id=$2 AND p.reopened_at IS NULL`, d.Event, id).Scan(&source)

@@ -163,6 +163,7 @@ try {
       });
     }
     const legacy = {
+      role: "Kassa",
       seq: 1,
       last: 0,
       ops: [op],
@@ -170,10 +171,28 @@ try {
       limit: 8999,
     };
     await fixture(legacy);
+    const vault = await store.readVault();
+    const archive = new Blob([
+      JSON.stringify({
+        version: 1,
+        salt: [...vault.salt],
+        iv: [...vault.iv],
+        ciphertext: await store.b64(new Blob([vault.bytes])),
+      }),
+    ]);
+    const recovered = await store.recoverReadOnly(archive, pass);
     const upgraded = await store.unlock(pass);
+    if (
+      upgraded.role !== "Write" ||
+      recovered.role !== "Write" ||
+      !recovered.recovery ||
+      !recovered.sealed
+    )
+      return false;
     await store.save(upgraded);
     const persisted = await store.unlock(pass);
     if (
+      persisted.role !== "Write" ||
       persisted.schemaVersion !== 2 ||
       persisted.preparedOrigin !== location.origin ||
       persisted.nextNumber !== 8000 ||
@@ -209,7 +228,7 @@ try {
   }, id);
   assert.equal(migrationPassed, true);
   console.log(
-    "PASS Profilmigration mit ausstehender Originalausgabe, unveränderten Nummern und Schutz bei unbekanntem Schema oder anderer Serveradresse",
+    "PASS Profilmigration Kassa zu Write beim Entsperren und Lesen der Sicherung, mit ausstehender Originalausgabe, unveränderten Nummern und Schutz bei unbekanntem Schema oder anderer Serveradresse",
   );
   console.log(
     "PASS: forced browser transaction abort preserves outbox, concurrent tab is rejected, protected recovery rejects wrong password and has no issuance token",

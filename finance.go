@@ -82,13 +82,13 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 	if o.Kind == "paper" {
 		return paperReference(ctx, tx, d, o)
 	}
-	if o.Kind == "price" && d.Role != "Leitung" {
+	if o.Kind == "price" && d.Role != roleAdmin {
 		var approved bool
 		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM entries WHERE event=$1 AND id=$2 AND kind='price' AND data->>'Status'='Freigegeben')", d.Event, o.Target).Scan(&approved); err != nil {
 			return false, err
 		}
 		if approved || v.Status == "Freigegeben" {
-			return false, problem{403, "Preisfreigabe durch Leitung erforderlich."}
+			return false, problem{403, "Preisfreigabe durch einen Admin erforderlich."}
 		}
 	}
 	if o.Kind == "opening" && o.Base > 0 && v.Fields["previous"] == "" {
@@ -226,8 +226,8 @@ func validateSettlement(rows []row) error {
 }
 
 func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name, start, end string) (string, error) {
-	if d.Role != "Leitung" || len(name) == 0 || len(name) > 160 {
-		return "", fail("Name und Leitungsrecht erforderlich.")
+	if d.Role != roleAdmin || len(name) == 0 || len(name) > 160 {
+		return "", fail("Name und Adminrecht erforderlich.")
 	}
 	if (start != "" || end != "") && (!date(start) || !date(end) || end < start) {
 		return "", fail("Gültigen Zielzeitraum angeben.")
@@ -295,8 +295,8 @@ func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name, start, e
 }
 
 func (a *app) globalPeriod(ctx context.Context, tx pgx.Tx, d device, start, end string, history bool) (any, error) {
-	if d.Role == "Kassa" || !date(start) || !date(end) || start > end {
-		return nil, fail("Prüfrecht und gültiger Zeitraum erforderlich.")
+	if !date(start) || !date(end) || start > end {
+		return nil, fail("Gültigen Zeitraum angeben.")
 	}
 	var year *string
 	if err := tx.QueryRow(ctx, "SELECT fiscal_year::text FROM events WHERE id=$1", d.Event).Scan(&year); err != nil {
@@ -306,7 +306,7 @@ func (a *app) globalPeriod(ctx context.Context, tx pgx.Tx, d device, start, end 
 		rows, err := tx.Query(ctx, `SELECT e.name AS veranstaltung,j.kind AS art,j.data->>'Date' AS datum,j.data->>'Label' AS bezeichnung,j.direction*(j.data->>'Amount')::bigint AS cent,
   CASE j.direction WHEN -1 THEN 'Storno' ELSE 'Buchung' END AS richtung,j.revision,j.actor AS akteur,j.recorded_at::text AS angenommen,o.local_time::text AS geraetezeit,
   o.device::text AS geraet,j.target AS vorgang FROM journal_history j JOIN event_records e ON e.id=j.event LEFT JOIN operations o ON o.id=j.operation
-  WHERE j.data->>'Date' BETWEEN $1 AND $2 AND ($3='Leitung' OR EXISTS (SELECT 1 FROM grants_event g WHERE g.event=e.id AND g.username=$4))
+  WHERE j.data->>'Date' BETWEEN $1 AND $2 AND ($3='Admin' OR EXISTS (SELECT 1 FROM grants_event g WHERE g.event=e.id AND g.username=$4))
   AND ($5::uuid IS NULL OR e.fiscal_year=$5) ORDER BY j.id`, start, end, d.Role, d.User, year)
 		if err != nil {
 			return nil, err
@@ -316,7 +316,7 @@ func (a *app) globalPeriod(ctx context.Context, tx pgx.Tx, d device, start, end 
 	rows, err := tx.Query(ctx, `SELECT e.name AS veranstaltung,j.kind AS art,j.data->>'Date' AS datum,j.data->>'Label' AS bezeichnung,(j.data->>'Amount')::bigint AS cent
 		FROM entries j JOIN events e ON e.id=j.event WHERE j.data->>'Date' BETWEEN $1 AND $2
 		AND j.kind IN ('income','expense','refund','deposit','deposit-return','donation','payment','presale','card','fee','reimbursement','outlay','transfer','payout','supply','skim','return')
-		AND ($3='Leitung' OR e.id IN (SELECT event FROM grants_event WHERE username=$4))
+		AND ($3='Admin' OR e.id IN (SELECT event FROM grants_event WHERE username=$4))
 		AND ($5::uuid IS NULL OR e.fiscal_year=$5) ORDER BY datum,e.name,j.id`, start, end, d.Role, d.User, year)
 	if err != nil {
 		return nil, err

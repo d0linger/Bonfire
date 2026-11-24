@@ -24,6 +24,9 @@ function profileState(state, readOnly = false) {
     );
   return {
     ...state,
+    role:
+      { Leitung: "Admin", Kassa: "Write", Prüfung: "Read" }[state.role] ??
+      state.role,
     schemaVersion: vaultSchema,
     preparedOrigin: state.preparedOrigin || location.origin,
   };

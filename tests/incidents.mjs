@@ -13,7 +13,7 @@ const reviewer = "p-" + randomUUID().slice(0, 12),
   pw = randomUUID();
 await api("users", admin, {
   Name: reviewer,
-  Role: "Prüfung",
+  Role: "Read",
   Password: pw,
   Event: event.ID,
 });
@@ -48,14 +48,14 @@ await decide(a, "incident");
 await post(b, { Ops: [income] }, 403);
 const proof = { Device: b.device, Proof: b.token, Next: randomUUID() };
 await api("renew", admin, proof, 403);
-await decide(a, "incomplete", 403);
-await decide(r, "incomplete");
+await decide(r, "incomplete", 403);
+await decide(a, "incomplete");
 let out = await post(r, {});
 const info = out.devices.find((d) => d.ID === b.device);
 assert.equal(info.IncidentState, "incomplete");
 assert.equal(info.Sealed, false);
 assert.match(info.IncidentNote, /Ausnahmeentscheid/);
-await post(r, { Action: "Abschluss" }, 422);
+await post(a, { Action: "Abschluss" }, 422);
 await decide(a, "return");
 await post(b, {}, 403);
 await api("renew", admin, proof);
@@ -96,7 +96,7 @@ assert.equal(out.sealed, true);
 assert.equal(out.incidentState, "");
 await post(a, { Action: "Ende", Last: 2 });
 await post(r, { Action: "Ende", Last: 0 });
-assert.equal((await post(r, { Action: "Abschluss" })).closed, true);
+assert.equal((await post(a, { Action: "Abschluss" })).closed, true);
 const audit = await api("manage", auth(r), { Action: "audit" });
 for (const prefix of [
   "Gerät vermisst",

@@ -39,7 +39,7 @@ try {
     data: {
       Action: "create",
       Login: user,
-      Role: "Kassa",
+      Role: "Write",
       Label: "Übungskonto",
       Password: initial,
       Events: [],
@@ -184,7 +184,7 @@ try {
     401,
   );
   console.log(
-    "PASS Eigenkonto als Kassa ohne Arbeitsbereich: Passwortwechsel, Einzel- und Sammelwiderruf, QR/TOTP, Recoverycodes und WebAuthn-Anmeldung.",
+    "PASS Eigenkonto mit Rolle Write ohne Arbeitsbereich: Passwortwechsel, Einzel- und Sammelwiderruf, QR/TOTP, Recoverycodes und WebAuthn-Anmeldung.",
   );
 } finally {
   await browser.close();

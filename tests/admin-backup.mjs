@@ -62,7 +62,7 @@ await modify({
   Action: "create",
   Login: user,
   Label: "Übungsleitung",
-  Role: "Leitung",
+  Role: "Admin",
   Password: pw,
   Events: [],
 });
@@ -74,7 +74,7 @@ await modify({
   Version: row.Version,
   Login: alias,
   Label: "Übungsleitung",
-  Role: "Leitung",
+  Role: "Admin",
   Events: [],
 });
 login = alias;
@@ -93,7 +93,7 @@ await modify({
   Action: "create",
   Login: tempUser,
   Label: "Anmeldetest",
-  Role: "Kassa",
+  Role: "Write",
   Password: pw,
   MustChange: true,
   Events: [space.ID],

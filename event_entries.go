@@ -25,8 +25,8 @@ func (a *app) eventInventory(ctx context.Context, w http.ResponseWriter, r *http
 	if err != nil {
 		return nil, err
 	}
-	if role != "Leitung" {
-		return nil, problem{403, "Leitungsrecht erforderlich."}
+	if role != roleAdmin {
+		return nil, problem{403, "Adminrecht erforderlich."}
 	}
 	id := r.URL.Query().Get("event")
 	if !idPattern.MatchString(id) {
@@ -99,8 +99,8 @@ func (a *app) changeEventEntry(ctx context.Context, w http.ResponseWriter, r *ht
 	if err != nil {
 		return nil, err
 	}
-	if role != "Leitung" {
-		return nil, problem{403, "Leitungsrecht erforderlich."}
+	if role != roleAdmin {
+		return nil, problem{403, "Adminrecht erforderlich."}
 	}
 	var q eventEntryChange
 	if err = read(r, &q); err != nil {
@@ -150,8 +150,8 @@ func (a *app) changeEventEntry(ctx context.Context, w http.ResponseWriter, r *ht
 	if err != nil {
 		return nil, err
 	}
-	if source.Role != "Leitung" {
-		return nil, problem{403, "Leitungsrecht erforderlich."}
+	if source.Role != roleAdmin {
+		return nil, problem{403, "Adminrecht erforderlich."}
 	}
 	raw, err := json.Marshal(q)
 	if err != nil {
@@ -190,8 +190,8 @@ func (a *app) changeEventEntry(ctx context.Context, w http.ResponseWriter, r *ht
 		if err != nil {
 			return nil, err
 		}
-		if dest.Role != "Leitung" {
-			return nil, problem{403, "Leitungsrecht erforderlich."}
+		if dest.Role != roleAdmin {
+			return nil, problem{403, "Adminrecht erforderlich."}
 		}
 		replacement := op{ID: uuid(), Target: uuid(), Kind: current.Kind, Data: current.Data}
 		if current.Data.Bar != "" && q.Bar == "" || current.Data.Wallet != "" && q.Wallet == "" ||

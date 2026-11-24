@@ -346,15 +346,33 @@ async function commit(next) {
     s = onlineSnapshot(out, next);
   } else s = next;
 }
+function writableWorkspace() {
+  return (
+    ["Admin", "Write"].includes(s.role) &&
+    !s.closed &&
+    !s.sealed &&
+    !s.ending &&
+    !s.recovery &&
+    s.incidentState !== "returning" &&
+    !(offlineEnabled && Date.parse(s.expires) <= Date.now())
+  );
+}
+const adminKinds = new Set([
+  "opening",
+  "period",
+  "organization",
+  "template",
+  "dispatch",
+  "import-source",
+]);
+function editableKinds() {
+  if (!writableWorkspace()) return [];
+  return recordKinds(page).filter(
+    (k) => s.role === "Admin" || !adminKinds.has(k),
+  );
+}
 function canWrite() {
-  if (
-    (offlineEnabled && Date.parse(s.expires) <= Date.now()) ||
-    s.closed ||
-    s.sealed ||
-    s.incidentState === "returning" ||
-    s.ending ||
-    s.role === "Prüfung"
-  )
+  if (!writableWorkspace())
     throw Error(
       offlineEnabled
         ? "Lokale Schreibfreigabe beendet."
@@ -485,7 +503,7 @@ function refs(name, title, kinds) {
     ) + dropdown
   );
 }
-function table(list, editable = false) {
+function table(list, editable = []) {
   if (!list.length) return '<p class="muted">Keine Einträge.</p>';
   return (
     '<div class="list entry-list"><table><thead><tr><th>Datum</th><th>Vorgang</th><th>Bezeichnung</th><th>Betrag</th><th aria-label="Aktionen"></th></tr></thead><tbody>' +
@@ -514,13 +532,13 @@ function table(list, editable = false) {
               esc(r.ID) +
               '">Datei laden</button>'
             : "") +
-          (editable && !r.Data.Retired
+          (editable.includes(r.Kind) && !r.Data.Retired
             ? '<button class="secondary" data-edit="' +
               esc(r.ID) +
               '">Bearbeiten</button>'
             : "") +
-          (editable &&
-          s.role === "Leitung" &&
+          (editable.includes(r.Kind) &&
+          s.role === "Admin" &&
           !s.closed &&
           !s.sealed &&
           (r.Kind === "contact" ||
@@ -560,24 +578,16 @@ function incidentPanel() {
         "</p>",
     )
     .join("");
-  for (const [id, role, allowed, label, reason] of [
-    [
-      "incident",
-      "Leitung",
-      [""],
-      "Gerät vermisst melden",
-      "Vorfall und bekannte Lücke",
-    ],
+  for (const [id, allowed, label, reason] of [
+    ["incident", [""], "Gerät vermisst melden", "Vorfall und bekannte Lücke"],
     [
       "incomplete",
-      "Prüfung",
       ["missing"],
       "Unvollständigkeit bestätigen",
       "Rekonstruktion und verbleibende Lücke",
     ],
     [
       "returnDevice",
-      "Leitung",
       ["missing", "incomplete"],
       "Rückkehr zur Prüfung freigeben",
       "Nachweis der Geräterückkehr",
@@ -589,7 +599,7 @@ function incidentPanel() {
         !d.Sealed &&
         allowed.includes(d.IncidentState || ""),
     );
-    if (choices.length && s.role === role)
+    if (choices.length && s.role === "Admin" && !s.recovery)
       content += popupForm(
         id,
         label,
@@ -639,30 +649,32 @@ function devicePage() {
             ),
           ) +
           "</pre></details>" +
-          form(
-            "resolve-" + c.ID,
-            select("choice", "Entscheidung", [
-              ["beibehalten", "Bisherigen Stand behalten"],
-              ["übernehmen", "Vorschlag übernehmen"],
-            ]) +
-              (s.accounts && monetary.has(c.Kind)
-                ? refs("account", "Konto für Klärung (optional)", [
-                    "account",
-                    "wallet",
-                  ])
-                : "") +
-              (s.accounts &&
-              ["transfer", "payout", "supply", "skim", "return"].includes(
-                c.Kind,
+          (s.role === "Admin" && !s.recovery && !s.closed
+            ? form(
+                "resolve-" + c.ID,
+                select("choice", "Entscheidung", [
+                  ["beibehalten", "Bisherigen Stand behalten"],
+                  ["übernehmen", "Vorschlag übernehmen"],
+                ]) +
+                  (s.accounts && monetary.has(c.Kind)
+                    ? refs("account", "Konto für Klärung (optional)", [
+                        "account",
+                        "wallet",
+                      ])
+                    : "") +
+                  (s.accounts &&
+                  ["transfer", "payout", "supply", "skim", "return"].includes(
+                    c.Kind,
+                  )
+                    ? refs("destination", "Zielkonto für Klärung (optional)", [
+                        "account",
+                        "wallet",
+                      ])
+                    : "") +
+                  field("reason", "Begründung", "text", true),
+                "Klärung speichern",
               )
-                ? refs("destination", "Zielkonto für Klärung (optional)", [
-                    "account",
-                    "wallet",
-                  ])
-                : "") +
-              field("reason", "Begründung", "text", true),
-            "Klärung speichern",
-          ),
+            : ""),
       );
     })
     .join("");
@@ -708,56 +720,54 @@ function devicePage() {
         )
       : button("sync", "Serverstand aktualisieren", true)) +
     conflicts +
-    (s.role !== "Kassa"
-      ? panel(
-          "Prüfprotokoll",
-          '<div class="actions">' +
-            button("audit", "Protokoll anzeigen", true) +
-            button("journalHistory", "Storno und Ersatz anzeigen", true) +
-            button("numbers", "Nummernregister prüfen", true) +
-            button("conflictFiles", "Strittige Originalfassungen laden", true) +
-            "</div>" +
-            (conflictFiles?.device === s.device && conflictFiles.list.length
-              ? form(
-                  "conflictFile",
-                  select(
-                    "operation",
-                    "Archivierte Konfliktfassung",
-                    conflictFiles.list.map((x) => [
-                      x.id,
-                      "Nr. " + x.number + " · " + x.outcome + " · " + x.id,
-                    ]),
-                  ) +
-                    select("format", "Dateityp", [
-                      ["pdf", "PDF"],
-                      ["docx", "DOCX"],
-                    ]),
-                  "Archivdatei laden",
-                )
-              : "") +
-            auditRows
-              .map(
-                (r) =>
-                  "<p>" +
-                  esc(r.at) +
-                  " · " +
-                  esc(r.username) +
-                  " · " +
-                  esc(r.action) +
-                  (r.device ? "<br>Ausführendes Gerät " + esc(r.device) : "") +
-                  (r.local_time ? " · Gerätezeit " + esc(r.local_time) : "") +
-                  (r.source_device
-                    ? " · Quellgerät " +
-                      esc(r.source_device) +
-                      " · Ausgangsrevision " +
-                      esc(r.base_revision)
-                    : "") +
-                  "</p>",
-              )
-              .join(""),
-        )
-      : "") +
-    (s.role === "Leitung"
+    panel(
+      "Prüfprotokoll",
+      '<div class="actions">' +
+        button("audit", "Protokoll anzeigen", true) +
+        button("journalHistory", "Storno und Ersatz anzeigen", true) +
+        button("numbers", "Nummernregister prüfen", true) +
+        button("conflictFiles", "Strittige Originalfassungen laden", true) +
+        "</div>" +
+        (conflictFiles?.device === s.device && conflictFiles.list.length
+          ? form(
+              "conflictFile",
+              select(
+                "operation",
+                "Archivierte Konfliktfassung",
+                conflictFiles.list.map((x) => [
+                  x.id,
+                  "Nr. " + x.number + " · " + x.outcome + " · " + x.id,
+                ]),
+              ) +
+                select("format", "Dateityp", [
+                  ["pdf", "PDF"],
+                  ["docx", "DOCX"],
+                ]),
+              "Archivdatei laden",
+            )
+          : "") +
+        auditRows
+          .map(
+            (r) =>
+              "<p>" +
+              esc(r.at) +
+              " · " +
+              esc(r.username) +
+              " · " +
+              esc(r.action) +
+              (r.device ? "<br>Ausführendes Gerät " + esc(r.device) : "") +
+              (r.local_time ? " · Gerätezeit " + esc(r.local_time) : "") +
+              (r.source_device
+                ? " · Quellgerät " +
+                  esc(r.source_device) +
+                  " · Ausgangsrevision " +
+                  esc(r.base_revision)
+                : "") +
+              "</p>",
+          )
+          .join(""),
+    ) +
+    (s.role === "Admin"
       ? panel(
           "Veranstaltung verwalten",
           popupForm(
@@ -779,7 +789,7 @@ function devicePage() {
               : ""),
         )
       : "") +
-    (s.role === "Leitung"
+    (s.role === "Admin"
       ? panel(
           "Kontozuordnung",
           button(
@@ -801,12 +811,12 @@ function devicePage() {
             (!s.sealed
               ? button("seal", "Mein Erfassungsende bestätigen")
               : "<strong>Erfassungsende bestätigt</strong>") +
-            (s.role === "Prüfung"
+            (s.role === "Admin" && !s.closed && !s.recovery
               ? button("close", "Bestände prüfen und abschließen")
               : "") +
             "</div>",
         )
-      : s.role === "Prüfung" && !s.closed
+      : s.role === "Admin" && !s.closed
         ? button("close", "Bestände prüfen und abschließen")
         : "")
   );
@@ -1053,7 +1063,7 @@ function formFields(k) {
       select(
         "Status",
         "Preisstand",
-        s.role === "Leitung"
+        s.role === "Admin"
           ? [
               ["Entwurf", "Entwurf"],
               ["Freigegeben", "Freigegeben"],
@@ -1236,7 +1246,7 @@ function records() {
             )
             .join("") +
           "</table></div>" +
-          (s.role === "Leitung" && originals.length
+          (s.role === "Admin" && originals.length
             ? popupForm(
                 "dispatch",
                 "Übergabe dokumentieren",
@@ -1262,7 +1272,7 @@ function records() {
       );
     }
   }
-  if (page === "Perioden" && s.role !== "Kassa") {
+  if (page === "Perioden") {
     detail =
       form(
         "globalPeriod",
@@ -1297,23 +1307,20 @@ function records() {
         )
         .join("");
   }
-  if (page === "Perioden" && s.role !== "Kassa") {
+  if (page === "Perioden" && s.role === "Admin" && !s.recovery) {
     detail += popupForm(
       "periodAction",
       "Periodenstand ändern",
       refs("id", "Abrechnungsperiode", ["period"]) +
-        select(
-          "action",
-          "Vorgang",
-          s.role === "Prüfung"
-            ? [["period-close", "Zeitraum freigeben"]]
-            : [["period-open", "Zeitraum wieder öffnen"]],
-        ) +
+        select("action", "Vorgang", [
+          ["period-close", "Zeitraum freigeben"],
+          ["period-open", "Zeitraum wieder öffnen"],
+        ]) +
         field("reason", "Begründung für Wiederöffnung"),
       "Periodenstand bestätigen",
     );
   }
-  if (page === "Perioden" && s.role === "Leitung")
+  if (page === "Perioden" && s.role === "Admin")
     detail += popupForm(
       "carry",
       "Vorperiodenstand übernehmen",
@@ -1331,7 +1338,8 @@ function records() {
           " · Weitere Sammelbareinnahme " +
           eur(counted(rows(), r.ID)) +
           " " +
-          (counted(rows(), r.ID) !== null &&
+          (writableWorkspace() &&
+          counted(rows(), r.ID) !== null &&
           (counted(rows(), r.ID) !== 0 ||
             !rows().some((x) => x.ID === "settlement:" + r.ID))
             ? '<button type="button" data-settle="' +
@@ -1369,12 +1377,7 @@ function records() {
           "</tbody></table>",
       );
   }
-  if (
-    offlineEnabled &&
-    page === "Geldtaschen" &&
-    !s.sealed &&
-    s.role !== "Prüfung"
-  ) {
+  if (offlineEnabled && page === "Geldtaschen" && writableWorkspace()) {
     detail += popupForm(
       "handover",
       "Physische Übergabe dokumentieren",
@@ -1412,7 +1415,7 @@ function records() {
       "Filtern",
     ) +
     "</details>" +
-    table(set, true) +
+    table(set, editableKinds()) +
     detail +
     "</section>"
   );
@@ -1441,8 +1444,8 @@ function entryLabel(page) {
 }
 function openRecord(trigger, item = null) {
   canWrite();
-  const kinds = recordKinds(page);
-  if (page === "Verwaltung" && s.role !== "Leitung") return;
+  const kinds = editableKinds();
+  if (!kinds.length || (item && !kinds.includes(item.Kind))) return;
   edit = item;
   kind = item?.Kind || (kinds.includes(kind) ? kind : kinds[0]);
   const selector =
@@ -1469,12 +1472,12 @@ function openRecord(trigger, item = null) {
 let donorReview;
 const donorRequest = (body) => api("donation-reports", body, bearer());
 function donationPanel() {
-  if (!offlineEnabled && s.role === "Leitung" && !s.donorAccess)
+  if (!offlineEnabled && s.role === "Admin" && !s.donorAccess)
     return panel(
       "Spendenmeldedaten",
       button("viewDonors", "Meldedaten für diese Sitzung öffnen", true),
     );
-  if (!s.donorAccess || s.recovery) return "";
+  if (s.role !== "Admin" || !s.donorAccess || s.recovery) return "";
   const review = donorReview?.device === s.device ? donorReview : null;
   let content = form(
     "donorLoad",
@@ -1578,86 +1581,90 @@ function exchange() {
         "</div>",
     ) +
     donationPanel() +
-    panel(
-      "Importvorschau",
-      form(
-        "preview",
-        select("sourceRole", "Quellenrolle", [
-          ["Journal", "BONFIRE-Journal"],
-          ["D1", "Historischer Abschluss · D1"],
-          ["D8", "Vorbereitete Folgevorlage · D8"],
-        ]) +
-          field(
-            "year",
-            "Quellenjahr",
-            "number",
-            true,
-            String(new Date().getFullYear()),
-          ) +
-          label(
-            "Journaldatei (CSV oder XLSX)",
-            '<input type="file" name="file" accept=".xlsx,.csv" required>',
-          ),
-        "Datei prüfen",
-      ) +
-        (imported.length
-          ? "<p>" +
-            imported.length +
-            ' Quellenzeilen</p><div class="list"><table><tr><th>Quelle</th><th>Blatt / Zeile</th><th>Datum</th><th>Herkunft Datum</th><th>Original</th><th>Bezeichnung</th><th>Art</th><th>Betrag</th><th>Prüfstand</th></tr>' +
-            imported
-              .map(
-                (r) =>
-                  "<tr>" +
-                  [
-                    importRole,
-                    r.sheet ? r.sheet + "!" + r.cell : r.row,
-                    r.date || "Offen",
-                    r.yearOrigin || "Quelldatum",
-                    r.cached != null
-                      ? r.raw +
-                        " · Cache " +
-                        (r.cached || "fehlt") +
-                        (r.calculatedCent != null
-                          ? " · nachgerechnet " + eur(r.calculatedCent)
-                          : "") +
-                        (r.differenceCent
-                          ? " · Abweichung " + eur(r.differenceCent)
-                          : "")
-                      : (r.raw ??
-                        (r.amount == null ? "Offen" : String(r.amount))),
-                    r.label,
-                    types[r.kind] || "Zuordnung offen",
-                    eur(r.amount),
-                    r.status,
-                  ]
-                    .map((v) => "<td>" + esc(v) + "</td>")
-                    .join("") +
-                  "</tr>",
-              )
-              .join("") +
-            "</table></div>" +
-            popupForm(
-              "importRow",
-              "Importzeile prüfen",
-              select(
-                "ix",
-                "Einzeln geprüfte Zeile",
-                imported.map((r, i) => [
-                  i,
-                  (r.sheet ? r.sheet + "!" + r.cell : r.row) + " · " + r.label,
-                ]),
+    (s.role === "Admin" && writableWorkspace()
+      ? panel(
+          "Importvorschau",
+          form(
+            "preview",
+            select("sourceRole", "Quellenrolle", [
+              ["Journal", "BONFIRE-Journal"],
+              ["D1", "Historischer Abschluss · D1"],
+              ["D8", "Vorbereitete Folgevorlage · D8"],
+            ]) +
+              field(
+                "year",
+                "Quellenjahr",
+                "number",
+                true,
+                String(new Date().getFullYear()),
               ) +
-                select("kind", "Buchungsart", [
-                  ["income", "Einnahme"],
-                  ["expense", "Ausgabe"],
-                ]) +
-                field("date", "Geprüftes Buchungsdatum", "date", true) +
-                field("account", "Konto") +
-                field("reason", "Prüfvermerk / Entscheidung", "text", true),
-              "Geprüfte Zeile übernehmen",
-            )
-          : ""),
-    )
+              label(
+                "Journaldatei (CSV oder XLSX)",
+                '<input type="file" name="file" accept=".xlsx,.csv" required>',
+              ),
+            "Datei prüfen",
+          ) +
+            (imported.length
+              ? "<p>" +
+                imported.length +
+                ' Quellenzeilen</p><div class="list"><table><tr><th>Quelle</th><th>Blatt / Zeile</th><th>Datum</th><th>Herkunft Datum</th><th>Original</th><th>Bezeichnung</th><th>Art</th><th>Betrag</th><th>Prüfstand</th></tr>' +
+                imported
+                  .map(
+                    (r) =>
+                      "<tr>" +
+                      [
+                        importRole,
+                        r.sheet ? r.sheet + "!" + r.cell : r.row,
+                        r.date || "Offen",
+                        r.yearOrigin || "Quelldatum",
+                        r.cached != null
+                          ? r.raw +
+                            " · Cache " +
+                            (r.cached || "fehlt") +
+                            (r.calculatedCent != null
+                              ? " · nachgerechnet " + eur(r.calculatedCent)
+                              : "") +
+                            (r.differenceCent
+                              ? " · Abweichung " + eur(r.differenceCent)
+                              : "")
+                          : (r.raw ??
+                            (r.amount == null ? "Offen" : String(r.amount))),
+                        r.label,
+                        types[r.kind] || "Zuordnung offen",
+                        eur(r.amount),
+                        r.status,
+                      ]
+                        .map((v) => "<td>" + esc(v) + "</td>")
+                        .join("") +
+                      "</tr>",
+                  )
+                  .join("") +
+                "</table></div>" +
+                popupForm(
+                  "importRow",
+                  "Importzeile prüfen",
+                  select(
+                    "ix",
+                    "Einzeln geprüfte Zeile",
+                    imported.map((r, i) => [
+                      i,
+                      (r.sheet ? r.sheet + "!" + r.cell : r.row) +
+                        " · " +
+                        r.label,
+                    ]),
+                  ) +
+                    select("kind", "Buchungsart", [
+                      ["income", "Einnahme"],
+                      ["expense", "Ausgabe"],
+                    ]) +
+                    field("date", "Geprüftes Buchungsdatum", "date", true) +
+                    field("account", "Konto") +
+                    field("reason", "Prüfvermerk / Entscheidung", "text", true),
+                  "Geprüfte Zeile übernehmen",
+                )
+              : ""),
+        )
+      : "")
   );
 }
 function reportRows() {
@@ -1670,13 +1677,14 @@ function reportRows() {
 }
 function installStudio() {
   const options = document.querySelector("#export").closest("section");
-  const editor = document.querySelector("#template").closest("section");
+  const editor = document.querySelector("#template")?.closest("section");
   const studio = document.createElement("div");
   studio.className = "document-studio";
   options.before(studio);
   const controls = document.createElement("div");
   controls.className = "doc-controls";
-  controls.append(options, editor);
+  controls.append(options);
+  if (editor) controls.append(editor);
   studio.innerHTML =
     '<div class="proof-tabs"><button type="button" data-act="docInputs">Eingabe</button><button type="button" data-act="docProof">Druckvorschau</button></div>';
   studio.append(controls);
@@ -1809,12 +1817,18 @@ function docs() {
             ["active", "Freigegebene Fassung"],
             ["draft", offlineEnabled ? "Lokaler Entwurf" : "Sitzungsentwurf"],
           ]) +
-          field("revisionReason", "Korrekturgrund (für Ersatzbeleg)") +
+          (writableWorkspace()
+            ? field("revisionReason", "Korrekturgrund (für Ersatzbeleg)")
+            : "") +
           select("format", "Ausgabe", [
             ["PDF", "PDF-Arbeitsfassung"],
             ["DOCX", "DOCX-Arbeitsfassung"],
-            ["Original", "Nummeriertes Original archivieren"],
-            ["Korrektur", "Begründete Korrekturfassung archivieren"],
+            ...(writableWorkspace()
+              ? [
+                  ["Original", "Nummeriertes Original archivieren"],
+                  ["Korrektur", "Begründete Korrekturfassung archivieren"],
+                ]
+              : []),
           ]),
         "Dokument erzeugen",
       ),
@@ -1859,85 +1873,90 @@ function docs() {
           )
           .join(""),
     ) +
-    panel(
-      "Vorlagen anpassen",
-      button(
-        "pinTemplates",
-        offlineEnabled
-          ? "Freigegebenen Vorlagenstand für dieses Gerät übernehmen"
-          : "Vorlagen aktualisieren",
-        true,
-      ) +
-        form(
-          "template",
-          select(
-            "Reference",
-            "Profil",
-            profiles.map((p, i) => [profileID(i), p]),
+    (writableWorkspace()
+      ? panel(
+          "Vorlagen anpassen",
+          button(
+            "pinTemplates",
+            offlineEnabled
+              ? "Freigegebenen Vorlagenstand für dieses Gerät übernehmen"
+              : "Vorlagen aktualisieren",
+            true,
           ) +
-            field("Label", "Überschrift", "text", true) +
-            label(
-              "Textbaustein",
-              '<textarea name="Note">' +
-                esc(s.importedText || "") +
-                "</textarea>",
+            form(
+              "template",
+              select(
+                "Reference",
+                "Profil",
+                profiles.map((p, i) => [profileID(i), p]),
+              ) +
+                field("Label", "Überschrift", "text", true) +
+                label(
+                  "Textbaustein",
+                  '<textarea name="Note">' +
+                    esc(s.importedText || "") +
+                    "</textarea>",
+                ) +
+                select("font", "Schriftpreset", [
+                  ["helvetica", "Sans Serif"],
+                  ["times", "Serif"],
+                  ["courier", "Monospace"],
+                ]) +
+                field("header", "Kartenkopf (optional)") +
+                field(
+                  "copies",
+                  "Karten je Blatt (bis 3 Getränke / 7 Essen)",
+                  "number",
+                ) +
+                field(
+                  "firstColumn",
+                  "Kartenbreite erste Spalte in mm (40–75)",
+                  "number",
+                ) +
+                select("paper", "Gästepreisliste Standardpapier", [
+                  ["Letter", "Letter"],
+                  ["A4", "A4"],
+                ]) +
+                field("footer", "Fußzeile") +
+                field("margin", "Seitenrand in mm", "number", true, "15"),
+              offlineEnabled
+                ? "Entwurf lokal speichern"
+                : "Entwurf für diese Sitzung übernehmen",
+              (s.role === "Admin"
+                ? '<button data-release="true">Fassung freigeben</button>'
+                : "") + button("draftProof", "Änderungen ansehen", true),
             ) +
-            select("font", "Schriftpreset", [
-              ["helvetica", "Sans Serif"],
-              ["times", "Serif"],
-              ["courier", "Monospace"],
-            ]) +
-            field("header", "Kartenkopf (optional)") +
-            field(
-              "copies",
-              "Karten je Blatt (bis 3 Getränke / 7 Essen)",
-              "number",
+            form(
+              "wordLayout",
+              label(
+                "Word-Layout für Dankesbriefe (A4, DOCX)",
+                '<input type="file" name="file" accept=".docx" required>',
+              ),
+              "Word-Layout als Briefentwurf übernehmen",
             ) +
-            field(
-              "firstColumn",
-              "Kartenbreite erste Spalte in mm (40–75)",
-              "number",
+            (s.drafts?.[profileID(6)]?.File
+              ? "<p>Word-Layout im Entwurf verfügbar</p>"
+              : "") +
+            form(
+              "importTemplate",
+              label(
+                "DOCX-Textvorlage",
+                '<input type="file" name="file" accept=".docx" required>',
+              ),
+              "Text und Felder übernehmen",
             ) +
-            select("paper", "Gästepreisliste Standardpapier", [
-              ["Letter", "Letter"],
-              ["A4", "A4"],
-            ]) +
-            field("footer", "Fußzeile") +
-            field("margin", "Seitenrand in mm", "number", true, "15"),
-          offlineEnabled
-            ? "Entwurf lokal speichern"
-            : "Entwurf für diese Sitzung übernehmen",
-          '<button data-release="true">Fassung freigeben</button>' +
-            button("draftProof", "Änderungen ansehen", true),
-        ) +
-        form(
-          "wordLayout",
-          label(
-            "Word-Layout für Dankesbriefe (A4, DOCX)",
-            '<input type="file" name="file" accept=".docx" required>',
-          ),
-          "Word-Layout als Briefentwurf übernehmen",
-        ) +
-        (s.drafts?.[profileID(6)]?.File
-          ? "<p>Word-Layout im Entwurf verfügbar</p>"
-          : "") +
-        form(
-          "importTemplate",
-          label(
-            "DOCX-Textvorlage",
-            '<input type="file" name="file" accept=".docx" required>',
-          ),
-          "Text und Felder übernehmen",
-        ) +
-        form(
-          "lfk",
-          label(
-            "LFK-Formular als freigegebener Druckhintergrund",
-            '<input type="file" name="file" accept=".pdf" required>',
-          ),
-          "A6-Formular vorbereiten",
-        ),
-    )
+            (s.role === "Admin"
+              ? form(
+                  "lfk",
+                  label(
+                    "LFK-Formular als freigegebener Druckhintergrund",
+                    '<input type="file" name="file" accept=".pdf" required>',
+                  ),
+                  "A6-Formular vorbereiten",
+                )
+              : ""),
+        )
+      : "")
   );
 }
 function preparePanel() {
@@ -1952,17 +1971,19 @@ function preparePanel() {
             events.filter((e) => !e.Closed).map((e) => [e.ID, e.Name]),
           ) +
             field("name", "Gerätename", "text", true) +
-            field(
-              "digitalCount",
-              "Benötigte digitale Belegnummern (0–1000)",
-              "number",
-              true,
-              onlineUser?.role === "Prüfung" ? "0" : "1000",
-            ) +
+            (onlineUser?.role === "Read"
+              ? '<input name="digitalCount" type="hidden" value="0">'
+              : field(
+                  "digitalCount",
+                  "Benötigte digitale Belegnummern (0–1000)",
+                  "number",
+                  true,
+                  "1000",
+                )) +
             select("donor", "Meldedaten auf diesem Gerät", [
               ["", "Standardprofil"],
-              ...(onlineUser?.role === "Leitung"
-                ? [["ja", "Belegprofil mit sensiblen Daten (Leitung)"]]
+              ...(onlineUser?.role === "Admin"
+                ? [["ja", "Belegprofil mit sensiblen Daten (Admin)"]]
                 : []),
             ]) +
             field(
@@ -2001,7 +2022,7 @@ function yearSetup() {
     pageHead(
       "Geschäftsjahre",
       "Wähle das Geschäftsjahr für eure Kassenführung.",
-      onlineUser.role === "Leitung" ? yearForm() : "",
+      onlineUser.role === "Admin" ? yearForm() : "",
     ) +
     (years.length
       ? panel(
@@ -2022,14 +2043,14 @@ function yearSetup() {
             .join(""),
         )
       : "") +
-    (onlineUser.role !== "Leitung" && !years.length
+    (onlineUser.role !== "Admin" && !years.length
       ? "<p>Dir wurde noch kein Arbeitsbereich in einem Geschäftsjahr zugewiesen.</p>"
       : "") +
     (old.length
       ? panel(
           "Bisherige Arbeitsbereiche",
           '<button class="secondary" data-year="unassigned">Ohne Jahreszuordnung öffnen</button>' +
-            (onlineUser.role === "Leitung" && years.length
+            (onlineUser.role === "Admin" && years.length
               ? popupForm(
                   "assign-year",
                   "Geschäftsjahr zuordnen",
@@ -2260,7 +2281,7 @@ async function openEventCleanup(trigger, workspace, message = "") {
   });
 }
 function eventCleanupButton(event) {
-  return onlineUser?.role === "Leitung" && !event.Closed && !event.General
+  return onlineUser?.role === "Admin" && !event.Closed && !event.General
     ? '<button type="button" class="secondary" aria-haspopup="dialog" data-event-cleanup="' +
         esc(event.ID) +
         '">Veranstaltung löschen …</button>'
@@ -2272,7 +2293,7 @@ function eventsOfYear() {
     pageHead(
       "Veranstaltungen",
       fiscalYear()?.Name || "Bisherige Arbeitsbereiche",
-      fiscalYear() && onlineUser.role === "Leitung" ? eventForm() : "",
+      fiscalYear() && onlineUser.role === "Admin" ? eventForm() : "",
     ) +
     panel(
       "Veranstaltungen im Geschäftsjahr",
@@ -2330,7 +2351,7 @@ async function selectFiscalWorkspace(yearID, eventID) {
 }
 function onlineAdmin() {
   return (
-    (offlineEnabled && onlineUser?.role === "Leitung"
+    (offlineEnabled && onlineUser?.role === "Admin"
       ? panel(
           "Veranstaltung anlegen",
           popupForm(
@@ -2358,8 +2379,8 @@ function onlineAdmin() {
             field("Name", "E-Mail-Adresse oder Benutzername", "text", true) +
               field("Password", "Startpasswort", "password", true) +
               select("Role", "Rolle", [
-                ["Kassa", "Kassa"],
-                ["Prüfung", "Prüfung"],
+                ["Write", "Write"],
+                ["Read", "Read"],
               ]) +
               select(
                 "Event",
@@ -2719,9 +2740,9 @@ function onlineView() {
         "Dein Arbeitsplatz",
         "Es ist noch kein Arbeitsbereich zugewiesen.",
       ) +
-      (onlineUser.role === "Leitung"
+      (onlineUser.role === "Admin"
         ? route("Verwaltung", "Arbeitsbereich anlegen", "primary", "Plus")
-        : "<p>Die Leitung kann dir eine Veranstaltung oder ein Kassenbuch zuweisen.</p>")
+        : "<p>Ein Admin kann dir eine Veranstaltung oder ein Kassenbuch zuweisen.</p>")
     );
   const { event: e, entries: list, pending, conflicts } = onlineData;
   if (page === "Übersicht" || page === "Veranstaltungen")
@@ -2754,8 +2775,8 @@ function onlineView() {
         ? ""
         : route(
             "Einrichtung",
-            onlineUser.role === "Prüfung"
-              ? "Prüfprofil vorbereiten"
+            onlineUser.role === "Read"
+              ? "Leseprofil vorbereiten"
               : "Erfassung vorbereiten",
             "primary",
             "Laptop",
@@ -2890,12 +2911,7 @@ function show() {
       : pageHead(
           isEvent ? s.event.Name : titleOf(page),
           pageDescriptions[page] || s.event.Name,
-          recordKinds(page).length &&
-            !s.closed &&
-            !s.sealed &&
-            s.role !== "Prüfung"
-            ? button("focusEntry", entryLabel(page))
-            : "",
+          editableKinds().length ? button("focusEntry", entryLabel(page)) : "",
         ) +
         (isEvent
           ? tabs(eventTabs, page)
@@ -3365,11 +3381,11 @@ async function submit(f) {
     const target = "dispatch:" + vals.original,
       existing = rows().find((r) => r.ID === target);
     if (
-      s.role !== "Leitung" ||
+      s.role !== "Admin" ||
       vals.evidence.trim().length < 3 ||
       (!existing && vals.delivery === "Vermerk aufgehoben")
     )
-      throw Error("Leitung, gültigen Übergabestatus und Nachweis angeben.");
+      throw Error("Adminrechte, gültigen Übergabestatus und Nachweis angeben.");
     const original = rows().find(
       (r) => r.ID === vals.original && r.Kind === "original",
     );
@@ -3388,8 +3404,8 @@ async function submit(f) {
     );
   }
   if (id === "importRow") {
-    if (s.role !== "Leitung")
-      throw Error("Importfreigabe durch Leitung erforderlich.");
+    if (s.role !== "Admin")
+      throw Error("Importfreigabe durch einen Admin erforderlich.");
     const r = imported[Number(vals.ix)];
     if (!r || r.blocked || r.amount == null || importRole === "D8")
       throw Error("Diese Quellenzeile ist für eine Buchung gesperrt.");
@@ -3563,8 +3579,8 @@ async function submit(f) {
       (!d.Unit?.trim() || !d.Category)
     )
       throw Error("Einheit und Sortiment vor Freigabe klären.");
-    if (kind === "organization" && s.role !== "Leitung")
-      throw Error("Leitungsrecht erforderlich.");
+    if (kind === "organization" && s.role !== "Admin")
+      throw Error("Adminrechte erforderlich.");
     if (kind === "count" && d.Status === "Bestätigt")
       d.Fields = {
         ...d.Fields,
@@ -3648,7 +3664,7 @@ async function submit(f) {
     edit = null;
   }
   if (id === "lfk") {
-    if (s.role !== "Leitung") throw Error("Leitung erforderlich.");
+    if (s.role !== "Admin") throw Error("Adminrechte erforderlich.");
     const id = "template:" + profileID(2),
       old = rows().find((r) => r.ID === id);
     await queue(
@@ -3721,8 +3737,8 @@ async function submit(f) {
   }
   if (id === "template") {
     await sync();
-    if (s.role !== "Leitung")
-      throw Error("Nur die Leitung kann Vorlagen freigeben.");
+    if (s.role !== "Admin")
+      throw Error("Nur ein Admin kann Vorlagen freigeben.");
     const target = "template:" + vals.Reference;
     await queue(
       "template",

@@ -52,8 +52,8 @@ func (a *app) proxyBackup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bitte erneut anmelden.", 401)
 		return
 	}
-	if role != "Leitung" {
-		http.Error(w, "Leitungsrecht erforderlich.", 403)
+	if role != roleAdmin {
+		http.Error(w, "Adminrecht erforderlich.", 403)
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/admin/backup")
@@ -85,7 +85,7 @@ func (a *app) proxyBackup(w http.ResponseWriter, r *http.Request) {
 				}
 				verify.SetBasicAuth(alias, command.Password)
 				verify.Header.Set("X-Bonfire-OTP", command.OTP)
-				if verified, checkRole, err := a.auth(r.Context(), verify); err != nil || verified != user || checkRole != "Leitung" {
+				if verified, checkRole, err := a.auth(r.Context(), verify); err != nil || verified != user || checkRole != roleAdmin {
 					http.Error(w, "Erneute Anmeldung fehlgeschlagen.", 403)
 					return
 				}

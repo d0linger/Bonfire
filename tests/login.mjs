@@ -18,7 +18,7 @@ const event = await api("events", admin, {
 await api("users", admin, {
   Name: user.toUpperCase(),
   Password: pw,
-  Role: "Kassa",
+  Role: "Write",
   Event: event.ID,
 });
 const browser = await chromium.launch({

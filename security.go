@@ -306,8 +306,8 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 	case "period-close", "period-open":
 		return periodAction(ctx, tx, d, q.Action, q.Target, q.Reason)
 	case "prior":
-		if d.Role != "Leitung" {
-			return nil, problem{403, "Leitungsrecht erforderlich."}
+		if d.Role != roleAdmin {
+			return nil, problem{403, "Adminrecht erforderlich."}
 		}
 		return prior(ctx, tx, q.Target)
 	case "conflict-originals", "conflict-file":
@@ -325,26 +325,20 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 		}
 		return id, tx.Commit(ctx)
 	case "journal":
-		if d.Role == "Kassa" {
-			return nil, problem{403, "Prüfrecht erforderlich."}
-		}
 		rows, err := tx.Query(ctx, "SELECT recorded_at::text AS at,actor AS username,concat(CASE direction WHEN -1 THEN 'Storno' ELSE 'Buchung' END,' · ',data->>'Label',' · ',(data->>'Amount'),' Cent') AS action FROM journal_history WHERE event=$1 ORDER BY id", d.Event)
 		if err != nil {
 			return nil, err
 		}
 		return pgx.CollectRows(rows, pgx.RowToMap)
 	case "audit":
-		if d.Role == "Kassa" {
-			return nil, problem{403, "Prüfrecht erforderlich."}
-		}
 		rows, err := tx.Query(ctx, "SELECT a.at::text,a.username,a.action,a.subject,a.actor_device::text AS device,o.local_time::text AS local_time,o.device::text AS source_device,o.base AS base_revision FROM audit a LEFT JOIN operations o ON o.id::text=a.subject AND o.event=a.event WHERE a.event=$1 ORDER BY a.id", d.Event)
 		if err != nil {
 			return nil, err
 		}
 		return pgx.CollectRows(rows, pgx.RowToMap)
 	case "accounts":
-		if d.Role != "Leitung" || d.Closed {
-			return nil, problem{403, "Nur Leitung bei offener Veranstaltung."}
+		if d.Role != roleAdmin || d.Closed {
+			return nil, problem{403, "Nur für Admins bei offener Veranstaltung."}
 		}
 		_, err = tx.Exec(ctx, "UPDATE events SET accounts=$1 WHERE id=$2", q.Accounts, d.Event)
 		if q.Accounts {
@@ -353,8 +347,8 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 			q.Action = "Kontozuordnung deaktiviert"
 		}
 	case "reopen":
-		if d.Role != "Leitung" || !d.Closed || len(strings.TrimSpace(q.Reason)) < 5 {
-			return nil, fail("Leitung und Wiederöffnungsgrund erforderlich.")
+		if d.Role != roleAdmin || !d.Closed || len(strings.TrimSpace(q.Reason)) < 5 {
+			return nil, fail("Adminrecht und Wiederöffnungsgrund erforderlich.")
 		}
 		_, err = tx.Exec(ctx, "UPDATE events SET closed=false WHERE id=$1", d.Event)
 	case "reprint":

@@ -67,7 +67,7 @@ func (a *app) auditAccess(ctx context.Context, r *http.Request, allowReview bool
 		return "", "", problem{401, "Persönliche Anmeldung erforderlich."}
 	}
 	user, role, err := a.auth(ctx, r)
-	if err == nil && role != "Leitung" && !(allowReview && role == "Prüfung") {
+	if err == nil && role != roleAdmin && !(allowReview && (role == roleRead || role == roleWrite)) {
 		return "", "", problem{403, "Keine Berechtigung für diesen Bereich."}
 	}
 	return user, role, err
@@ -122,7 +122,7 @@ const auditProjection = `WITH projected AS (
       WHEN a.action LIKE 'grant %' OR a.action LIKE 'revoke %' OR a.action LIKE 'reopen %' THEN substr(a.action,strpos(a.action,' ')+1)
       ELSE '' END AS reason
  ` + auditJoins + `
- WHERE ($1='Leitung' OR EXISTS (SELECT 1 FROM grants_event g WHERE g.event=a.event AND g.username=$2))
+ WHERE ($1='Admin' OR EXISTS (SELECT 1 FROM grants_event g WHERE g.event=a.event AND g.username=$2))
  AND ($3='' OR e.fiscal_year=nullif($3,'')::uuid) AND ($4='' OR a.event=nullif($4,'')::uuid)
  AND ($5='' OR a.username=$5)
  AND ($6='' OR a.at >= (nullif($6,'')::date::timestamp AT TIME ZONE 'Europe/Vienna'))

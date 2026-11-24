@@ -69,6 +69,9 @@ await mutate({
   MustChange: true,
   Events: [space.ID],
 });
+// Older clients can submit German role aliases. Responses always use the current role.
+assert.equal((await user(loginID)).Role, "Write");
+assert.equal((await user("leitung")).Role, "Admin");
 const start = await login(basic(loginID, initial));
 assert.equal(start.cookie, undefined);
 assert.ok(start.data.passwordChange);
@@ -108,6 +111,7 @@ await mutate({
   Role: "Prüfung",
   Events: [],
 });
+assert.equal((await user(loginID)).Role, "Read");
 await request("events", { cookie: cashier, expected: 401 });
 await login(basic(loginID, password), 401);
 cashier = (await login(basic(newLogin, password))).cookie;
@@ -136,13 +140,11 @@ await request("password-change", {
   body: { Ticket: pending, Password: randomUUID() },
   expected: 410,
 });
-if (
-  (await list()).filter((u) => u.Active && u.Role === "Leitung").length === 1
-) {
+if ((await list()).filter((u) => u.Active && u.Role === "Admin").length === 1) {
   await edit("leitung", { Action: "disable" }, 422);
   await edit(
     "leitung",
-    { Action: "edit", Login: "leitung", Label: "", Role: "Kassa", Events: [] },
+    { Action: "edit", Login: "leitung", Label: "", Role: "Write", Events: [] },
     422,
   );
 }
@@ -173,6 +175,10 @@ try {
     .getByRole("dialog")
     .getByLabel("E-Mail-Adresse oder Benutzername")
     .waitFor();
+  assert.equal(
+    await page.getByRole("dialog").getByLabel("Rolle").inputValue(),
+    "Write",
+  );
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Abbrechen" })
@@ -180,6 +186,16 @@ try {
   await page.getByRole("button", { name: "Fiktive Kassa " + newLogin }).click();
   await page.getByRole("button", { name: "Zugang bearbeiten" }).click();
   const dialog = page.getByRole("dialog");
+  assert.deepEqual(
+    (
+      await dialog.locator('select[name="Role"] option').allTextContents()
+    ).sort(),
+    ["Admin", "Read", "Write"],
+  );
+  assert.equal(
+    await dialog.locator('select[name="Role"]').inputValue(),
+    "Read",
+  );
   await dialog.getByLabel("Anzeigename").fill("Fiktive Kassa Test");
   await dialog.getByLabel("Begründung").fill("Synthetischer Oberflächentest");
   await dialog.getByRole("button", { name: "Änderungen speichern" }).click();
@@ -198,10 +214,43 @@ try {
   await changed.getByLabel("Neues Passwort wiederholen").fill(newSecret);
   await changed.getByRole("button", { name: "Passwort speichern" }).click();
   await changed.locator("#login").waitFor();
-  await login(basic(newLogin, newSecret));
+  await edit(loginID, {
+    Action: "edit",
+    Role: "Read",
+    Login: newLogin,
+    Label: "Fiktive Kassa Test",
+    Events: [space.ID],
+  });
+  await changed.locator("#login [name=user]").fill(newLogin);
+  await changed.locator("#login [name=pass]").fill(newSecret);
+  await changed.getByRole("button", { name: "Anmelden", exact: true }).click();
+  await changed
+    .locator("nav")
+    .getByRole("button", { name: "Kassenbuch", exact: true })
+    .click();
+  const journal = changed.locator("article");
+  await journal
+    .getByRole("heading", { name: "Kassenbuch", exact: true })
+    .waitFor();
+  assert.equal(
+    await journal
+      .locator('[data-act="focusEntry"], [data-edit], [data-lifecycle]')
+      .count(),
+    0,
+  );
+  await changed.locator("#admin-navigation summary").click();
+  const links = changed.locator("#admin-navigation");
+  assert.equal(
+    await links.getByRole("button", { name: "Audit-Log", exact: true }).count(),
+    1,
+  );
+  assert.equal(
+    await links.getByRole("button", { name: "Benutzer", exact: true }).count(),
+    0,
+  );
 } finally {
   await browser.close();
 }
 console.log(
-  "PASS Benutzerverwaltung, eigene Sitzung und Rechte, Zugriffsbereiche, stabile Kontoidentität, Passwortwechsel und Ticketablauf, Widerruf, Sperre und Schutz der letzten Leitung",
+  "PASS Benutzerverwaltung, eigene Sitzung und Rechte, Zugriffsbereiche, stabile Kontoidentität, Passwortwechsel und Ticketablauf, Widerruf, Sperre und Schutz des letzten aktiven Admins",
 );

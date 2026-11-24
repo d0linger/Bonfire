@@ -24,9 +24,6 @@ func paperReference(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error
 }
 
 func numberReport(ctx context.Context, tx pgx.Tx, d device) (any, error) {
-	if d.Role == "Kassa" {
-		return nil, problem{403, "Prüfrecht erforderlich."}
-	}
 	rows, err := tx.Query(ctx, `SELECT x.name,x.block*1000 AS first,x.block*1000+x.digital_count-1 AS last,x.digital_count AS capacity,x.block*1000+999 AS paper_last,
  CASE WHEN coalesce(x.incident,'')<>'' THEN 'Ungeklärte Nummern' WHEN x.sealed THEN 'Bereich beendet' ELSE 'Reserviert' END AS status,
  ARRAY(SELECT number FROM originals WHERE device=x.id UNION SELECT (data->>'Number')::bigint FROM operations WHERE device=x.id AND kind='original' AND outcome IN ('Konflikt','Geklärt') ORDER BY 1) AS used,

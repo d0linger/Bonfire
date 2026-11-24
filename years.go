@@ -22,15 +22,15 @@ func (a *app) years(ctx context.Context, w http.ResponseWriter, r *http.Request)
 	}
 	if r.Method == http.MethodGet {
 		rows, err := a.db.Query(ctx, `SELECT y.id::text,y.name,y.starts::text,y.ends::text FROM fiscal_years y
-			WHERE $1='Leitung' OR EXISTS(SELECT 1 FROM events e JOIN grants_event g ON g.event=e.id
+			WHERE $1='Admin' OR EXISTS(SELECT 1 FROM events e JOIN grants_event g ON g.event=e.id
 				WHERE e.fiscal_year=y.id AND g.username=$2) ORDER BY y.starts DESC`, role, user)
 		if err != nil {
 			return nil, err
 		}
 		return pgx.CollectRows(rows, pgx.RowToStructByPos[fiscalYear])
 	}
-	if role != "Leitung" {
-		return nil, problem{403, "Nur die Leitung kann Geschäftsjahre anlegen."}
+	if role != roleAdmin {
+		return nil, problem{403, "Nur Admins können Geschäftsjahre anlegen."}
 	}
 	var y fiscalYear
 	if err = read(r, &y); err != nil {
@@ -152,8 +152,8 @@ func (a *app) assignYear(ctx context.Context, w http.ResponseWriter, r *http.Req
 	if err != nil {
 		return nil, err
 	}
-	if role != "Leitung" {
-		return nil, problem{403, "Nur die Leitung kann bestehende Arbeitsbereiche zuordnen."}
+	if role != roleAdmin {
+		return nil, problem{403, "Nur Admins können bestehende Arbeitsbereiche zuordnen."}
 	}
 	var in struct{ Year, Event string }
 	if err = read(r, &in); err != nil {

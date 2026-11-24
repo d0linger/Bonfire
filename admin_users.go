@@ -48,8 +48,8 @@ func accountManager(ctx context.Context, tx pgx.Tx, r *http.Request, write bool)
 	if err != nil {
 		return "", err
 	}
-	if role != "Leitung" {
-		return "", problem{403, "Benutzerverwaltung erfordert Leitungsrechte."}
+	if role != roleAdmin {
+		return "", problem{403, "Benutzerverwaltung erfordert Adminrechte."}
 	}
 	return name, nil
 }
@@ -128,7 +128,8 @@ func (a *app) editAdminUser(ctx context.Context, w http.ResponseWriter, r *http.
 	}
 	creating := q.Action == "create"
 	if creating || q.Action == "edit" {
-		if !validLoginName(q.Login) || len(q.Label) > 160 || !slices.Contains([]string{"Leitung", "Kassa", "Prüfung"}, q.Role) {
+		q.Role = canonicalRole(q.Role)
+		if !validLoginName(q.Login) || len(q.Label) > 160 || !slices.Contains([]string{roleAdmin, roleWrite, roleRead}, q.Role) {
 			return nil, fail("Anmeldung, Anzeigename oder Rolle ungültig.")
 		}
 		slices.Sort(q.Events)
@@ -163,13 +164,13 @@ func (a *app) editAdminUser(ctx context.Context, w http.ResponseWriter, r *http.
 		if current != q.Version {
 			return nil, problem{409, "Das Konto wurde inzwischen geändert. Bitte Liste aktualisieren."}
 		}
-		if active && oldRole == "Leitung" && (q.Action == "disable" || (q.Action == "edit" && q.Role != "Leitung")) {
+		if active && oldRole == roleAdmin && (q.Action == "disable" || (q.Action == "edit" && q.Role != roleAdmin)) {
 			var remaining bool
-			if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM users WHERE active AND role='Leitung' AND name<>$1)", q.ID).Scan(&remaining); err != nil {
+			if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM users WHERE active AND role='Admin' AND name<>$1)", q.ID).Scan(&remaining); err != nil {
 				return nil, err
 			}
 			if !remaining {
-				return nil, fail("Mindestens eine aktive Leitung muss erhalten bleiben.")
+				return nil, fail("Mindestens ein aktives Admin-Konto muss erhalten bleiben.")
 			}
 		}
 	}

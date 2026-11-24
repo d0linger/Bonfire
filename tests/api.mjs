@@ -54,7 +54,7 @@ if (process.argv.includes("--replay")) {
   await post("users", admin, {
     Name: user,
     Password: testPw,
-    Role: "Prüfung",
+    Role: "Read",
     Event: event.ID,
   });
   const prepare = (name, who = admin) =>
@@ -79,11 +79,11 @@ if (process.argv.includes("--replay")) {
   const open = rec(2, "opening", "Eröffnung", 0),
     actual = rec(3, "actual", "Ist", 8000);
   await send(a, { Ops: [open, actual] });
-  await send(review, { Action: "Abschluss" }, 422);
+  await send(a, { Action: "Abschluss" }, 422);
   await send(a, { Action: "Ende", Last: 3 });
   await send(b, { Action: "Ende", Last: 0 });
   await send(review, { Action: "Ende", Last: 0 });
-  assert.equal((await send(review, { Action: "Abschluss" })).closed, true);
+  assert.equal((await send(a, { Action: "Abschluss" })).closed, true);
   await send(a, { Ops: [rec(4, "income", "Nachträglich", 1)] }, 403);
   const audit = await post("manage", auth(review), { Action: "audit" });
   assert.ok(audit.some((r) => r.action === "Veranstaltungsabschluss"));

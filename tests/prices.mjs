@@ -13,7 +13,7 @@ const person = "k-" + randomUUID().slice(0, 10),
 await api("users", admin, {
   Name: person,
   Password: pw,
-  Role: "Kassa",
+  Role: "Write",
   Event: event.ID,
 });
 const lead = await api("prepare", admin, {

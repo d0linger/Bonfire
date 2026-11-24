@@ -32,7 +32,7 @@ func (a *app) renew(ctx context.Context, w http.ResponseWriter, r *http.Request)
 	}
 	var event, state string
 	var digest []byte
-	err = tx.QueryRow(ctx, `SELECT e.id::text,d.secret,d.incident_state FROM devices d JOIN events e ON e.id=d.event WHERE d.id=$1 AND d.username=$2 AND NOT e.closed AND NOT d.sealed AND d.incident_state IN ('','returning') AND ($3='Leitung' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.event=e.id AND g.username=d.username)) FOR UPDATE OF e,d`, q.Device, name, role).Scan(&event, &digest, &state)
+	err = tx.QueryRow(ctx, `SELECT e.id::text,d.secret,d.incident_state FROM devices d JOIN events e ON e.id=d.event WHERE d.id=$1 AND d.username=$2 AND NOT e.closed AND NOT d.sealed AND d.incident_state IN ('','returning') AND ($3='Admin' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.event=e.id AND g.username=d.username)) FOR UPDATE OF e,d`, q.Device, name, role).Scan(&event, &digest, &state)
 	rotate := idPattern.MatchString(q.Next) && q.Next != q.Proof
 	if err != nil || (subtle.ConstantTimeCompare(digest, hash(q.Proof)) != 1 && !(rotate && subtle.ConstantTimeCompare(digest, hash(q.Next)) == 1)) || state == "returning" && !rotate {
 		return nil, problem{403, "Gerät, Person oder Freigabe nicht bestätigt."}

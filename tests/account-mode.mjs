@@ -11,7 +11,7 @@ const reviewer = "p-" + randomUUID().slice(0, 10),
   pw = randomUUID();
 await api("users", admin, {
   Name: reviewer,
-  Role: "Prüfung",
+  Role: "Read",
   Event: event.ID,
   Password: pw,
 });
@@ -64,7 +64,7 @@ await mode(true);
 await send(a, { Action: "Ende", Last: 4 });
 await send(b, { Action: "Ende", Last: 1 });
 await send(r, { Action: "Ende", Last: 0 });
-await send(r, { Action: "Abschluss" }, 422);
+await send(a, { Action: "Abschluss" }, 422);
 const fix = await prep("Historische Zuordnung");
 await send(fix, {
   Ops: [open, old, actual].map((o, i) =>
@@ -82,7 +82,7 @@ await send(fix, {
   ),
 });
 await send(fix, { Action: "Ende", Last: 3 });
-assert.equal((await send(r, { Action: "Abschluss" })).closed, true);
+assert.equal((await send(a, { Action: "Abschluss" })).closed, true);
 const audit = await api("manage", auth(a), { Action: "audit" });
 assert.ok(audit.some((x) => x.action.includes("deaktiviert")));
 const conflictAudit = audit.find(

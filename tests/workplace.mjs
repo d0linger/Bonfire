@@ -21,7 +21,7 @@ const user = "pruefung-" + randomUUID().slice(0, 6),
   pass = randomUUID();
 await api("users", admin, {
   Name: user,
-  Role: "Prüfung",
+  Role: "Read",
   Password: pass,
   Event: event.ID,
 });

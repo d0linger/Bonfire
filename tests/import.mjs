@@ -44,7 +44,7 @@ const user = "k-" + randomUUID().slice(0, 12),
 await api("users", admin, {
   Name: user,
   Password: pw,
-  Role: "Kassa",
+  Role: "Write",
   Event: a.event.ID,
 });
 const cash = await api("prepare", basic(user, pw), {

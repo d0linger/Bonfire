@@ -33,7 +33,7 @@ const reviewer = "p-" + randomUUID().slice(0, 12),
   pw = randomUUID();
 await api("users", admin, {
   Name: reviewer,
-  Role: "Prüfung",
+  Role: "Read",
   Password: pw,
   Event: event.ID,
 });
@@ -43,7 +43,7 @@ const cashier = "k-" + randomUUID().slice(0, 12),
   cashierPassword = randomUUID();
 await api("users", admin, {
   Name: cashier,
-  Role: "Kassa",
+  Role: "Write",
   Password: cashierPassword,
   Event: event.ID,
 });
@@ -168,10 +168,10 @@ const returned = rec(a, "return", "Rückgabe nach bestätigter Übergabe", {
 assert.deepEqual((await send(a, returned)).conflicts, []);
 const act = rec(a, "actual", "Unabhängiger Istbestand", { Amount: 4000 });
 await send(a, act);
-await api("manage", auth(r), { Action: "period-close", Target: p.Target }, 422);
+await api("manage", auth(a), { Action: "period-close", Target: p.Target }, 422);
 for (const d of [a, b, r])
   await api("sync", auth(d), { Action: "Ende", Last: seq.get(d.device) || 0 });
-const closed = await api("manage", auth(r), {
+const closed = await api("manage", auth(a), {
   Action: "period-close",
   Target: p.Target,
 });

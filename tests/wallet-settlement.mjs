@@ -12,7 +12,7 @@ const reviewer = "p-" + randomUUID().slice(0, 12),
 await api("users", admin, {
   Name: reviewer,
   Password: pw,
-  Role: "Prüfung",
+  Role: "Read",
   Event: event.ID,
 });
 const prepare = (Name, who) => api("prepare", who, { Name, Event: event.ID });
@@ -81,7 +81,7 @@ await send(d, {
 });
 await send(d, { Action: "Ende", Last: seq });
 await send(rev, { Action: "Ende", Last: 0 });
-assert.equal((await send(rev, { Action: "Abschluss" })).closed, true);
+assert.equal((await send(d, { Action: "Abschluss" })).closed, true);
 const journal = await api("manage", auth(d), { Action: "journal" });
 assert.ok(journal.some((x) => x.action.startsWith("Storno")));
 console.log(

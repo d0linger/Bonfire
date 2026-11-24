@@ -94,30 +94,25 @@ await send({
 const safe = await api("admin/audit/export?event=" + e.ID, manager, {});
 assert.ok(!safe.csv.includes(sensitive));
 assert.ok(safe.csv.includes("Sensible Angabe ausgeblendet"));
-for (const Role of ["Prüfung", "Kassa"]) {
-  const Name = "audit-" + (Role === "Kassa" ? "k" : "p") + suffix,
+for (const Role of ["Read", "Write"]) {
+  const Name = "audit-" + Role.toLowerCase() + suffix,
     Password = randomUUID();
   await api("users", manager, { Name, Password, Role, Event: e.ID });
   const cookie = await login(basic(Name, Password));
   await api("admin/status", cookie, undefined, 403);
   await api("admin/audit/integrity", cookie, undefined, 403);
-  if (Role === "Kassa") {
-    await api("admin/audit", cookie, undefined, 403);
-    await api("admin/audit/export", cookie, {}, 403);
-  } else {
-    const scoped = await api("admin/audit", cookie);
-    assert.ok(scoped.rows.length);
-    assert.ok(scoped.rows.every((row) => row.Event === e.Name));
-    assert.equal(
-      (await api("admin/audit?event=" + other.ID, cookie)).rows.length,
-      0,
-    );
-    assert.ok(
-      !(
-        await api("admin/audit/export?event=" + other.ID, cookie, {})
-      ).csv.includes(other.Name),
-    );
-  }
+  const scoped = await api("admin/audit", cookie);
+  assert.ok(scoped.rows.length);
+  assert.ok(scoped.rows.every((row) => row.Event === e.Name));
+  assert.equal(
+    (await api("admin/audit?event=" + other.ID, cookie)).rows.length,
+    0,
+  );
+  assert.ok(
+    !(
+      await api("admin/audit/export?event=" + other.ID, cookie, {})
+    ).csv.includes(other.Name),
+  );
 }
 const proof = await api("admin/audit/integrity", manager);
 assert.equal(proof.chains.length, 2);

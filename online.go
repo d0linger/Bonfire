@@ -40,7 +40,7 @@ func lockOnlineEvent(ctx context.Context, tx pgx.Tx, r *http.Request, eventID st
 		return d, fail("Arbeitsbereich auswählen.")
 	}
 	err = tx.QueryRow(ctx, `SELECT e.closed,e.accounts FROM events e WHERE e.id=$1
- AND ($2='Leitung' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.event=e.id AND g.username=$3)) FOR UPDATE`, d.Event, d.Role, d.User).Scan(&d.Closed, &d.Accounts)
+ AND ($2='Admin' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.event=e.id AND g.username=$3)) FOR UPDATE`, d.Event, d.Role, d.User).Scan(&d.Closed, &d.Accounts)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, problem{403, "Arbeitsbereich nicht zugewiesen."}
 	}
@@ -49,8 +49,8 @@ func lockOnlineEvent(ctx context.Context, tx pgx.Tx, r *http.Request, eventID st
 	}
 	d.Online = true
 	d.Donor = r.Header.Get("X-Bonfire-Donor") == "true"
-	if d.Donor && d.Role != "Leitung" {
-		return d, problem{403, "Meldedaten erfordern Leitungsrecht."}
+	if d.Donor && d.Role != roleAdmin {
+		return d, problem{403, "Meldedaten erfordern Adminrecht."}
 	}
 	err = tx.QueryRow(ctx, `SELECT id::text,block,last_seq,digital_count FROM devices
  WHERE event=$1 AND username=$2 AND online_actor`, d.Event, d.User).Scan(&d.ID, &d.Block, &d.Last, &d.DigitalCount)

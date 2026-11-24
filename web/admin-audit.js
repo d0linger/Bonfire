@@ -91,13 +91,13 @@ export function mountAudit(host, { api, identity, search = "" }) {
     proof = null,
     loaded = false,
     revision = 0;
-  const isLead = identity?.role === "Leitung";
+  const isAdmin = identity?.role === "Admin";
   function render() {
     root.innerHTML =
       pageHead(
         "Audit-Log",
         "Finanzbuchungen, Zugriffsänderungen und Betriebsvorgänge nachvollziehen.",
-        (isLead ? button("integrity", "Prüfketten prüfen") : "") +
+        (isAdmin ? button("integrity", "Prüfketten prüfen") : "") +
           button("csv", "CSV exportieren"),
       ) +
       '<form class="ops-filter"><label>Suche<input name="q" maxlength="256" value="' +

@@ -14,7 +14,7 @@ const user = "p-" + randomUUID().slice(0, 10),
 await api("users", admin, {
   Name: user,
   Password: pw,
-  Role: "Prüfung",
+  Role: "Read",
   Event: first.ID,
 });
 await api("access", admin, {
@@ -58,7 +58,7 @@ await send(a, {
 });
 await send(a, { Action: "Ende", Last: 4 });
 await send(r, { Action: "Ende", Last: 0 });
-const source = await close(r, p);
+const source = await close(a, p);
 const q = op(1, "period", next, { To: next }),
   carried = op(2, "opening", next, {
     Amount: 500,
@@ -68,7 +68,7 @@ const q = op(1, "period", next, { To: next }),
 await send(b, { Ops: [q, carried, count] });
 await send(b, { Action: "Ende", Last: 3 });
 await send(t, { Action: "Ende", Last: 0 });
-const initial = await close(t, q);
+const initial = await close(b, q);
 await reopen(a, p, 422);
 await reopen(b, q);
 await reopen(a, p);
@@ -86,9 +86,9 @@ await send(correction, {
   ),
 });
 await send(correction, { Action: "Ende", Last: 2 });
-const revised = await close(r, p);
+const revised = await close(a, p);
 assert.notEqual(revised, source);
-await close(t, q, 422);
+await close(b, q, 422);
 const follow = await prep(second, admin, "Nachtrag Folgeperiode");
 const erase = op(
   1,
@@ -133,7 +133,7 @@ await send(follow, {
   ],
 });
 await send(follow, { Action: "Ende", Last: 3 });
-assert.notEqual(await close(t, q), initial);
+assert.notEqual(await close(b, q), initial);
 console.log(
   "PASS abhängige Folgeperiode schützt Quellabschluss, korrigierter Übertrag verlangt neue Quellen-ID und unabhängigen Istnachweis",
 );

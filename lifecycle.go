@@ -46,7 +46,7 @@ func lifecycle(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error) {
 	if archived {
 		action = "Wiederhergestellt"
 	}
-	if d.Role != "Leitung" || o.Data.Fields["lifecycle"] != action || len(strings.TrimSpace(o.Data.Fields["lifecycleReason"])) < 3 {
+	if d.Role != roleAdmin || o.Data.Fields["lifecycle"] != action || len(strings.TrimSpace(o.Data.Fields["lifecycleReason"])) < 3 {
 		return false, nil
 	}
 	return true, nil

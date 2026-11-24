@@ -119,7 +119,7 @@ export const consolePages = [
 ];
 export const canOpenConsole = (p, role) =>
   consolePages.some(([key]) => key === p) &&
-  (role === "Leitung" || (role === "Prüfung" && p === "Audit-Log"));
+  (role === "Admin" || (["Write", "Read"].includes(role) && p === "Audit-Log"));
 export const sectionOf = (p) =>
   p === "Geschäftsjahre" ||
   p === "Prüfprotokoll" ||
@@ -449,7 +449,7 @@ export function overview(
   conflicts,
   device,
   eventMode = false,
-  role = "Leitung",
+  role = "Admin",
   periodID = "",
   online = false,
 ) {
@@ -495,7 +495,7 @@ export function overview(
       ? "Mehrere Eröffnungen · Zeitraum prüfen"
       : "Anfangsbestand fehlt";
   const setupAction =
-    role === "Prüfung" ? "Prüfprofil vorbereiten" : "Erfassung vorbereiten";
+    role === "Read" ? "Leseprofil vorbereiten" : "Erfassung vorbereiten";
   const balance = uniqueOpening
     ? eur(
         start +
@@ -615,15 +615,15 @@ export function overview(
               ? "Geräteabgleich"
               : e.Closed
                 ? "Abschluss ansehen"
-                : role === "Prüfung"
-                  ? "Prüfprofil einrichten"
+                : role === "Read"
+                  ? "Leseprofil einrichten"
                   : "Offline-Erfassung einrichten",
           conflicts
             ? conflicts + " offene Konflikte"
             : device
               ? "Lokal gespeicherte Vorgänge abgleichen"
-              : role === "Prüfung"
-                ? "Für die Prüfung und Abschlussfreigabe auf diesem Gerät"
+              : role === "Read"
+                ? "Für die Einsicht in die zugewiesenen Arbeitsbereiche"
                 : "Für Buchungen und Belegausgabe auf diesem Gerät",
         )) +
     "</section></div>" +

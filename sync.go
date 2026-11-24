@@ -378,7 +378,7 @@ func accept(ctx context.Context, tx pgx.Tx, d *device, o op) error {
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	if d.Closed || d.Sealed || d.Role == "Prüfung" {
+	if d.Closed || d.Sealed || (d.Role != roleAdmin && d.Role != roleWrite) {
 		return problem{403, "Erfassung gesperrt."}
 	}
 	if o.Seq != d.Last+1 {
@@ -387,8 +387,8 @@ func accept(ctx context.Context, tx pgx.Tx, d *device, o op) error {
 	if err = validate(o, false); err != nil {
 		return err
 	}
-	if (slices.Contains([]string{"opening", "period", "template", "organization", "import-source", "dispatch"}, o.Kind) || strings.HasPrefix(o.Target, "import:") || strings.HasPrefix(o.Data.Reference, "source:")) && d.Role != "Leitung" {
-		return problem{403, "Leitungsrecht erforderlich."}
+	if (slices.Contains([]string{"opening", "period", "template", "organization", "import-source", "dispatch"}, o.Kind) || strings.HasPrefix(o.Target, "import:") || strings.HasPrefix(o.Data.Reference, "source:")) && d.Role != roleAdmin {
+		return problem{403, "Adminrecht erforderlich."}
 	}
 	outcome := "Konflikt"
 	if d.IncidentState != "returning" {
@@ -456,8 +456,8 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		return nil, err
 	}
 	if q.Resolve != "" {
-		if d.Role != "Leitung" || d.Closed || len(strings.TrimSpace(q.Reason)) < 3 {
-			return nil, fail("Klärung durch Leitung mit Begründung erforderlich.")
+		if d.Role != roleAdmin || d.Closed || len(strings.TrimSpace(q.Reason)) < 3 {
+			return nil, fail("Klärung durch einen Admin mit Begründung erforderlich.")
 		}
 		var o op
 		origin := d
@@ -569,7 +569,7 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	if _, err = tx.Exec(ctx, "UPDATE devices SET last_seq=$1,sealed=$2,last_seen=now() WHERE id=$3", d.Last, d.Sealed, d.ID); err != nil {
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event=$1 AND kind<>'contact' UNION ALL SELECT id,'contact',device::text,revision,data FROM directory c WHERE $2='Leitung' OR EXISTS(SELECT 1 FROM devices d WHERE d.id=c.device AND d.event=$1) OR EXISTS(SELECT 1 FROM entries j WHERE j.event=$1 AND j.data->>'Contact'=c.id) ORDER BY id", d.Event, d.Role)
+	rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event=$1 AND kind<>'contact' UNION ALL SELECT id,'contact',device::text,revision,data FROM directory c WHERE $2='Admin' OR EXISTS(SELECT 1 FROM devices d WHERE d.id=c.device AND d.event=$1) OR EXISTS(SELECT 1 FROM entries j WHERE j.event=$1 AND j.data->>'Contact'=c.id) ORDER BY id", d.Event, d.Role)
 	if err != nil {
 		return nil, err
 	}
@@ -592,9 +592,9 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		projectData(&conflicts[i].Data, conflicts[i].Kind, d)
 	}
 	deviceRows, err := tx.Query(ctx, `SELECT d.id::text,d.name,d.sealed,d.incident_state,d.last_seq,
- CASE WHEN d.incident_state<>'' AND $2 IN ('Leitung','Prüfung') THEN concat_ws(' · ',nullif(d.incident,''),(SELECT a.action FROM audit a
+ CASE WHEN d.incident_state<>'' THEN concat_ws(' · ',nullif(d.incident,''),(SELECT a.action FROM audit a
  WHERE a.event=d.event AND a.subject=d.id::text AND (a.action LIKE 'Ausnahmeentscheid%' OR a.action LIKE 'Gerät zurück%')
- ORDER BY a.id DESC LIMIT 1)) ELSE '' END FROM devices d WHERE d.event=$1 AND NOT d.online_actor ORDER BY d.name,d.id`, d.Event, d.Role)
+ ORDER BY a.id DESC LIMIT 1)) ELSE '' END FROM devices d WHERE d.event=$1 AND NOT d.online_actor ORDER BY d.name,d.id`, d.Event)
 	if err != nil {
 		return nil, err
 	}
@@ -607,8 +607,11 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		return nil, err
 	}
 	if q.Action == "Abschluss" {
-		if d.Role != "Prüfung" || pending != 0 || len(conflicts) > 0 || d.Closed {
-			return nil, fail("Prüfrolle, vollständige Gerätesiegel und geklärter Stand erforderlich.")
+		if d.Role != roleAdmin {
+			return nil, problem{403, "Adminrecht für den Abschluss erforderlich."}
+		}
+		if pending != 0 || len(conflicts) > 0 || d.Closed {
+			return nil, fail("Vollständige Gerätesiegel, offene Veranstaltung und geklärter Stand erforderlich.")
 		}
 		if err = validateSettlement(entries); err != nil {
 			return nil, fail(err.Error())
@@ -707,15 +710,16 @@ func (a *app) user(ctx context.Context, w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		return nil, err
 	}
-	if role != "Leitung" {
-		return nil, problem{403, "Leitung erforderlich."}
+	if role != roleAdmin {
+		return nil, problem{403, "Adminrecht erforderlich."}
 	}
 	var v struct{ Name, Password, Role, Event string }
 	if err = read(r, &v); err != nil {
 		return nil, err
 	}
 	v.Name = loginName(v.Name)
-	if !validLoginName(v.Name) || len(v.Password) < 14 || len(v.Password) > 72 || !slices.Contains([]string{"Kassa", "Prüfung"}, v.Role) {
+	v.Role = canonicalRole(v.Role)
+	if !validLoginName(v.Name) || len(v.Password) < 14 || len(v.Password) > 72 || !slices.Contains([]string{roleWrite, roleRead}, v.Role) {
 		return nil, fail("Name, Rolle oder Passwort ungültig.")
 	}
 	digest, err := bcrypt.GenerateFromPassword([]byte(v.Password), 12)

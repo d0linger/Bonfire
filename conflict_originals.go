@@ -8,9 +8,6 @@ import (
 
 // The immutable operation keeps the issued bytes even when its financial proposal was rejected.
 func conflictOriginals(ctx context.Context, tx pgx.Tx, d device, action, id string) (any, error) {
-	if d.Role == "Kassa" {
-		return nil, problem{403, "Prüfrecht erforderlich."}
-	}
 	if action == "conflict-originals" {
 		rows, err := tx.Query(ctx, `SELECT id::text,data->>'Number' AS number,outcome FROM operations
  WHERE event=$1 AND kind='original' AND outcome IN ('Konflikt','Geklärt') ORDER BY recorded_at,id`, d.Event)

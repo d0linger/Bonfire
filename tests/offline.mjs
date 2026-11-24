@@ -1,5 +1,5 @@
 import { chromium } from "playwright";
-import { api, admin, auth, basic } from "./local-api.mjs";
+import { api, admin, auth } from "./local-api.mjs";
 import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import http from "node:http";
@@ -646,15 +646,7 @@ try {
     { amount: "156,25" },
   );
   await sync(a.p);
-  const reviewer = "gesamt-" + eventID.slice(0, 8),
-    reviewerPassword = randomUUID();
-  await api("users", admin, {
-    Name: reviewer,
-    Password: reviewerPassword,
-    Role: "Prüfung",
-    Event: eventID,
-  });
-  const reviewDevice = await api("prepare", basic(reviewer, reviewerPassword), {
+  const reviewDevice = await api("prepare", admin, {
     Event: eventID,
     Name: "Abschlussprüfung",
     DigitalCount: 0,

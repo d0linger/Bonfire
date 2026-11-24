@@ -141,8 +141,8 @@ func (a *app) events(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return nil, err
 	}
 	if r.Method == "POST" {
-		if role != "Leitung" {
-			return nil, problem{403, "Nur für die Leitung."}
+		if role != roleAdmin {
+			return nil, problem{403, "Nur für Admins."}
 		}
 		var e event
 		if err = read(r, &e); err != nil {
@@ -159,7 +159,7 @@ func (a *app) events(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return nil, fail("Geschäftsjahr ungültig.")
 	}
 	rows, err := a.db.Query(ctx, `SELECT id::text,name,starts::text,ends::text,closed,accounts,general_ledger,coalesce(fiscal_year::text,'')
-	    FROM events WHERE ($1='Leitung' OR id IN (SELECT event FROM grants_event WHERE username=$2))
+	    FROM events WHERE ($1='Admin' OR id IN (SELECT event FROM grants_event WHERE username=$2))
 	    AND ($3='' OR fiscal_year=nullif($3,'')::uuid) ORDER BY general_ledger DESC,starts DESC,name,id`, role, name, year)
 	if err != nil {
 		return nil, err
@@ -198,12 +198,12 @@ func (a *app) prepare(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		return nil, err
 	}
 	var e event
-	err = tx.QueryRow(ctx, "SELECT id::text,name,starts::text,ends::text,closed,accounts,general_ledger,coalesce(fiscal_year::text,'') FROM events WHERE id=$1 AND ($2='Leitung' OR EXISTS(SELECT 1 FROM grants_event WHERE event=$1 AND username=$3)) FOR UPDATE", in.Event, role, name).Scan(&e.ID, &e.Name, &e.Starts, &e.Ends, &e.Closed, &e.Accounts, &e.General, &e.Year)
+	err = tx.QueryRow(ctx, "SELECT id::text,name,starts::text,ends::text,closed,accounts,general_ledger,coalesce(fiscal_year::text,'') FROM events WHERE id=$1 AND ($2='Admin' OR EXISTS(SELECT 1 FROM grants_event WHERE event=$1 AND username=$3)) FOR UPDATE", in.Event, role, name).Scan(&e.ID, &e.Name, &e.Starts, &e.Ends, &e.Closed, &e.Accounts, &e.General, &e.Year)
 	if err != nil || e.Closed {
 		return nil, problem{403, "Veranstaltung gesperrt oder nicht zugewiesen."}
 	}
-	if in.Donor && role != "Leitung" {
-		return nil, problem{403, "Meldedatenprofil nur für ausdrücklich berechtigte Leitung."}
+	if in.Donor && role != roleAdmin {
+		return nil, problem{403, "Meldedatenprofil nur für ausdrücklich berechtigte Admins."}
 	}
 	id, token := uuid(), secret()
 	var block int64
@@ -250,12 +250,13 @@ func lock(ctx context.Context, tx pgx.Tx, r *http.Request) (device, error) {
 	if err != nil {
 		return d, problem{403, "Gerät unbekannt."}
 	}
-	err = tx.QueryRow(ctx, "SELECT d.id::text,d.username,u.role,d.block,d.last_seq,d.sealed,e.closed,e.accounts,d.secret,d.donor_access,d.incident_state,d.digital_count FROM devices d JOIN users u ON u.name=d.username JOIN events e ON e.id=d.event WHERE d.id=$1 AND NOT d.online_actor AND u.active AND NOT u.password_change_required AND d.expires>now() AND (u.role='Leitung' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.username=u.name AND g.event=e.id))", id).Scan(&d.ID, &d.User, &d.Role, &d.Block, &d.Last, &d.Sealed, &d.Closed, &d.Accounts, &digest, &d.Donor, &d.IncidentState, &d.DigitalCount)
+	err = tx.QueryRow(ctx, "SELECT d.id::text,d.username,u.role,d.block,d.last_seq,d.sealed,e.closed,e.accounts,d.secret,d.donor_access,d.incident_state,d.digital_count FROM devices d JOIN users u ON u.name=d.username JOIN events e ON e.id=d.event WHERE d.id=$1 AND NOT d.online_actor AND u.active AND NOT u.password_change_required AND d.expires>now() AND (u.role='Admin' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.username=u.name AND g.event=e.id))", id).Scan(&d.ID, &d.User, &d.Role, &d.Block, &d.Last, &d.Sealed, &d.Closed, &d.Accounts, &digest, &d.Donor, &d.IncidentState, &d.DigitalCount)
 	if err != nil || subtle.ConstantTimeCompare(digest, hash(token)) != 1 {
 		return d, problem{403, "Gerätefreigabe abgelaufen oder entzogen."}
 	}
+	d.Donor = d.Donor && d.Role == roleAdmin
 	if d.IncidentState == "missing" || d.IncidentState == "incomplete" || (d.IncidentState == "returning" && r.URL.Path != "/api/sync") {
-		return d, problem{403, "Gerätevorfall offen. Rückkehr durch Leitung bestätigen lassen."}
+		return d, problem{403, "Gerätevorfall offen. Rückkehr durch einen Admin bestätigen lassen."}
 	}
 	_, err = tx.Exec(ctx, "SELECT set_config('bonfire.device',$1,true)", d.ID)
 	return d, err
@@ -359,7 +360,7 @@ func initialize(ctx context.Context, db *pgxpool.Pool) error {
 	if err = applyUpgrade(ctx, tx, 17, "migrations/017.sql"); err != nil {
 		return err
 	}
-	for version := 18; version <= 25; version++ {
+	for version := 18; version <= 26; version++ {
 		if err = applyUpgrade(ctx, tx, version, fmt.Sprintf("migrations/%03d.sql", version)); err != nil {
 			return err
 		}

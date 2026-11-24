@@ -11,8 +11,8 @@ func (a *app) access(ctx context.Context, w http.ResponseWriter, r *http.Request
 	if err != nil {
 		return nil, err
 	}
-	if role != "Leitung" {
-		return nil, problem{403, "Leitung erforderlich."}
+	if role != roleAdmin {
+		return nil, problem{403, "Adminrecht erforderlich."}
 	}
 	var q struct{ Name, Event, Action, Reason string }
 	if err = read(r, &q); err != nil {

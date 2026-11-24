@@ -88,7 +88,7 @@ const reader = "kasse-" + randomUUID().slice(0, 8),
 await api("users", manager, {
   Name: reader,
   Password: password,
-  Role: "Kassa",
+  Role: "Write",
   Event: event.ID,
 });
 const cashier = await login(basic(reader, password));
@@ -161,7 +161,7 @@ const reviewer = "pruefung-" + randomUUID().slice(0, 8);
 await api("users", manager, {
   Name: reviewer,
   Password: password,
-  Role: "Prüfung",
+  Role: "Read",
   Event: nextLedger.ID,
 });
 await api("access", manager, {
@@ -174,6 +174,13 @@ const review = await login(basic(reviewer, password));
 await api(
   "manage",
   review,
+  { Action: "period-close", Target: period.Target },
+  403,
+  nextLedger.ID,
+);
+await api(
+  "manage",
+  manager,
   { Action: "period-close", Target: period.Target },
   200,
   nextLedger.ID,

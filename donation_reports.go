@@ -97,7 +97,7 @@ func (a *app) donationReports(ctx context.Context, w http.ResponseWriter, r *htt
 	if err != nil {
 		return nil, err
 	}
-	if !d.Donor || d.Role != "Leitung" {
+	if !d.Donor || d.Role != roleAdmin {
 		return nil, problem{403, "Freigegebenes Meldedatenprofil erforderlich."}
 	}
 	q.Period = strings.TrimSpace(q.Period)

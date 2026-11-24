@@ -30,7 +30,7 @@ const user = "k-" + randomUUID().slice(0, 10),
 await post(
   "users",
   { Authorization: admin },
-  { Name: user, Role: "Kassa", Password: pw, Event: e.ID },
+  { Name: user, Role: "Write", Password: pw, Event: e.ID },
 );
 const cred = { Authorization: basic(user, pw) };
 const login = await post("login", cred, {});

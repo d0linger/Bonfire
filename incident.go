@@ -28,12 +28,8 @@ func incidentAction(ctx context.Context, tx pgx.Tx, d device, action, target, re
 	default:
 		return nil, fail("Unbekannte Vorfallentscheidung.")
 	}
-	required := "Leitung"
-	if state == "incomplete" {
-		required = "Prüfung"
-	}
-	if d.Role != required {
-		return nil, problem{403, "Zuständige Rolle erforderlich."}
+	if d.Role != roleAdmin {
+		return nil, problem{403, "Adminrecht erforderlich."}
 	}
 	var seq int64
 	err := tx.QueryRow(ctx, `UPDATE devices SET incident_state=$1,incident=CASE WHEN $1='missing' THEN $2 ELSE incident END,

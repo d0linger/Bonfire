@@ -6,7 +6,7 @@ import (
 )
 
 func projectData(v *data, kind string, d device) {
-	if kind == "import-source" && d.Role != "Leitung" {
+	if kind == "import-source" && d.Role != roleAdmin {
 		v.File = ""
 		v.Filename = ""
 	}
