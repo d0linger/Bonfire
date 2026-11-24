@@ -6,6 +6,8 @@ import { admin } from "./local-api.mjs";
 const url = new URL(process.env.BONFIRE_URL);
 assert.equal(url.hostname, "127.0.0.1");
 assert.ok(url.port && url.port !== "8137", "Use a disposable test stack");
+// Exercise the documented browser origin on the disposable loopback port.
+url.hostname = "localhost";
 const engines = { chromium, firefox, webkit };
 const engine = process.env.BONFIRE_ENGINE || "chromium";
 const browser = await engines[engine].launch({ executablePath: process.env.BONFIRE_BROWSER });

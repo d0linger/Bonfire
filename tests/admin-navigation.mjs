@@ -22,7 +22,7 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(url.href);
   const appearance = page.getByRole("button", {
-    name: "Dunkelmodus",
+    name: "Dark mode",
     exact: true,
   });
   const background = (locator) =>
@@ -55,7 +55,7 @@ try {
   await checkScheme("light");
   const other = await context.newPage();
   await other.goto(url.href);
-  await other.getByRole("button", { name: "Dunkelmodus", exact: true }).click();
+  await other.getByRole("button", { name: "Dark mode", exact: true }).click();
   await checkScheme("dark");
   await other.close();
   await page.emulateMedia({ colorScheme: "light" });

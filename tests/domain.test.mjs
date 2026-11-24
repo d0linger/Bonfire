@@ -159,3 +159,18 @@ test("R01 gemeinsame Referenzzählungen", async () => {
     else assert.throws(() => totalPieces(vector.pieces), undefined, vector.name);
   }
 });
+
+test("R03–R06 shared cash settlement vectors", async () => {
+  const {readFile} = await import("node:fs/promises");
+  const cases = JSON.parse(await readFile(new URL("./settlement-vectors.json", import.meta.url)));
+  for (const c of cases) {
+    const movements = Object.entries({
+      supply:c.supply, skim:c.skim, expense:c.expense, donation:c.donation,
+      refund:c.refund, deposit:c.deposit, "deposit-return":c.depositReturn,
+    }).filter(([,amount])=>amount !== undefined).map(([kind,amount])=>r(kind,amount));
+    const entries = [r("count",c.opening,"Anfang"), ...movements, r("count",c.closing,"Ende")];
+    if (c.returned) entries.push(r("return",c.returned));
+    assert.equal(counted(entries,"Nord"),c.unbooked,c.name);
+    assert.equal(summary([...entries,r("income",c.unbooked)]).receipts,c.net,c.name);
+  }
+});
