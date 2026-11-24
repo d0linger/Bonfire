@@ -19,7 +19,8 @@ import (
 )
 
 const backupHome = "/var/lib/bonfire-backup"
-const backupKeyPath = "/var/lib/bonfire-key/backup.key"
+const backupKeyDirectory = "/var/lib/bonfire-key"
+const backupKeyPath = backupKeyDirectory + "/backup.key"
 
 func (b *backupWorker) connect(ctx context.Context, name string) (*pgx.Conn, error) {
 	cfg := b.db.Copy()
@@ -316,6 +317,8 @@ func retainIssuedNumbers(ctx context.Context, frozen, staged *pgx.Conn) error {
 	return rows.Err()
 }
 
+var errRestoredPending = errors.New("restore committed with pending recovery bookkeeping")
+
 func (b *backupWorker) recoverSwap(ctx context.Context, c *pgx.Conn) error {
 	path := filepath.Join(backupHome, ".swap.json")
 	data, err := os.ReadFile(path) // #nosec G304 -- fixed backupHome/.swap.json, never a request path.
@@ -342,12 +345,18 @@ func (b *backupWorker) recoverSwap(ctx context.Context, c *pgx.Conn) error {
 	if oid == j.Staged {
 		dest, err := b.connect(ctx, b.db.Database)
 		if err != nil {
-			return err
+			return errors.Join(errRestoredPending, err)
 		}
 		defer dest.Close(ctx)
 		if _, err = dest.Exec(ctx, "INSERT INTO audit(username,action,subject) SELECT $1,'Wiederherstellung übernommen',$2 WHERE NOT EXISTS(SELECT FROM audit WHERE action='Wiederherstellung übernommen' AND subject=$2)", j.User, j.FallbackDB); err != nil {
-			return err
+			return errors.Join(errRestoredPending, err)
 		}
+	}
+	if oid == j.Staged {
+		if err := os.Remove(path); err != nil {
+			return errors.Join(errRestoredPending, err)
+		}
+		return nil
 	}
 	return os.Remove(path)
 }

@@ -144,6 +144,9 @@ func validate(o op, accounts bool) error {
 	if slices.Contains([]string{"transfer", "payout", "skim", "supply", "return", "cashback"}, o.Kind) && (v.Account == "" || v.To == "" || v.To == v.Account) {
 		return fail("Verschiedene Quell- und Zielkonten angeben.")
 	}
+	if (o.Kind == "supply" && v.To != v.Wallet) || ((o.Kind == "skim" || o.Kind == "return") && v.Account != v.Wallet) {
+		return fail("The cash movement must use the selected wallet as its cash endpoint.")
+	}
 	if o.Kind == "supply" {
 		mode := v.Fields["countMode"]
 		if !slices.Contains([]string{"", "amount", "pieces"}, mode) || (mode == "pieces") != (v.Pieces != nil) {
@@ -701,7 +704,7 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		if err = checkBalance(entries, d.Accounts); err != nil {
 			return nil, err
 		}
-		_, err = tx.Exec(ctx, "INSERT INTO event_closures(event,version,snapshot,reviewer) SELECT $1,coalesce(max(version),0)+1,$2,$3 FROM event_closures WHERE event=$1", d.Event, entries, d.User)
+		_, err = tx.Exec(ctx, "INSERT INTO event_closures(event,version,snapshot,reviewer,account_mode) SELECT $1,coalesce(max(version),0)+1,$2,$3,$4 FROM event_closures WHERE event=$1", d.Event, entries, d.User, d.Accounts)
 		if err != nil {
 			return nil, err
 		}
