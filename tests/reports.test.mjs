@@ -17,7 +17,7 @@ test("Gemeinsames Zählblatt mit erfasstem Betrag lässt unbekannte Stückzahlen
     "gesamt",
   );
   const sheet = tablesFor(7, {}, [count], count.ID, {});
-  assert.match(sheet.intro, /Alle Geldtaschen/);
+  assert.match(sheet.intro, /All wallets/);
   assert.match(sheet.after[0], /123,45/);
   assert.ok(
     sheet.blocks[0].rows.every((line) => line[3] === "" && line[4] === ""),
@@ -74,7 +74,7 @@ test("100 EUR Zusage, 40 EUR Zahlung und eine dokumentierte Übergabe haben getr
   );
   assert.ok(
     !bill.after.some(
-      (s) => s.includes("Verwendungszweck") || s.includes("Fällig"),
+      (s) => s.includes("Payment reference") || s.includes("Fällig"),
     ),
   );
 });

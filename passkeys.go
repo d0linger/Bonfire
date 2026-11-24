@@ -104,13 +104,7 @@ func challengeCookie(kind, token, origin string, age int) *http.Cookie {
 	if kind == "register" {
 		path = "/api/account/passkeys/register"
 	}
-	// #nosec G124 -- the validated relying-party origin permits HTTP only on loopback.
-	cookie := &http.Cookie{Name: "bonfire_passkey_" + kind, Path: path, Value: token, MaxAge: age,
-		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode}
-	// The validated relying-party origin permits plain HTTP only on loopback.
-	if strings.HasPrefix(origin, "http://") {
-		cookie.Secure = false
-	}
+	cookie := &http.Cookie{Name: "bonfire_passkey_" + kind, Path: path, Value: token, MaxAge: age, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}
 	return cookie
 }
 

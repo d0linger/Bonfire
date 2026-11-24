@@ -289,7 +289,7 @@ const make = (Kind, Label, Amount) => ({
   assert.equal(b.PriorActual, 14800);
 }
 const first = make("income", "Barzahlung", 100),
-  other = make("income", "Zweite Zahlung", 200);
+  other = make("income", "Zweite Zahlung", 100);
 {
   const date = "2461-06-23";
   const poolYear = await call("years", cash, {
@@ -492,7 +492,7 @@ await send({
     make("expense", "Material", 40),
     make("refund", "Rückzahlung", 15),
     make("opening", "Anfang", 0),
-    make("actual", "Istbestand", 510),
+    make("actual", "Istbestand", 410),
   ],
 });
 const [beforeReimbursement] = await call(
@@ -537,7 +537,7 @@ assert.deepEqual(
   scopedEvents.map((e) => e.ID),
   [event.ID],
 );
-assert.equal(scopedEvents[0].ReceiptsCents, 600);
+assert.equal(scopedEvents[0].ReceiptsCents, 500);
 assert.equal(scopedEvents[0].PaidCents, 90);
 assert.equal(scopedEvents[0].OutstandingCents, 0);
 assert.equal(scopedEvents[0].Closed, true);
