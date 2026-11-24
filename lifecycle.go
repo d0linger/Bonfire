@@ -12,12 +12,15 @@ func contactNameAvailable(ctx context.Context, tx pgx.Tx, o op) (bool, error) {
 	if o.Base != 0 || len(strings.TrimSpace(o.Data.Fields["distinct"])) >= 3 {
 		return true, nil
 	}
-	name := strings.ToLower(strings.Join(strings.Fields(o.Data.Label), " "))
+	var name string
+	if err := tx.QueryRow(ctx, `SELECT lower(trim(regexp_replace($1,'[[:space:]]+',' ','g')))`, o.Data.Label).Scan(&name); err != nil {
+		return false, err
+	}
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,1))", name); err != nil {
 		return false, err
 	}
 	var available bool
-	err := tx.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM directory WHERE id<>$1 AND lower(regexp_replace(trim(data->>'Label'),'[[:space:]]+',' ','g'))=$2)`, o.Target, name).Scan(&available)
+	err := tx.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM directory WHERE id<>$1 AND lower(trim(regexp_replace(data->>'Label','[[:space:]]+',' ','g')))=$2)`, o.Target, name).Scan(&available)
 	return available, err
 }
 

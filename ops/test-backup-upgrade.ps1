@@ -28,7 +28,12 @@ try {
   function Connect-TestAccount {
     $script:session = [Microsoft.PowerShell.Commands.WebRequestSession]::new()
     $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('leitung:' + $env:BONFIRE_ADMIN_PASSWORD))
-    $null = Invoke-RestMethod -Uri ($api + 'login') -WebSession $session -Method Post -Headers @{Authorization='Basic ' + $basic}
+    $login = Invoke-WebRequest -Uri ($api + 'login') -MaximumRedirection 0 -Method Post -Headers @{Authorization='Basic ' + $basic}
+    # This isolated loopback API client uses the issued token directly. Browser
+    # enforcement of Secure cookies is exercised separately over real HTTPS.
+    $cookie = @($login.Headers['Set-Cookie']) | Where-Object { $_ -match '^bonfire_session=' } | Select-Object -First 1
+    if (!$cookie -or $cookie -notmatch '^bonfire_session=([A-Za-z0-9_-]+);') { throw 'No session issued by the disposable stack.' }
+    $session.Cookies.Add([uri]$api,[Net.Cookie]::new('bonfire_session',$Matches[1],'/api/'))
     $null = $session.Headers.Remove('Authorization')
   }
   function Post-Data($path, $data) {

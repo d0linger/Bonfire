@@ -33,9 +33,9 @@ func yearForClosure(ctx context.Context, tx pgx.Tx, d device) (fiscalYear, error
 	return y, err
 }
 
-func checkYearEvents(ctx context.Context, tx pgx.Tx, year string) error {
+func checkYearEvents(ctx context.Context, tx pgx.Tx, year, ledger string) error {
 	var open []string
-	err := tx.QueryRow(ctx, `SELECT ARRAY(SELECT name FROM events WHERE fiscal_year=$1 AND NOT general_ledger AND NOT closed ORDER BY starts,name)`, year).Scan(&open)
+	err := tx.QueryRow(ctx, `SELECT ARRAY(SELECT name FROM events WHERE fiscal_year=$1 AND id<>$2 AND NOT closed ORDER BY starts,name)`, year, ledger).Scan(&open)
 	if err != nil {
 		return err
 	}

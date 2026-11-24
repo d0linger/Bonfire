@@ -36,10 +36,12 @@ try {
   const output = "test-results/online-exports";
   await mkdir(output,{recursive:true});
   for (let i=0; i<11; i++) {
-    const page = await context.newPage();
+    const profileContext = await browser.newContext({storageState:{cookies:await context.cookies(),origins:[]}});
+    const page = await profileContext.newPage();
     await page.goto(url.origin);
     await page.locator("#fiscal-switch summary").click();
     await page.locator('[data-fiscal="' + year.ID + '"]').click();
+    await page.waitForFunction(() => !document.querySelector('article[aria-busy="true"]'));
     await page.locator('nav [data-page="Veranstaltungen"]').click();
     await page.locator('[data-space="' + event.ID + '"]').click();
     await page.locator('.tabs [data-page="Dokumente"]').click();
@@ -71,7 +73,7 @@ try {
       }
       await writeFile(output + "/T" + (i+1) + "." + format.toLowerCase(),bytes);
     }
-    await page.close();
+    await profileContext.close();
   }
   const after = await post(path,{});
   assert.equal(after.last,before.last);

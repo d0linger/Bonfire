@@ -664,7 +664,7 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 			return nil, err
 		}
 		if !year.Closed {
-			if err = checkYearEvents(ctx, tx, year.ID); err != nil {
+			if err = checkYearEvents(ctx, tx, year.ID, d.Event); err != nil {
 				return nil, err
 			}
 			balances, err := yearAccountBalances(ctx, tx, year.ID)
