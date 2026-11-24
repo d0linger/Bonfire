@@ -312,6 +312,10 @@ func (b *backupWorker) run(q backupCommand, actor, key string, days int, pr *bac
 	if err != nil {
 		result.Outcome = "failed"
 		result.Message = safeBackupError(err)
+		if errors.Is(err, errRestoredPending) {
+			result.Outcome = "warning"
+			result.Message = "Restored database is live. Audit or journal cleanup is pending."
+		}
 	}
 	if err = b.audit(actor, q.Action+" "+result.Outcome, q.Target); err != nil {
 		log.Print("Sicherungsdienst: DB-Audit vorübergehend nicht erreichbar")
@@ -450,8 +454,7 @@ func runBackupWorker() error {
 		if _, err = rand.Read(data); err != nil {
 			return err
 		}
-		dir := filepath.Dir(backupKeyPath)
-		f, err := os.CreateTemp(dir, ".key-")
+		f, err := os.CreateTemp(backupKeyDirectory, ".key-")
 		if err != nil {
 			return err
 		}
@@ -470,7 +473,7 @@ func runBackupWorker() error {
 		if removeErr != nil {
 			return removeErr
 		}
-		directory, err := os.Open(dir)
+		directory, err := os.Open(backupKeyDirectory)
 		if err != nil {
 			return err
 		}

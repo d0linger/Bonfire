@@ -55,27 +55,34 @@ func cashAdjustment(r row, includes func(string) bool, pooled bool) int64 {
 
 func walletRevenue(rows []row, wallet string) (int64, bool) {
 	var start, end *int64
-	var increments int64
+	var cutoff string
 	for _, r := range rows {
 		v := r.Data
-		increments += cashAdjustment(r, func(id string) bool { return id != "" && id == wallet }, false)
 		if r.Kind == "count" && v.Wallet == wallet {
 			if v.Phase == "Anfang" {
 				start = v.Amount
 			} else if v.Phase == "Ende" {
 				end = v.Amount
+				cutoff = v.Date
 			}
 		}
 	}
 	if start == nil || end == nil {
 		return 0, false
 	}
-	return *end - *start + increments, true
+	total := *end - *start
+	for _, r := range rows {
+		if cutoff == "" || r.Data.Date <= cutoff {
+			total += cashAdjustment(r, func(id string) bool { return id != "" && id == wallet }, false)
+		}
+	}
+	return total, true
 }
 
 func pooledRevenue(rows []row) (int64, bool) {
 	wallets := map[string]bool{}
 	openings := map[string]int64{}
+	var cutoff string
 	var start, end *int64
 	for _, r := range rows {
 		v := r.Data
@@ -91,6 +98,7 @@ func pooledRevenue(rows []row) (int64, bool) {
 				start = v.Amount
 			} else if v.Phase == "Ende" {
 				end = v.Amount
+				cutoff = v.Date
 			}
 		case v.Phase == "Anfang":
 			openings[v.Wallet] = *v.Amount
@@ -117,7 +125,7 @@ func pooledRevenue(rows []row) (int64, bool) {
 		}
 	}
 	for _, r := range rows {
-		if r.ID != pooledSettlement {
+		if r.ID != pooledSettlement && (cutoff == "" || r.Data.Date <= cutoff) {
 			total += cashAdjustment(r, func(id string) bool { return wallets[id] }, true)
 		}
 	}

@@ -100,16 +100,28 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 	if len(byEvent) == 0 {
 		return "", fail("No workspace balances in this period.")
 	}
-	for _, eventRows := range byEvent {
+	for event, eventRows := range byEvent {
 		if err = checkBalance(eventRows, accountMode); err != nil {
 			return "", err
 		}
-		if err = validateSettlement(eventRows); err != nil {
+		// A wallet settlement spans its opening and closing counts. Load prior
+		// wallet movements only for validation, outside the frozen period snapshot.
+		earlier, err := tx.Query(ctx, `SELECT id,kind,device::text,revision,data FROM entries
+   WHERE event=$1 AND (data->>'Date')::date<$2 AND kind=ANY($3)`, event, start,
+			[]string{"count", "supply", "skim", "return", "cashback", "transfer", "expense", "refund", "deposit-return", "income", "donation", "payment", "presale", "deposit"})
+		if err != nil {
+			return "", err
+		}
+		history, err := pgx.CollectRows(earlier, pgx.RowToStructByPos[row])
+		if err != nil {
+			return "", err
+		}
+		if err = validateSettlement(append(history, eventRows...)); err != nil {
 			return "", fail(err.Error())
 		}
 	}
 	closure := uuid()
-	_, err = tx.Exec(ctx, "INSERT INTO period_closures(id,period_id,version,starts,ends,reviewer,snapshot,fiscal_year) SELECT $1,$2,coalesce(max(version),0)+1,$3,$4,$5,$6,$7 FROM period_closures WHERE period_id=$2", closure, id, start, end, d.User, entries, year)
+	_, err = tx.Exec(ctx, "INSERT INTO period_closures(id,period_id,version,starts,ends,reviewer,snapshot,fiscal_year,source_event,account_mode) SELECT $1,$2,coalesce(max(version),0)+1,$3,$4,$5,$6,$7,$8,$9 FROM period_closures WHERE period_id=$2", closure, id, start, end, d.User, entries, year, d.Event, accountMode)
 	if err != nil {
 		return "", err
 	}
@@ -138,7 +150,7 @@ func periodAction(ctx context.Context, tx pgx.Tx, d device, action, id, reason s
 		return nil, fail("Adminrecht und Begründung erforderlich.")
 	}
 	var source string
-	err := tx.QueryRow(ctx, `SELECT p.id::text FROM period_closures p JOIN entries e ON e.id=p.period_id AND e.kind='period' WHERE e.event=$1 AND p.period_id=$2 AND p.reopened_at IS NULL`, d.Event, id).Scan(&source)
+	err := tx.QueryRow(ctx, `SELECT p.id::text FROM period_closures p WHERE p.source_event=$1 AND p.period_id=$2 AND p.reopened_at IS NULL`, d.Event, id).Scan(&source)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fail("Kein aktiver Periodenabschluss in diesem Arbeitsbereich.")
 	}
