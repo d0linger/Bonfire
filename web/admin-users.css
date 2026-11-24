@@ -9,13 +9,14 @@
   display: inline-block;
   padding: 0.18rem 0.55rem;
   border-radius: 4px;
-  background: var(--surface-soft, #edf0f3);
+  background: var(--soft);
+  color: var(--ink);
   font-size: 0.82rem;
   font-weight: 600;
 }
 .account-console .account-status.good {
-  background: #e6f3eb;
-  color: #285738;
+  background: var(--okbg);
+  color: var(--ok);
 }
 .account-console .account-person {
   display: block;
@@ -29,8 +30,29 @@
   display: block;
   color: var(--muted, #5e6470);
 }
-.account-console .account-selected {
-  box-shadow: inset 3px 0 #af2330;
+.account-console tbody tr:has(.account-person) {
+  cursor: pointer;
+}
+.account-console tbody tr:has(.account-person):is(:hover, :focus-within) {
+  background: var(--soft);
+}
+.account-editor .account-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.account-editor .panel-head h2 {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.account-editor .entry-close {
+  flex-shrink: 0;
+}
+.account-editor .actions {
+  flex-wrap: wrap;
+}
+.account-editor > .actions {
+  justify-content: flex-start;
 }
 .account-facts {
   display: grid;
@@ -49,7 +71,7 @@
   display: none;
 }
 .account-editor {
-  color: var(--text, #20242b);
+  color: var(--ink);
   background: var(--surface, #fff);
   border: 1px solid var(--line, #d9dde2);
   border-radius: 8px;
@@ -93,5 +115,5 @@
   cursor: pointer;
 }
 .account-editor [role="alert"] {
-  color: #b32935;
+  color: var(--red);
 }

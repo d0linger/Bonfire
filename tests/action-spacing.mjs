@@ -229,7 +229,8 @@ try {
     await check(key);
     if (key === "Benutzer") {
       await page.locator("[data-account-id]").first().click();
-      await check("Kontoaktionen");
+      await check("Kontoaktionen", page.getByRole("dialog"));
+      await page.keyboard.press("Escape");
     }
     const dialogs =
       key === "Backup"
@@ -244,6 +245,8 @@ try {
             ]
           : [];
     for (const name of dialogs) {
+      if (key === "Benutzer" && name !== "Benutzer anlegen")
+        await page.locator("[data-account-id]").first().click();
       await page.getByRole("button", { name, exact: true }).click();
       const dialog = page.getByRole("dialog");
       await dialog.waitFor();

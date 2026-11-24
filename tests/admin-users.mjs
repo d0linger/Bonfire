@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { totp } from "./totp.mjs";
 import { chromium } from "playwright";
 import { admin, basic } from "./local-api.mjs";
 
@@ -184,8 +185,11 @@ try {
     .getByRole("button", { name: "Abbrechen" })
     .click();
   await page.getByRole("button", { name: "Fiktive Kassa " + newLogin }).click();
-  await page.getByRole("button", { name: "Zugang bearbeiten" }).click();
   const dialog = page.getByRole("dialog");
+  await dialog
+    .getByRole("heading", { name: "Fiktive Kassa", exact: true })
+    .waitFor();
+  await dialog.getByRole("button", { name: "Zugang bearbeiten" }).click();
   assert.deepEqual(
     (
       await dialog.locator('select[name="Role"] option').allTextContents()
@@ -248,6 +252,79 @@ try {
     await links.getByRole("button", { name: "Benutzer", exact: true }).count(),
     0,
   );
+  const selfSecurity = url.origin + "/api/account/security";
+  const startMFA = await changed.request.post(selfSecurity, {
+    data: { action: "mfa-begin", password: newSecret },
+  });
+  assert.equal(startMFA.status(), 200);
+  const setup = await startMFA.json();
+  assert.equal(
+    (
+      await changed.request.post(selfSecurity, {
+        data: { action: "mfa-confirm", code: totp(setup.secret) },
+      })
+    ).status(),
+    200,
+  );
+  await page
+    .getByRole("button", { name: "Aktualisieren", exact: true })
+    .click();
+  const row = page
+    .locator("tr")
+    .filter({ has: page.locator('[data-account-id="' + loginID + '"]') });
+  await row.getByText("TOTP aktiv").waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await row.getByText("Read", { exact: true }).click();
+  await dialog.getByRole("heading", { name: "Fiktive Kassa Test" }).waitFor();
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme });
+    const contrast = await dialog
+      .getByText("Read", { exact: true })
+      .evaluate((el) => {
+        function luminance(rgb) {
+          const [r, g, b] = rgb
+            .match(/[\d.]+/g)
+            .map(Number)
+            .map((v) => {
+              const s = v / 255;
+              return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+            });
+          return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        }
+        const style = getComputedStyle(el);
+        const a = luminance(style.color),
+          b = luminance(style.backgroundColor);
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      });
+    assert.ok(
+      contrast >= 4.5,
+      "Rollenkontrast " + colorScheme + ": " + contrast,
+    );
+    assert.ok(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth));
+  }
+  async function confirmAction(label, password) {
+    await dialog.getByRole("button", { name: label, exact: true }).click();
+    await dialog.getByLabel("Begründung").fill("Synthetischer Verwaltungstest");
+    if (password) await dialog.getByLabel("Startpasswort").fill(password);
+    await dialog.getByRole("button", { name: label, exact: true }).click();
+    await dialog.waitFor({ state: "hidden" });
+    await page.waitForFunction(
+      (id) => document.activeElement?.dataset.accountId === id,
+      loginID,
+    );
+  }
+  await confirmAction("Zweiten Faktor zurücksetzen");
+  assert.equal((await user(loginID)).MFA, false);
+  await row.locator("button").click();
+  await confirmAction("Zugang sperren");
+  assert.equal((await user(loginID)).Active, false);
+  await login(basic(newLogin, newSecret), 401);
+  await row.locator("button").click();
+  await confirmAction("Zugang aktivieren");
+  const reset = randomUUID();
+  await row.locator("button").click();
+  await confirmAction("Passwort zurücksetzen", reset);
+  assert.ok((await login(basic(newLogin, reset))).data.passwordChange);
 } finally {
   await browser.close();
 }

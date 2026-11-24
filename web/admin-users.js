@@ -158,12 +158,10 @@ export async function mountUsers(host, { api }) {
   host.replaceChildren(root);
   root.innerHTML =
     '<h1>Benutzer</h1><p role="status">Benutzerkonten werden geladen …</p>';
-  let selected,
-    data,
+  let data,
     view = "accounts",
     saving = false;
   function render(message = "") {
-    const user = data.users.find((u) => u.ID === selected);
     root.innerHTML =
       '<div class="page-head"><div><h1>Benutzer</h1><p>Persönliche Konten, Rollen und Arbeitsbereiche verwalten.</p></div>' +
       button("create", icon("Plus") + " Benutzer anlegen", true) +
@@ -194,16 +192,14 @@ export async function mountUsers(host, { api }) {
         data.users
           .map(
             (u) =>
-              "<tr" +
-              (selected === u.ID ? ' class="account-selected"' : "") +
-              '><td><button type="button" class="account-person" data-account-id="' +
+              '<tr><td><button type="button" class="account-person" aria-haspopup="dialog" data-account-id="' +
               esc(u.ID) +
               '"><strong>' +
               esc(person(u)) +
               "</strong>" +
               (u.Label ? "<small>" + esc(u.Login) + "</small>" : "") +
               "</button></td><td>" +
-              esc(u.Role) +
+              state(u.Role, false) +
               "</td><td>" +
               (u.MFA ? "TOTP aktiv" : "Passwort") +
               "</td><td>" +
@@ -213,67 +209,92 @@ export async function mountUsers(host, { api }) {
           .join("") +
         "</tbody></table></div></section>",
     );
-    if (!user) return;
+  }
+  function accountDetails(user) {
     const spaces = data.events
       .filter((e) => user.Events.includes(e.ID))
       .map((e) => e.Year + " · " + e.Name);
-    root.insertAdjacentHTML(
-      "beforeend",
-      '<section><div class="account-section"><h2>' +
-        esc(person(user)) +
-        "</h2>" +
-        state(user.Role, false) +
-        "</div>" +
-        '<dl class="account-facts"><dt>Anmeldung</dt><dd>' +
-        esc(user.Login) +
-        "</dd><dt>Arbeitsbereiche</dt><dd>" +
-        esc(
-          user.Role === "Admin"
-            ? "Alle Geschäftsjahre und Arbeitsbereiche"
-            : spaces.join(", ") || "Keine Freigabe",
-        ) +
-        "</dd><dt>Letzte Anmeldung</dt><dd>" +
-        esc(late(user.LastLogin)) +
-        "</dd><dt>Aktive Sitzungen</dt><dd>" +
-        user.Sessions +
-        "</dd>" +
-        (user.MustChange
-          ? "<dt>Passwortwechsel</dt><dd>Bei nächster Anmeldung erforderlich</dd>"
-          : "") +
-        '</dl><div class="actions">' +
-        editorActions(user) +
-        "</div></section>",
+    return (
+      '<div class="account-summary">' +
+      state(user.Role, false) +
+      state(user.Active ? "Aktiv" : "Gesperrt", user.Active) +
+      "</div>" +
+      '<dl class="account-facts"><dt>Anmeldung</dt><dd>' +
+      esc(user.Login) +
+      "</dd><dt>Arbeitsbereiche</dt><dd>" +
+      esc(
+        user.Role === "Admin"
+          ? "Alle Geschäftsjahre und Arbeitsbereiche"
+          : spaces.join(", ") || "Keine Freigabe",
+      ) +
+      "</dd><dt>Letzte Anmeldung</dt><dd>" +
+      esc(late(user.LastLogin)) +
+      "</dd><dt>Aktive Sitzungen</dt><dd>" +
+      user.Sessions +
+      "</dd>" +
+      (user.MustChange
+        ? "<dt>Passwortwechsel</dt><dd>Bei nächster Anmeldung erforderlich</dd>"
+        : "") +
+      '</dl><div class="actions">' +
+      editorActions(user) +
+      "</div>"
     );
   }
   async function refresh(message) {
     data = await api("admin/users");
-    if (!data.users.some((u) => u.ID === selected)) selected = data.self;
     render(message);
   }
-  function editor(action) {
-    const user = data.users.find((u) => u.ID === selected);
+  function editor(initialAction, user) {
+    let action = initialAction;
     const dialog = document.createElement("dialog");
     dialog.className = "account-editor entry-modal";
     dialog.setAttribute("aria-labelledby", "account-editor-title");
-    dialog.innerHTML =
-      '<form><div class="panel-head"><h2 id="account-editor-title">' +
-      titles[action] +
-      '</h2><button type="button" class="entry-close" data-account-close aria-label="Schließen">×</button></div>' +
-      (action === "create" ? "" : "<p>" + esc(person(user)) + "</p>") +
-      (summaries[action] ? "<p>" + summaries[action] + "</p>" : "") +
-      editFields(action, action === "create" ? null : user, data.events) +
-      '<p role="alert"></p><div class="actions"><button type="button" class="secondary" data-account-close>Abbrechen</button><button>' +
-      (action === "edit" ? "Änderungen speichern" : titles[action]) +
-      "</button></div></form>";
     root.append(dialog);
+    function display(next) {
+      action = next;
+      const overview = action === "details";
+      const title = overview ? person(user) : titles[action];
+      const header =
+        '<div class="panel-head"><h2 id="account-editor-title">' +
+        esc(title) +
+        '</h2><button type="button" class="entry-close" data-account-close aria-label="Schließen">×</button></div>';
+      dialog.innerHTML = overview
+        ? header + accountDetails(user)
+        : "<form>" +
+          header +
+          (user ? "<p>" + esc(person(user)) + "</p>" : "") +
+          (summaries[action] ? "<p>" + summaries[action] + "</p>" : "") +
+          editFields(action, user, data.events) +
+          '<p role="alert"></p><div class="actions"><button type="button" class="secondary" data-account-cancel>Abbrechen</button><button>' +
+          (action === "edit" ? "Änderungen speichern" : titles[action]) +
+          "</button></div></form>";
+      dialog.scrollTop = 0;
+      if (dialog.open)
+        (
+          dialog.querySelector("input, select, textarea") ||
+          dialog.querySelector("button")
+        ).focus();
+    }
+    display(initialAction);
     dialog.addEventListener("close", () => dialog.remove(), { once: true });
     dialog.addEventListener("cancel", (e) => {
       if (saving) e.preventDefault();
     });
     dialog.addEventListener("click", (e) => {
-      if (!saving && e.target.closest("[data-account-close]")) dialog.close();
+      const b = e.target.closest("button");
+      if (!b || saving) return;
+      if (b.hasAttribute("data-account-close")) dialog.close();
+      else if (b.hasAttribute("data-account-cancel")) {
+        if (user) {
+          const previous = action;
+          display("details");
+          dialog
+            .querySelector('[data-account-action="' + previous + '"]')
+            ?.focus();
+        } else dialog.close();
+      } else if (b.dataset.accountAction) display(b.dataset.accountAction);
     });
-    dialog.querySelector("form").onsubmit = async (e) => {
+    dialog.addEventListener("submit", async (e) => {
       e.preventDefault();
       e.stopPropagation();
       if (saving) return;
@@ -302,33 +323,45 @@ export async function mountUsers(host, { api }) {
           location.reload();
           return;
         }
-        if (action === "create")
-          selected = input.Login.includes("@")
-            ? input.Login.toLowerCase().trim()
-            : input.Login.trim();
-        dialog.close();
+        const login = input.Login?.trim();
+        const id =
+          user?.ID || (login.includes("@") ? login.toLowerCase() : login);
         view = "accounts";
-        await refresh("Änderung gespeichert.");
+        let message = "Änderung gespeichert.";
+        try {
+          data = await api("admin/users");
+        } catch (error) {
+          message += " Liste bitte aktualisieren. " + error.message;
+        }
+        dialog.close();
+        render(message);
+        (
+          root.querySelector('[data-account-id="' + CSS.escape(id) + '"]') ||
+          root.querySelector('[data-account-action="refresh"]')
+        ).focus({ preventScroll: true });
       } catch (error) {
-        if (dialog.isConnected)
-          dialog.querySelector("[role=alert]").textContent = error.message;
-        else root.querySelector(".account-notice").textContent = error.message;
+        dialog.querySelector("[role=alert]").textContent = error.message;
       } finally {
         saving = false;
         if (submitter) submitter.disabled = false;
       }
-    };
+    });
     dialog.showModal();
     dialog.querySelector("input:not([type=hidden]), select, textarea")?.focus();
   }
   root.addEventListener("click", async (e) => {
     e.stopPropagation();
-    const b = e.target.closest("button");
-    if (!b || saving || b.closest("dialog")) return;
+    if (saving || root.querySelector("dialog[open]")) return;
+    const b =
+      e.target.closest("button") ||
+      e.target.closest("tbody tr")?.querySelector("[data-account-id]");
+    if (!b) return;
     if (b.dataset.accountId) {
-      selected = b.dataset.accountId;
-      render();
-      root.querySelector(".account-selected button")?.focus();
+      b.focus({ preventScroll: true });
+      editor(
+        "details",
+        data.users.find((u) => u.ID === b.dataset.accountId),
+      );
       return;
     }
     if (b.dataset.accountTab) {
@@ -339,12 +372,15 @@ export async function mountUsers(host, { api }) {
     }
     const action = b.dataset.accountAction;
     if (action === "refresh") {
+      saving = true;
       try {
         await refresh();
       } catch (error) {
         root.querySelector(".account-notice").textContent = error.message;
+      } finally {
+        saving = false;
       }
-    } else if (Object.hasOwn(titles, action)) editor(action);
+    } else if (action === "create") editor(action);
   });
   try {
     await refresh();
