@@ -367,11 +367,14 @@ const adminKinds = new Set([
   "dispatch",
   "import-source",
 ]);
+function onOverview() {
+  return page === "Übersicht" || page === "Veranstaltungen";
+}
 function editableKinds() {
   if (!writableWorkspace()) return [];
-  return recordKinds(page).filter(
-    (k) => s.role === "Admin" || !adminKinds.has(k),
-  );
+  const kinds =
+    !offlineEnabled && onOverview() ? ["opening"] : recordKinds(page);
+  return kinds.filter((k) => s.role === "Admin" || !adminKinds.has(k));
 }
 function canWrite() {
   if (!writableWorkspace())
@@ -1440,6 +1443,8 @@ function recordForm() {
 function entryLabel(page) {
   return (
     {
+      Übersicht: "Anfangsbestand erfassen",
+      Veranstaltungen: "Anfangsbestand erfassen",
       Journal: "Buchung erfassen",
       Zahlungen: offlineEnabled
         ? "Eintrag erfassen"
@@ -1481,6 +1486,17 @@ function openRecord(trigger, item = null) {
     type.disabled = !!item;
   }
   if (item) fillRecord(entryDialog.querySelector("#record"));
+  if (!item && kind === "opening" && onOverview()) {
+    const period = rows().find(
+      (r) => r.Kind === "period" && r.ID === overviewPeriod,
+    );
+    const fields = entryDialog.querySelector("#record").elements;
+    fields.Label.value = "Anfangsbestand";
+    fields.Date.min = period?.Data.Date || s.event.Starts;
+    fields.Date.max = period?.Data.To || s.event.Ends;
+    fields.Date.value = fields.Date.min;
+    fields.amount.focus();
+  }
 }
 let donorReview;
 const donorRequest = (body) => api("donation-reports", body, bearer());
@@ -2783,7 +2799,7 @@ function onlineView() {
         : "<p>Ein Admin kann dir eine Veranstaltung oder ein Kassenbuch zuweisen.</p>")
     );
   const { event: e, entries: list, pending, conflicts } = onlineData;
-  if (page === "Übersicht" || page === "Veranstaltungen")
+  if (onOverview())
     return overview(
       e,
       list,
@@ -2958,6 +2974,7 @@ function show() {
           s.role,
           overviewPeriod,
           !offlineEnabled,
+          editableKinds().includes("opening"),
         ) +
         (!offlineEnabled && page === "Veranstaltungen"
           ? '<div class="actions">' +
@@ -3633,6 +3650,12 @@ async function submit(f) {
       }
     }
     let target = kind === "organization" ? "organization" : edit?.ID;
+    if (!edit && kind === "opening" && onOverview())
+      target = await countID(
+        "opening",
+        d.Date,
+        s.event.Accounts ? d.Account : "",
+      );
     if (kind === "paper") {
       d.Number = Number(d.Number);
       target = "paper:" + d.Number;

@@ -23,6 +23,8 @@ Der halb gefüllte Kreis oben rechts schaltet mit einem Klick zwischen Hell- und
 4. **Speichern** überträgt die Buchung direkt an PostgreSQL. Bei unterbrochener Verbindung ist keine Buchung möglich. Beide Kassiere können im selben zugewiesenen Arbeitsbereich buchen. **Serverstand aktualisieren** lädt die Buchungen des anderen Kontos. Berechtigungen lassen sich unter **Verwaltung → Benutzer** zuweisen.
 5. Vorhandene Arbeitsbereiche ohne Jahresbezug stehen unter **Geschäftsjahr → Geschäftsjahre öffnen → Bisherige Arbeitsbereiche** bereit. Ein Admin kann sie einem passenden Jahr zuordnen. Dabei werden der Veranstaltungszeitraum und bestehende Finanzbuchungen geprüft.
 
+Auf der Jahresübersicht oder der Übersicht einer geöffneten Veranstaltung können Admins **Anfangsbestand fehlt** anklicken. Der Dialog zeigt das Buchungsziel und schlägt den ersten Tag des angezeigten Zeitraums vor. Auch ein bestätigter Anfangsbestand von 0,00 EUR ist möglich.
+
 Der Offlinebetrieb ist vorerst deaktiviert. Bereits vorhandene verschlüsselte Geräteprofile bleiben im jeweiligen Browser erhalten. Ausschließlich dort gespeicherte Altvorgänge erscheinen erst nach einer gesonderten Übernahme im zentralen Kassenbuch. Für die Weiterarbeit das Browserprofil aufbewahren.
 
 ## Konto und Sicherheit

@@ -686,6 +686,17 @@ details {
 .featured {
   border-top: 3px solid #b91c24;
 }
+.kpi .opening-action {
+  background: transparent;
+  color: var(--ink);
+  padding: 4px 0;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.kpi .opening-action:hover {
+  color: var(--red);
+}
 .kpi.result strong {
   color: var(--ok);
 }

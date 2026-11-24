@@ -80,6 +80,35 @@ try {
       .getAttribute("data-fiscal");
   };
   const yearA = await createYear("2046", "2046-01-01", "2046-10-31");
+  const opening = button("Anfangsbestand fehlt");
+  const enterOpening = async (target, date, amount) => {
+    await opening.click();
+    const dialog = page.getByRole("dialog", {
+      name: "Anfangsbestand erfassen",
+    });
+    assert.equal(
+      await dialog.locator(".booking-target strong").textContent(),
+      target,
+    );
+    assert.equal(
+      await dialog.getByLabel("Datum", { exact: true }).inputValue(),
+      date,
+    );
+    await dialog.getByLabel("Betrag in EUR").fill(amount);
+    await submit("record");
+    await page
+      .getByText("Mit erfasstem Anfangsbestand", { exact: true })
+      .waitFor();
+    assert.equal(await opening.count(), 0);
+    assert.ok(
+      (await page.locator(".kpi.featured strong").innerText()).includes(amount),
+    );
+  };
+  await enterOpening(
+    "Allgemeines Kassenbuch · Geschäftsjahr 2046",
+    "2046-01-01",
+    "175,50",
+  );
   await go("Veranstaltungen");
   await button("Veranstaltung anlegen").click();
   await page.getByRole("dialog", { name: "Veranstaltung anlegen" }).waitFor();
@@ -89,6 +118,11 @@ try {
   await event.locator("[name=Ends]").fill("2046-08-21");
   await submit("event");
   const eventName = "Übung Sommerfest";
+  await enterOpening(
+    "Veranstaltung · " + eventName + " · Geschäftsjahr 2046",
+    "2046-08-20",
+    "0,00",
+  );
   await button("Veranstaltungsbuchungen öffnen").click();
   await button("Veranstaltungsbuchung erfassen").click();
   const eventBooking = "Festkassa " + randomUUID();
@@ -110,6 +144,9 @@ try {
   await home.focus();
   await home.press("Enter");
   await page.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
+  assert.ok(
+    (await page.locator(".kpi.featured strong").innerText()).includes("175,50"),
+  );
   assert.match(
     await page.locator("#workspace-picker").innerText(),
     /Allgemeines Kassenbuch · Geschäftsjahr 2046/,

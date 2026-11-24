@@ -459,6 +459,7 @@ export function overview(
   role = "Admin",
   periodID = "",
   online = false,
+  canAddOpening = false,
 ) {
   const periods = rows.filter((r) => r.Kind === "period" && r.Data.To);
   const period = periods.find((r) => r.ID === periodID);
@@ -500,7 +501,9 @@ export function overview(
     ? "Mit erfasstem Anfangsbestand"
     : opening.length
       ? "Mehrere Eröffnungen · Zeitraum prüfen"
-      : "Anfangsbestand fehlt";
+      : canAddOpening
+        ? '<button type="button" class="opening-action" data-act="focusEntry" aria-haspopup="dialog">Anfangsbestand fehlt</button>'
+        : "Anfangsbestand fehlt";
   const setupAction =
     role === "Read" ? "Leseprofil vorbereiten" : "Erfassung vorbereiten";
   const balance = uniqueOpening
