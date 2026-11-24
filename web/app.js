@@ -135,7 +135,7 @@ function openEditor(trigger, title, content, selector = "") {
     selector +
     content +
     '<div class="entry-error" role="alert"></div>';
-  entryDialog.showModal();
+  if (!entryDialog.open) entryDialog.showModal();
   entryDialog
     .querySelector("form input:not([type=hidden]), form select, form textarea")
     ?.focus();
@@ -172,6 +172,7 @@ function closeEditor() {
   entryDialog.replaceChildren();
   edit = null;
   const key = [
+    "data-event-cleanup",
     "data-edit",
     "data-lifecycle",
     "data-settle",
@@ -2065,6 +2066,206 @@ function eventForm() {
     "Veranstaltung speichern",
   );
 }
+async function openEventCleanup(trigger, workspace, message = "") {
+  const inventory = (id) =>
+    api("events/entries?event=" + encodeURIComponent(id));
+  const items = await inventory(workspace.ID);
+  const cancel = button("cancel", "Abbrechen", true);
+  const targets = events.filter(
+    (e) =>
+      workspace.Year &&
+      e.Year === workspace.Year &&
+      e.ID !== workspace.ID &&
+      !e.Closed,
+  );
+  const choices = items.map((i) => [
+    i.ID,
+    [
+      types[i.Kind] || i.Kind,
+      i.Label,
+      dat(i.Date),
+      i.Amount == null ? "" : eur(i.Amount),
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  ]);
+  const fields = items.length
+    ? select("Target", "Eintrag", choices) +
+      select("Destination", "Aktion oder Ziel", [
+        ["", "Bitte wählen"],
+        ["remove", "Eintrag entfernen / Buchung stornieren"],
+        ...targets.map((e) => [e.ID, "Umbuchen nach " + e.Name]),
+      ]) +
+      '<div class="form cleanup-mapping" hidden></div>' +
+      field("Reason", "Begründung", "text", true)
+    : "";
+  const description = items.length
+    ? items.length +
+      (items.length === 1 ? " Eintrag ist" : " Einträge sind") +
+      " noch zugeordnet. Wähle einen Eintrag zum Umbuchen oder Entfernen."
+    : "Diese Veranstaltung enthält keine Einträge. Möchtest du sie aus dem Geschäftsjahr löschen?";
+  openEditor(
+    trigger,
+    workspace.Name,
+    (message ? '<p role="status">' + esc(message) + "</p>" : "") +
+      "<p>" +
+      esc(description) +
+      "</p>" +
+      form(
+        "event-cleanup",
+        fields,
+        items.length ? "Aktion auswählen" : "Veranstaltung löschen",
+        cancel,
+      ),
+  );
+  const editor = entryDialog.querySelector("form");
+  const submitButton = editor.querySelector("button:not([type=button])");
+  const mapping = editor.querySelector(".cleanup-mapping");
+  let request = crypto.randomUUID();
+  let selection = 0;
+  if (items.length) {
+    submitButton.disabled = true;
+    editor.addEventListener("input", () => {
+      request = crypto.randomUUID();
+    });
+    editor.addEventListener("change", async (event) => {
+      if (!["Target", "Destination"].includes(event.target.name)) return;
+      const serial = ++selection;
+      const item = items.find((i) => i.ID === editor.elements.Target.value);
+      const destinationSelect = editor.elements.Destination;
+      for (const option of destinationSelect.options) {
+        option.disabled =
+          !!option.value &&
+          !(option.value === "remove" ? item.Removable : item.Movable);
+      }
+      if (destinationSelect.selectedOptions[0]?.disabled)
+        destinationSelect.value = "";
+      const destination = destinationSelect.value;
+      const removing = destination === "remove";
+      const target = targets.find((e) => e.ID === destination);
+      submitButton.disabled = true;
+      submitButton.textContent = removing
+        ? "Eintrag entfernen"
+        : target
+          ? "Jetzt umbuchen"
+          : "Aktion auswählen";
+      mapping.replaceChildren();
+      mapping.hidden = true;
+      const alert = entryDialog.querySelector(".entry-error");
+      alert.textContent = "";
+      if (!item.Removable && !item.Movable) {
+        alert.textContent =
+          "Dieser Eintrag ist Teil eines geschützten Fachablaufs.";
+        return;
+      }
+      if (!destination) return;
+      if (target) {
+        const moneyAccount = [
+          "income",
+          "expense",
+          "refund",
+          "deposit",
+          "deposit-return",
+          "donation",
+          "presale",
+          "transfer",
+        ].includes(item.Kind);
+        const required = [
+          ["Bar", "Bar im Ziel", ["bar"], item.Bar],
+          ["Wallet", "Geldtasche im Ziel", ["wallet"], item.Wallet],
+          [
+            "Account",
+            "Konto im Ziel",
+            ["wallet", "account"],
+            item.Account || (target.Accounts && moneyAccount),
+          ],
+          [
+            "To",
+            "Gegenkonto im Ziel",
+            ["wallet", "account"],
+            item.Kind === "transfer",
+          ],
+        ].filter(([, , , needed]) => needed);
+        if (required.length) {
+          try {
+            const rows = await inventory(destination);
+            if (!editor.isConnected || serial !== selection) return;
+            mapping.innerHTML = required
+              .map(([key, title, kinds]) =>
+                select(key, title, [
+                  ["", "Bitte wählen"],
+                  ...rows
+                    .filter((r) => kinds.includes(r.Kind))
+                    .map((r) => [r.ID, r.Label]),
+                ]),
+              )
+              .join("");
+            mapping.hidden = false;
+            for (const input of mapping.querySelectorAll("select"))
+              input.required = true;
+          } catch (err) {
+            if (editor.isConnected && serial === selection)
+              alert.textContent = err.message;
+            return;
+          }
+        }
+      }
+      submitButton.disabled = false;
+    });
+    editor.elements.Target.dispatchEvent(
+      new Event("change", { bubbles: true }),
+    );
+  }
+  editor.addEventListener("submit", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    action(async () => {
+      const alert = entryDialog.querySelector(".entry-error");
+      alert.replaceChildren();
+      if (!items.length) {
+        await api("events/delete", { Event: workspace.ID });
+        allSpaces = await api("events");
+        await selectFiscalWorkspace(
+          selectedYear,
+          preferredEvent === workspace.ID ? "" : preferredEvent,
+        );
+        page = "Veranstaltungsliste";
+        show();
+        closeEditor();
+        notice.textContent = workspace.Name + " wurde gelöscht.";
+        return;
+      }
+      const values = Object.fromEntries(new FormData(editor));
+      const item = items.find((i) => i.ID === values.Target);
+      const removing = values.Destination === "remove";
+      if (!values.Destination) throw Error("Aktion oder Ziel auswählen.");
+      await api("events/entries", {
+        ...values,
+        Event: workspace.ID,
+        Revision: item.Revision,
+        Action: removing ? "remove" : "move",
+        Destination: removing ? "" : values.Destination,
+        Request: request,
+      });
+      if ([workspace.ID, values.Destination].includes(preferredEvent)) {
+        await sync();
+        show();
+      }
+      await openEventCleanup(
+        trigger,
+        workspace,
+        item.Label + (removing ? " wurde entfernt." : " wurde umgebucht."),
+      );
+    });
+  });
+}
+function eventCleanupButton(event) {
+  return onlineUser?.role === "Leitung" && !event.Closed && !event.General
+    ? '<button type="button" class="secondary" aria-haspopup="dialog" data-event-cleanup="' +
+        esc(event.ID) +
+        '">Veranstaltung löschen …</button>'
+    : "";
+}
 function eventsOfYear() {
   const list = events.filter((e) => !e.General);
   return (
@@ -2079,7 +2280,7 @@ function eventsOfYear() {
         ? list
             .map(
               (e) =>
-                '<p><button class="secondary" data-space="' +
+                '<p class="actions"><button class="secondary" data-space="' +
                 esc(e.ID) +
                 '">' +
                 esc(e.Name) +
@@ -2087,6 +2288,7 @@ function eventsOfYear() {
                 dat(e.Starts) +
                 " – " +
                 dat(e.Ends) +
+                eventCleanupButton(e) +
                 "</p>",
             )
             .join("")
@@ -2673,12 +2875,15 @@ function show() {
           !offlineEnabled,
         ) +
         (!offlineEnabled && page === "Veranstaltungen"
-          ? route(
+          ? '<div class="actions">' +
+            route(
               "Veranstaltungsliste",
               "Alle Veranstaltungen im Geschäftsjahr",
               "secondary",
               "CalendarDays",
-            )
+            ) +
+            eventCleanupButton(s.event) +
+            "</div>"
           : "")
       : pageHead(
           isEvent ? s.event.Name : titleOf(page),
@@ -3825,6 +4030,11 @@ document.addEventListener("click", (e) => {
         .querySelector(mobile ? "#menu-toggle" : "#fiscal-switch summary")
         ?.focus();
     });
+    return;
+  }
+  if (b.dataset.eventCleanup) {
+    const workspace = events.find((e) => e.ID === b.dataset.eventCleanup);
+    if (workspace) action(() => openEventCleanup(b, workspace));
     return;
   }
   if (b.dataset.year || b.dataset.space) {

@@ -305,7 +305,7 @@ func (a *app) globalPeriod(ctx context.Context, tx pgx.Tx, d device, start, end 
 	if history {
 		rows, err := tx.Query(ctx, `SELECT e.name AS veranstaltung,j.kind AS art,j.data->>'Date' AS datum,j.data->>'Label' AS bezeichnung,j.direction*(j.data->>'Amount')::bigint AS cent,
   CASE j.direction WHEN -1 THEN 'Storno' ELSE 'Buchung' END AS richtung,j.revision,j.actor AS akteur,j.recorded_at::text AS angenommen,o.local_time::text AS geraetezeit,
-  o.device::text AS geraet,j.target AS vorgang FROM journal_history j JOIN events e ON e.id=j.event LEFT JOIN operations o ON o.id=j.operation
+  o.device::text AS geraet,j.target AS vorgang FROM journal_history j JOIN event_records e ON e.id=j.event LEFT JOIN operations o ON o.id=j.operation
   WHERE j.data->>'Date' BETWEEN $1 AND $2 AND ($3='Leitung' OR EXISTS (SELECT 1 FROM grants_event g WHERE g.event=e.id AND g.username=$4))
   AND ($5::uuid IS NULL OR e.fiscal_year=$5) ORDER BY j.id`, start, end, d.Role, d.User, year)
 		if err != nil {
@@ -324,8 +324,10 @@ func (a *app) globalPeriod(ctx context.Context, tx pgx.Tx, d device, start, end 
 	return pgx.CollectRows(rows, pgx.RowToMap)
 }
 
+var journalKinds = strings.Fields("income expense refund deposit deposit-return transfer payment donation reimbursement card fee payout presale supply skim return")
+
 func retainPrior(ctx context.Context, tx pgx.Tx, d device, o op) error {
-	if !slices.Contains(strings.Fields("income expense refund deposit deposit-return transfer payment donation reimbursement card fee payout presale supply skim return"), o.Kind) {
+	if !slices.Contains(journalKinds, o.Kind) {
 		return nil
 	}
 	if o.Base > 0 {

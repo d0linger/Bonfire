@@ -1102,6 +1102,12 @@ section > [data-open-form] {
   margin-block: 8px;
   margin-inline-end: 8px;
 }
+.cleanup-mapping {
+  grid-column: 1 / -1;
+}
+.cleanup-mapping[hidden] {
+  display: none;
+}
 dialog.entry-modal {
   width: min(44rem, calc(100% - 2rem));
   max-height: calc(100dvh - 2rem);

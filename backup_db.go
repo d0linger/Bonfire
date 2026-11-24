@@ -27,7 +27,7 @@ func (b *backupWorker) connect(ctx context.Context, name string) (*pgx.Conn, err
 	return pgx.ConnectConfig(ctx, cfg)
 }
 
-func stateManifest(ctx context.Context, tx pgx.Tx) (backupManifest, error) {
+func stateManifest(ctx context.Context, tx pgx.Tx, schema int) (backupManifest, error) {
 	var m backupManifest
 	err := tx.QueryRow(ctx, `SELECT (SELECT installation::text FROM backup_installation),(SELECT count(*) FROM fiscal_years),(SELECT count(*) FROM events),(SELECT count(*) FROM entries),(SELECT count(*) FROM originals)`).Scan(&m.Installation, &m.Years, &m.Workspaces, &m.Entries, &m.Originals)
 	if err != nil {
@@ -35,7 +35,15 @@ func stateManifest(ctx context.Context, tx pgx.Tx) (backupManifest, error) {
 	}
 	h := sha256.New()
 	// Stable ordering preserves associations, individual cent amounts and both original files.
-	for _, table := range []string{"fiscal_years", "events", "entries", "originals"} {
+	eventTable := "events"
+	if schema >= 22 {
+		eventTable = "event_records"
+	}
+	tables := []string{"fiscal_years", eventTable, "entries"}
+	if schema >= 23 {
+		tables = append(tables, "entry_removals")
+	}
+	for _, table := range append(tables, "originals") {
 		rows, err := tx.Query(ctx, "SELECT sha256(convert_to(to_jsonb(r)::text,'UTF8')) FROM "+pgx.Identifier{table}.Sanitize()+" r ORDER BY 1")
 		if err != nil {
 			return m, err
@@ -80,7 +88,11 @@ func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (stri
 		return "", err
 	}
 	defer tx.Rollback(ctx)
-	m, err := stateManifest(ctx, tx)
+	var schema int
+	if err = tx.QueryRow(ctx, "SELECT max(version) FROM migrations").Scan(&schema); err != nil {
+		return "", err
+	}
+	m, err := stateManifest(ctx, tx, schema)
 	if err != nil {
 		return "", err
 	}
@@ -189,7 +201,7 @@ func (b *backupWorker) stage(ctx context.Context, target, name string) (string, 
 		return "", m, "", err
 	}
 	files, err := migrations.ReadDir("migrations")
-	if err != nil || v != len(files) {
+	if err != nil || v < 21 || v > len(files) {
 		return "", m, "", errors.New("Schemaversion weicht ab. Passende BONFIRE-Version für die Probe verwenden")
 	}
 	for i := 1; i <= v; i++ {
@@ -205,12 +217,14 @@ func (b *backupWorker) stage(ctx context.Context, target, name string) (string, 
 			return "", m, "", errors.New("Migrationsnachweis stimmt nicht überein")
 		}
 	}
-	tx, err := restored.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	tx, err := restored.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return "", m, "", err
 	}
 	defer tx.Rollback(ctx)
-	check, err := stateManifest(ctx, tx)
+	// Verify the sealed manifest against the original schema before upgrading
+	// the isolated candidate. Its fingerprint stays bound to the uploaded bytes.
+	check, err := stateManifest(ctx, tx, v)
 	if err != nil {
 		return "", m, "", err
 	}
@@ -220,6 +234,16 @@ func (b *backupWorker) stage(ctx context.Context, target, name string) (string, 
 	if m.Installation == "" {
 		check.Installation = ""
 		m = check
+	}
+	if v < len(files) {
+		for version := v + 1; version <= len(files); version++ {
+			if err = applyUpgrade(ctx, tx, version, fmt.Sprintf("migrations/%03d.sql", version)); err != nil {
+				return "", m, "", err
+			}
+		}
+		if _, err = tx.Exec(ctx, runtimeGrants); err != nil {
+			return "", m, "", err
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return "", m, "", err

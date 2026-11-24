@@ -30,8 +30,12 @@ func (a *app) access(ctx context.Context, w http.ResponseWriter, r *http.Request
 	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock_shared(751025)"); err != nil {
 		return nil, err
 	}
-	if _, err = tx.Exec(ctx, "SELECT id FROM events WHERE id=$1 FOR UPDATE", q.Event); err != nil {
+	tag, err := tx.Exec(ctx, "SELECT id FROM events WHERE id=$1 FOR UPDATE", q.Event)
+	if err != nil {
 		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, problem{404, "Arbeitsbereich nicht verfügbar."}
 	}
 	switch q.Action {
 	case "grant":

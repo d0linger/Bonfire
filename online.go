@@ -14,6 +14,14 @@ func offlineEnabled() bool { return os.Getenv("BONFIRE_OFFLINE_ENABLED") == "tru
 // The server actor preserves the author and numbering of online transactions.
 // Its identifier is public. Only a live account session authorizes a request.
 func lockOnline(ctx context.Context, tx pgx.Tx, r *http.Request) (device, error) {
+	eventID := r.Header.Get("X-Bonfire-Event")
+	if r.URL.Path == "/api/online" {
+		eventID = r.URL.Query().Get("event")
+	}
+	return lockOnlineEvent(ctx, tx, r, eventID)
+}
+
+func lockOnlineEvent(ctx context.Context, tx pgx.Tx, r *http.Request, eventID string) (device, error) {
 	var d device
 	cookie, err := r.Cookie("bonfire_session")
 	if err != nil || cookie.Value == "" {
@@ -27,10 +35,7 @@ func lockOnline(ctx context.Context, tx pgx.Tx, r *http.Request) (device, error)
 	if err != nil {
 		return d, err
 	}
-	d.Event = r.Header.Get("X-Bonfire-Event")
-	if r.URL.Path == "/api/online" {
-		d.Event = r.URL.Query().Get("event")
-	}
+	d.Event = eventID
 	if !idPattern.MatchString(d.Event) {
 		return d, fail("Arbeitsbereich auswählen.")
 	}

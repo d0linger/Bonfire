@@ -240,6 +240,15 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", err
 	}
+	if rev == 0 && o.Base == 0 {
+		var removed bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT FROM entry_removals WHERE event=$1 AND target=$2)", d.Event, o.Target).Scan(&removed); err != nil {
+			return "", err
+		}
+		if removed {
+			return "Konflikt", nil
+		}
+	}
 	if rev != o.Base || rev > 0 && kind != o.Kind {
 		return "Konflikt", nil
 	}

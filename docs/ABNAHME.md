@@ -4,6 +4,12 @@ Geprüft wurde die lokale Entwicklungsinstallation mit erfundenen Veranstaltungs
 
 Der [Abgleich mit der Designübergabe](DESIGNABGLEICH.md) ordnet die acht Hauptmodule ihren Bedienwegen und Nachweisen zu. `ops/acceptance.ps1` startet die Fach-, Browser- und Restoreprüfungen auf einem eigenen, temporären Compose-Volume. Bestehende Daten im interaktiven Arbeitsbereich bleiben erhalten.
 
+## Veranstaltungen bereinigen
+
+Die Leitung öffnet im gewählten Geschäftsjahr bei der Veranstaltung **Veranstaltung löschen …**. Bei einer leeren Veranstaltung folgt die Löschbestätigung. Bei vorhandenen Einträgen zeigt das Fenster Typ, Bezeichnung, Datum und Betrag. Einzelne Einträge lassen sich mit Begründung entfernen oder in eine offene Veranstaltung beziehungsweise das allgemeine Kassenbuch desselben Jahres umbuchen. Benötigte Konten und Geldtaschen werden im Ziel ausgewählt. Nach der letzten Bereinigung wird die Löschung separat bestätigt.
+
+Storno und Zielbuchung sind im Jahresjournal nachvollziehbar. Das Audit bewahrt die ursprüngliche Veranstaltung. Abschlussstände, ausgestellte Originale und abhängige Vorgänge sind geschützt. Der Test `tests/event-cleanup.mjs` prüft die mobile Bedienung, beide Umbuchungsziele, konkurrierende Wiederholung, veraltete Revisionen, Rollen, Referenzen und die Journalbeträge nach der Löschung.
+
 ## Geschäftsjahre und Onlineerfassung
 
 `tests/action-spacing.mjs` misst die sichtbaren Abstände von Schaltflächen, Links und aufklappbaren Bereichen in 33 Ansichten und Dialogzuständen bei 390 und 1440 Pixeln. Der Browsertest legt Kontakte und Spenden im modalen Fenster an, berichtigt sie und prüft das Ergebnis in der Liste. Er prüft außerdem die Tastaturrückkehr nach dem Abbrechen einer Archivierung. `tests/year-workplace.mjs` prüft Geschäftsjahr, Veranstaltung und Buchung über die Erfassungsfenster, einschließlich Escape, Belegreferenz und Wiederholung einer Buchung nach Verbindungsabbruch.

@@ -20,7 +20,7 @@ $before=@(docker compose exec -T db psql -X -At -U bonfire -d bonfire -c $query)
 if($LASTEXITCODE -ne 0 -or ($VerifyExercise -and !$before.Count)){throw 'Originalregister nicht verfügbar oder Übungsbeleg fehlt.'}
 $after=@(docker compose exec -T db psql -X -At -U bonfire -d $restored -c $query)
 if($LASTEXITCODE -ne 0 -or (Compare-Object $before $after)){throw 'Originaldateien stimmen nicht überein.'}
-$yearQuery="SELECT y.id,y.name,y.starts,y.ends,e.id FROM fiscal_years y LEFT JOIN events e ON e.fiscal_year=y.id ORDER BY y.id,e.id"
+$yearQuery="SELECT y.id,y.name,y.starts,y.ends,e.id,e.deleted_at FROM fiscal_years y FULL JOIN event_records e ON e.fiscal_year=y.id ORDER BY y.id,e.id"
 $yearsBefore=@(docker compose exec -T db psql -X -At -v ON_ERROR_STOP=1 -U bonfire -d bonfire -c $yearQuery)
 if($LASTEXITCODE){throw 'Jahreszuordnung nicht verfügbar.'}
 $yearsAfter=@(docker compose exec -T db psql -X -At -v ON_ERROR_STOP=1 -U bonfire -d $restored -c $yearQuery)

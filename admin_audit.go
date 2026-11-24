@@ -84,7 +84,7 @@ type auditEntry struct {
 }
 
 const auditJoins = ` FROM audit a
- LEFT JOIN events e ON e.id=a.event
+ LEFT JOIN event_records e ON e.id=a.event
  LEFT JOIN fiscal_years y ON y.id=e.fiscal_year
  LEFT JOIN operations o ON o.event=a.event AND o.id=CASE WHEN a.subject ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$' THEN a.subject::uuid END
  LEFT JOIN devices d ON d.id=coalesce(a.actor_device,o.device)
@@ -114,7 +114,9 @@ const auditProjection = `WITH projected AS (
       WHEN a.action='Anmeldung abgewiesen' THEN 'Abgewiesen'
       ELSE coalesce(o.outcome,'') END AS outcome, o.base,
  o.local_time, a.event AS event_id,e.fiscal_year AS year_id,o.id AS op_id,
- CASE WHEN a.action LIKE 'Storno und Ersatz · %' THEN substr(a.action,length('Storno und Ersatz · ')+1)
+ CASE WHEN a.action LIKE ANY(ARRAY['Eintrag entfernt · %','Buchung storniert · %','Eintrag umgebucht · %','Umbuchung aus Veranstaltung · %'])
+      THEN substr(a.action,strpos(a.action,' · ')+3)
+      WHEN a.action LIKE 'Storno und Ersatz · %' THEN substr(a.action,length('Storno und Ersatz · ')+1)
       WHEN a.action LIKE 'beibehalten: %' OR a.action LIKE 'übernehmen: %' OR a.action LIKE 'Periode wieder geöffnet: %' THEN substr(a.action,strpos(a.action,': ')+2)
       WHEN a.event IS NULL AND a.action NOT LIKE 'Backup · %' AND strpos(a.action,' · ')>0 THEN substr(a.action,strpos(a.action,' · ')+3)
       WHEN a.action LIKE 'grant %' OR a.action LIKE 'revoke %' OR a.action LIKE 'reopen %' THEN substr(a.action,strpos(a.action,' ')+1)
