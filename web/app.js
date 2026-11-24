@@ -4084,7 +4084,13 @@ document.addEventListener("change", (e) => {
 document.addEventListener("click", (e) => {
   const disclosure = document.querySelector("#fiscal-switch[open]");
   if (disclosure && !disclosure.contains(e.target)) disclosure.open = false;
-  const b = e.target.closest("button");
+  const b = e.target.closest("button, a[data-page]");
+  const pageLink = b instanceof HTMLAnchorElement;
+  if (pageLink) {
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey)
+      return;
+    e.preventDefault();
+  }
   if (
     !b ||
     (b.type === "submit" &&
@@ -4157,7 +4163,7 @@ document.addEventListener("click", (e) => {
     if (b.dataset.page === "Einrichtung")
       destination = page === "Verwaltung" ? "Übersicht" : page;
     const requested = b.dataset.page;
-    const sidebar = !!b.closest("nav");
+    const sidebar = !!b.closest("#sidebar");
     const target =
       !offlineEnabled && sidebar && requested === "Veranstaltungen"
         ? "Veranstaltungsliste"
@@ -4182,6 +4188,7 @@ document.addEventListener("click", (e) => {
       journalFilters = {};
       edit = null;
       show();
+      if (pageLink) article.focus();
     });
     return;
   }

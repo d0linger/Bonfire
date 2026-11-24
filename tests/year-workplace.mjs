@@ -105,6 +105,21 @@ try {
     .getByRole("button", { name: "Speichern", exact: true })
     .click();
   await page.getByRole("cell", { name: eventBooking, exact: true }).waitFor();
+  await page.locator("#menu-toggle").click();
+  const home = page.getByRole("link", { name: "BONFIRE – Zur Übersicht" });
+  await home.focus();
+  await home.press("Enter");
+  await page.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
+  assert.match(
+    await page.locator("#workspace-picker").innerText(),
+    /Allgemeines Kassenbuch · Geschäftsjahr 2046/,
+  );
+  assert.equal(
+    await page
+      .locator("#content")
+      .evaluate((el) => el === document.activeElement),
+    true,
+  );
   await go("Kassenbuch");
   await page
     .getByRole("heading", { name: "Kassenbuch", exact: true })

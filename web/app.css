@@ -251,6 +251,19 @@ aside {
 aside header {
   padding: 8px 9px 18px;
 }
+.brand-home {
+  display: block;
+  border-radius: 6px;
+  text-decoration: none;
+}
+.brand-home:hover strong {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.brand-home:focus-visible {
+  outline: 2px solid currentColor;
+  color: inherit;
+}
 .stripe {
   height: 3px;
   margin: 0 8px 18px;
