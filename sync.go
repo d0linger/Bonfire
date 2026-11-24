@@ -105,6 +105,9 @@ func validate(o op, accounts bool) error {
 			return fail("Ungültiges Zusatzfeld.")
 		}
 	}
+	if o.Kind == "donation" && len(strings.TrimSpace(v.Fields["reporting"])) > 100 {
+		return fail("Reporting period exceeds 100 bytes.")
+	}
 	if o.Kind == "price" && v.Status != "" && v.Status != "Entwurf" && v.Status != "Freigegeben" {
 		return fail("Preisstatus ungültig.")
 	}

@@ -210,6 +210,13 @@ func (b *backupWorker) stage(ctx context.Context, target, name string) (string, 
 			}
 		}
 	}()
+	// Start closed, then enable the owner after revoking public access.
+	if _, err = admin.Exec(ctx, "REVOKE CONNECT ON DATABASE "+dbIdent(db)+" FROM PUBLIC"); err != nil {
+		return "", m, "", err
+	}
+	if _, err = admin.Exec(ctx, "ALTER DATABASE "+dbIdent(db)+" CONNECTION LIMIT -1"); err != nil {
+		return "", m, "", err
+	}
 	if err = b.pgTool(ctx, "pg_restore", db, "--exit-on-error", "--single-transaction", "--no-owner", "--dbname="+db, plain); err != nil {
 		return "", m, "", err
 	}
@@ -334,7 +341,7 @@ func (b *backupWorker) recoverSwap(ctx context.Context, c *pgx.Conn) error {
 			return err
 		}
 		defer dest.Close(ctx)
-		if _, err = dest.Exec(ctx, "INSERT INTO audit(username,action,subject) VALUES($1,'Wiederherstellung übernommen',$2)", j.User, j.FallbackDB); err != nil {
+		if _, err = dest.Exec(ctx, "INSERT INTO audit(username,action,subject) SELECT $1,'Wiederherstellung übernommen',$2 WHERE NOT EXISTS(SELECT FROM audit WHERE action='Wiederherstellung übernommen' AND subject=$2)", j.User, j.FallbackDB); err != nil {
 			return err
 		}
 	}
@@ -378,9 +385,17 @@ func (b *backupWorker) promote(ctx context.Context, c *pgx.Conn, stage, user str
 	defer func() {
 		clean, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := b.recoverSwap(clean, c); result == nil {
-			result = err
+		control := c
+		if control.IsClosed() {
+			fresh, err := b.connect(clean, "postgres")
+			if err != nil {
+				result = errors.Join(result, err)
+				return
+			}
+			defer fresh.Close(clean)
+			control = fresh
 		}
+		result = errors.Join(result, b.recoverSwap(clean, control))
 	}()
 	if _, err = c.Exec(ctx, "ALTER DATABASE "+dbIdent(live)+" ALLOW_CONNECTIONS false"); err != nil {
 		return err
@@ -413,6 +428,9 @@ func (b *backupWorker) promote(ctx context.Context, c *pgx.Conn, stage, user str
 		return err
 	}
 	if _, err = tx.Exec(ctx, "ALTER DATABASE "+dbIdent(stage)+" RENAME TO "+dbIdent(live)); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, "GRANT CONNECT ON DATABASE "+dbIdent(live)+" TO bonfire_runtime"); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, "ALTER DATABASE "+dbIdent(live)+" CONNECTION LIMIT -1"); err != nil {

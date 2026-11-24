@@ -78,7 +78,7 @@ func checkOpenPayments(entries []row) error {
 		n := *r.Data.Amount
 		switch r.Kind {
 		case "card", "cashback":
-			provider := r.Data.Fields["provider"]
+			provider := strings.TrimSpace(r.Data.Fields["provider"])
 			providers[provider] += n
 			if r.Kind == "cashback" {
 				cashbacks[provider] = true
