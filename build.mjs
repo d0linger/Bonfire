@@ -80,13 +80,20 @@ for (const size of [32, 192, 512]) {
     .png()
     .toFile("dist/icon-" + size + ".png");
 }
-for (const file of [
-  "index.html",
-  "word-renderer.html",
-  "app.css",
-  "manifest.webmanifest",
-])
+for (const file of ["index.html", "word-renderer.html", "manifest.webmanifest"])
   await copyFile("web/" + file, "dist/" + file);
+const styles = [
+  "app.css",
+  ...(await readdir("web"))
+    .filter((name) => /^admin-.*\.css$/.test(name))
+    .sort(),
+];
+await writeFile(
+  "dist/app.css",
+  (
+    await Promise.all(styles.map((name) => readFile("web/" + name, "utf8")))
+  ).join("\n"),
+);
 const lock = JSON.parse(await readFile("package-lock.json", "utf8"));
 const inputHash = createHash("sha256");
 const inputs = (await readdir("web"))

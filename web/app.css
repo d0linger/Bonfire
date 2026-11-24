@@ -305,6 +305,148 @@ nav button[aria-current="page"] svg {
   padding: 0 12px 6px;
   font-weight: 700;
 }
+#sidebar-year:empty {
+  display: none;
+}
+#fiscal-switch,
+#admin-navigation {
+  margin: 0;
+  padding: 0;
+  color: #fff;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+#fiscal-switch {
+  position: relative;
+  margin: 0 3px 18px;
+  z-index: 2;
+}
+#fiscal-switch summary,
+#admin-navigation summary {
+  list-style: none;
+  cursor: pointer;
+  border-radius: 6px;
+}
+#fiscal-switch summary::-webkit-details-marker,
+#admin-navigation summary::-webkit-details-marker {
+  display: none;
+}
+#fiscal-switch summary {
+  display: block;
+  padding: 9px 13px 11px;
+  background: #2b3038;
+  border: 1px solid #505761;
+}
+#fiscal-switch summary:hover,
+#admin-navigation summary:hover {
+  background: #343a43;
+}
+.fiscal-caption {
+  color: #c6ccd5;
+  font-size: 12px;
+  font-weight: 500;
+}
+.fiscal-value,
+.fiscal-options button,
+#admin-navigation summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.fiscal-value strong,
+.fiscal-options strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.fiscal-value strong {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.18;
+  margin: 2px 0;
+}
+.fiscal-value small,
+.fiscal-options small {
+  display: block;
+  color: #cdd2da;
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+#fiscal-switch[open] summary .ui-icon,
+#admin-navigation[open] summary > .ui-icon:last-child {
+  transform: rotate(180deg);
+}
+.fiscal-options {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: min(310px, 47dvh);
+  overflow-y: auto;
+  background: #2b3038;
+  border: 1px solid #535b66;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px #10141c55;
+  padding: 4px;
+}
+.fiscal-options button {
+  text-align: left;
+  width: 100%;
+  background: transparent;
+  padding: 8px 9px;
+  color: #f6f7fa;
+}
+.fiscal-options button:hover,
+.fiscal-options button:focus-visible {
+  background: #414852;
+}
+.fiscal-options button[aria-current] {
+  background: #492c32;
+}
+.fiscal-options button[aria-current] svg {
+  color: #ffb6ac;
+}
+.fiscal-options .fiscal-manage {
+  justify-content: flex-start;
+  font-size: 12px;
+  border-top: 1px solid #49505a;
+  border-radius: 0;
+}
+#admin-navigation summary {
+  justify-content: flex-start;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+#admin-navigation summary span {
+  flex: 1;
+}
+#admin-navigation summary small {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  color: #c4cad3;
+}
+#admin-navigation summary > .ui-icon:last-child {
+  width: 14px;
+}
+.admin-links {
+  border-left: 1px solid #515863;
+  margin: 5px 0 6px 17px;
+  padding-left: 5px;
+}
+.admin-links button {
+  min-height: 38px;
+  padding: 7px 10px;
+}
+.admin-console {
+  min-width: 0;
+}
+.admin-console :is(form, table, section) {
+  min-width: 0;
+}
 .nav-tail {
   margin-top: auto;
   padding-top: 32px;

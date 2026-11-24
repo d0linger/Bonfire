@@ -96,7 +96,7 @@ func (a *app) auth(ctx context.Context, r *http.Request) (string, string, error)
 	if !ok && r.URL.Path != "/api/login" {
 		if c, err := r.Cookie("bonfire_session"); err == nil {
 			var role string
-			err = a.db.QueryRow(ctx, "SELECT u.name,u.role FROM sessions s JOIN users u ON u.name=s.username WHERE s.token=$1 AND s.expires>now() AND u.active", hash(c.Value)).Scan(&name, &role)
+			err = a.db.QueryRow(ctx, "SELECT u.name,u.role FROM sessions s JOIN users u ON u.name=s.username WHERE s.token=$1 AND s.expires>now() AND u.active AND NOT u.password_change_required", hash(c.Value)).Scan(&name, &role)
 			if err == nil {
 				return name, role, nil
 			}
@@ -116,17 +116,17 @@ func (a *app) auth(ctx context.Context, r *http.Request) (string, string, error)
 	}
 	a.attempts[name]++
 	a.mu.Unlock()
-	var digest, role string
-	if err := a.db.QueryRow(ctx, "SELECT password,role FROM users WHERE name=$1 AND active", name).Scan(&digest, &role); err != nil || bcrypt.CompareHashAndPassword([]byte(digest), []byte(pw)) != nil {
+	var digest, role, account string
+	if err := a.db.QueryRow(ctx, "SELECT password,role,name FROM users WHERE coalesce(login_alias,name)=$1 AND active AND (NOT password_change_required OR $2)", name, r.URL.Path == "/api/login").Scan(&digest, &role, &account); err != nil || bcrypt.CompareHashAndPassword([]byte(digest), []byte(pw)) != nil {
 		return "", "", deny
 	}
-	if err := a.factor(ctx, name, r.Header.Get("X-Bonfire-OTP")); err != nil {
+	if err := a.factor(ctx, account, r.Header.Get("X-Bonfire-OTP")); err != nil {
 		return "", "", err
 	}
 	a.mu.Lock()
 	delete(a.attempts, name)
 	a.mu.Unlock()
-	return name, role, nil
+	return account, role, nil
 }
 
 type event struct {
@@ -250,7 +250,7 @@ func lock(ctx context.Context, tx pgx.Tx, r *http.Request) (device, error) {
 	if err != nil {
 		return d, problem{403, "Gerät unbekannt."}
 	}
-	err = tx.QueryRow(ctx, "SELECT d.id::text,d.username,u.role,d.block,d.last_seq,d.sealed,e.closed,e.accounts,d.secret,d.donor_access,d.incident_state,d.digital_count FROM devices d JOIN users u ON u.name=d.username JOIN events e ON e.id=d.event WHERE d.id=$1 AND NOT d.online_actor AND u.active AND d.expires>now() AND (u.role='Leitung' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.username=u.name AND g.event=e.id))", id).Scan(&d.ID, &d.User, &d.Role, &d.Block, &d.Last, &d.Sealed, &d.Closed, &d.Accounts, &digest, &d.Donor, &d.IncidentState, &d.DigitalCount)
+	err = tx.QueryRow(ctx, "SELECT d.id::text,d.username,u.role,d.block,d.last_seq,d.sealed,e.closed,e.accounts,d.secret,d.donor_access,d.incident_state,d.digital_count FROM devices d JOIN users u ON u.name=d.username JOIN events e ON e.id=d.event WHERE d.id=$1 AND NOT d.online_actor AND u.active AND NOT u.password_change_required AND d.expires>now() AND (u.role='Leitung' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.username=u.name AND g.event=e.id))", id).Scan(&d.ID, &d.User, &d.Role, &d.Block, &d.Last, &d.Sealed, &d.Closed, &d.Accounts, &digest, &d.Donor, &d.IncidentState, &d.DigitalCount)
 	if err != nil || subtle.ConstantTimeCompare(digest, hash(token)) != 1 {
 		return d, problem{403, "Gerätefreigabe abgelaufen oder entzogen."}
 	}
@@ -359,9 +359,20 @@ func initialize(ctx context.Context, db *pgxpool.Pool) error {
 	if err = applyUpgrade(ctx, tx, 17, "migrations/017.sql"); err != nil {
 		return err
 	}
+	for version := 18; version <= 21; version++ {
+		if err = applyUpgrade(ctx, tx, version, fmt.Sprintf("migrations/%03d.sql", version)); err != nil {
+			return err
+		}
+	}
 	return tx.Commit(ctx)
 }
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "backup-worker" {
+		if err := runBackupWorker(); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	ctx := context.Background()
 	db, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
@@ -382,6 +393,9 @@ func main() {
 	}
 	a := &app{db: db, attempts: map[string]int{}}
 	mux := http.NewServeMux()
+	a.registerBackup(mux)
+	a.registerUsers(mux)
+	a.registerAdminAudit(mux)
 	mux.HandleFunc("POST /api/donation-reports", route(a.donationReports))
 	mux.HandleFunc("POST /api/login", route(a.login))
 	mux.HandleFunc("POST /api/logout", route(a.logout))

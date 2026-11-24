@@ -20,7 +20,7 @@ func lockOnline(ctx context.Context, tx pgx.Tx, r *http.Request) (device, error)
 		return d, problem{401, "Bitte erneut anmelden."}
 	}
 	err = tx.QueryRow(ctx, `SELECT u.name,u.role FROM sessions s JOIN users u ON u.name=s.username
- WHERE s.token=$1 AND s.expires>now() AND u.active`, hash(cookie.Value)).Scan(&d.User, &d.Role)
+ WHERE s.token=$1 AND s.expires>now() AND u.active AND NOT u.password_change_required`, hash(cookie.Value)).Scan(&d.User, &d.Role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, problem{401, "Bitte erneut anmelden."}
 	}
@@ -81,7 +81,7 @@ func onlineDetails(ctx context.Context, tx pgx.Tx, d device, out map[string]any)
 
 func nextOnlineNumber(ctx context.Context, tx pgx.Tx, d device) (int64, error) {
 	var next int64
-	err := tx.QueryRow(ctx, "SELECT coalesce(max(number)+1,$2::bigint) FROM originals WHERE device=$1", d.ID, d.Block*1000).Scan(&next)
+	err := tx.QueryRow(ctx, "SELECT greatest(coalesce(max(number)+1,$2::bigint),(SELECT online_number_floor FROM devices WHERE id=$1)) FROM originals WHERE device=$1", d.ID, d.Block*1000).Scan(&next)
 	return next, err
 }
 

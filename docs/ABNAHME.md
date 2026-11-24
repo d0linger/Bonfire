@@ -6,6 +6,16 @@ Der [Abgleich mit der Designübergabe](DESIGNABGLEICH.md) ordnet die acht Hauptm
 
 ## Geschäftsjahre und Onlineerfassung
 
+Die Jahresauswahl in der linken Navigation wurde mit einer überjährigen Periode und einem 390-Pixel-Browserfenster geprüft. Das ausgewählte Jahr steuert die Arbeitsbereichsliste. Der Zeitraum unter dem Jahr nennt das Kalenderjahr an jeder abweichenden Grenze. [Mockup der geöffneten Jahresauswahl](verwaltung-konzept/jahresauswahl-offen.png) · [Mobile Ansicht](verwaltung-konzept/jahresauswahl-mobil.png)
+
+| Verwaltung | Prüfung mit synthetischen Daten |
+| --- | --- |
+| Navigation | In Edge alle vier Ansichten geöffnet, Restore-Dialog per Tastatur geschlossen, zur Anmelderichtlinie gewechselt und Auditprüfung aufgerufen. Mobile Navigation bei 390 Pixeln geprüft. |
+| Benutzer | Konto angelegt und im Browser bearbeitet. Pflichtwechsel des Passworts, Umbenennung mit stabiler Identität, Rechtewechsel, Sperre, Entsperrung, Sitzungswiderruf und Schutz der letzten Leitung geprüft. |
+| Audit und Systemstatus | Eine Berichtigung von 40 auf 50 EUR einschließlich Revisionen und geschützter Freitexte geprüft. CSV, Bereichsrechte, Kettenprüfung und Messwerte mit isoliertem PostgreSQL bestätigt. Eine Änderung einer versiegelten Testbuchung wurde erkannt und zurückgerollt. |
+| Backup | Verschlüsseltes Archiv lokal gespeichert, heruntergeladen und wieder hochgeladen. Isolierte Restore-Probe und bestätigte Übernahme auf einem Wegwerfstack erfolgreich. Alte Sitzung und Passwortwechselticket wurden ungültig. Eine nach der Sicherung vergebene Belegnummer blieb gesperrt. Eine gezielt beschädigte Archivkopie scheiterte bei der Probe. Der Fehler ließ sich über den Ergebnisfilter und seine Ereignisnummer im Audit wiederfinden. |
+| S3 | Gegen einen lokalen S3-kompatiblen Dienst Verbindung, verschlüsseltes Objekt, Auflistung, Download und Restore-Probe geprüft. Zugriff auf einen externen Betriebs-Bucket und Wiederaufbau auf echter Ersatzhardware stehen aus. |
+
 Die Standardinstallation nutzt die Onlineerfassung. Der frühere Abnahmebericht zur Gerätevorbereitung beschreibt den separat getesteten Offlinebetrieb. `ops/accept-online.ps1` prüft die Standardeinstellung in einem eigenen Compose-Projekt.
 
 | Test | Abgedeckter Ablauf |

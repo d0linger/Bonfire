@@ -40,7 +40,8 @@ func otpMatch(secret, code string, at time.Time) (int64, bool) {
 }
 func (a *app) logout(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
 	if c, err := r.Cookie("bonfire_session"); err == nil {
-		_, err = a.db.Exec(ctx, "DELETE FROM sessions WHERE token=$1", hash(c.Value))
+		_, err = a.db.Exec(ctx, `WITH ended AS (DELETE FROM sessions WHERE token=$1 RETURNING username)
+			INSERT INTO audit(username,action,subject) SELECT username,'Abmeldung','Sitzung' FROM ended`, hash(c.Value))
 		if err != nil {
 			return nil, err
 		}
@@ -67,28 +68,79 @@ func validLoginName(name string) bool {
 var factorRequired = problem{401, "Zweiter Faktor erforderlich."}
 
 func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
-	var name, role string
-	var err error
-	if token, completing := strings.CutPrefix(r.Header.Get("Authorization"), "Bonfire-Challenge "); completing {
-		name, role, err = a.completeLogin(ctx, token, r.Header.Get("X-Bonfire-OTP"))
+	// Bind the entire password/MFA exchange to the version checked before verification.
+	// A concurrent reset or session revocation cannot mint a fresh session afterwards.
+	var candidate string
+	var revision int64
+	token, completing := strings.CutPrefix(r.Header.Get("Authorization"), "Bonfire-Challenge ")
+	identifier, _, _ := r.BasicAuth()
+	var lookup pgx.Row
+	if completing {
+		lookup = a.db.QueryRow(ctx, "SELECT u.name,u.account_revision FROM users u JOIN login_challenges c ON c.username=u.name WHERE c.token=$1", hash(token))
 	} else {
-		name, role, err = a.auth(ctx, r)
-		if errors.Is(err, factorRequired) && r.Header.Get("X-Bonfire-Login") == "staged" {
-			username, _, _ := r.BasicAuth()
-			token := secret()
-			if _, err = a.db.Exec(ctx, "DELETE FROM login_challenges WHERE expires <= now()"); err != nil {
-				return nil, err
+		lookup = a.db.QueryRow(ctx, "SELECT name,account_revision FROM users WHERE coalesce(login_alias,name)=$1", loginName(identifier))
+	}
+	if err := lookup.Scan(&candidate, &revision); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	var err error
+	if completing {
+		_, _, err = a.completeLogin(ctx, token, r.Header.Get("X-Bonfire-OTP"))
+	} else {
+		_, _, err = a.auth(ctx, r)
+	}
+	pendingFactor := errors.Is(err, factorRequired) && r.Header.Get("X-Bonfire-Login") == "staged"
+	if err != nil && !pendingFactor {
+		var p problem
+		if errors.As(err, &p) && p.code == 401 && !errors.Is(err, factorRequired) {
+			if logErr := a.logDeniedLogin(ctx, r); logErr != nil {
+				return nil, logErr
 			}
-			_, err = a.db.Exec(ctx, "INSERT INTO login_challenges(token,username) VALUES ($1,$2)", hash(token), loginName(username))
-			return map[string]string{"challenge": token}, err
 		}
+		return nil, err
+	}
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	var role string
+	var change bool
+	err = tx.QueryRow(ctx, "SELECT role,password_change_required FROM users WHERE name=$1 AND account_revision=$2 AND active FOR UPDATE", candidate, revision).Scan(&role, &change)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, problem{401, "Zugang inzwischen geändert. Bitte erneut anmelden."}
 	}
 	if err != nil {
 		return nil, err
 	}
-	token := secret()
-	_, err = a.db.Exec(ctx, "INSERT INTO sessions VALUES($1,$2,now()+interval '30 minutes')", hash(token), name)
-	if err != nil {
+	token = secret()
+	if pendingFactor {
+		if _, err = tx.Exec(ctx, "DELETE FROM login_challenges WHERE expires<=now()"); err != nil {
+			return nil, err
+		}
+		_, err = tx.Exec(ctx, "INSERT INTO login_challenges(token,username) VALUES ($1,$2)", hash(token), candidate)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"challenge": token}, tx.Commit(ctx)
+	}
+	if change {
+		if _, err = tx.Exec(ctx, "DELETE FROM password_changes WHERE expires<=now()"); err != nil {
+			return nil, err
+		}
+		_, err = tx.Exec(ctx, "INSERT INTO password_changes(token,username) VALUES ($1,$2)", hash(token), candidate)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"passwordChange": token}, tx.Commit(ctx)
+	}
+	if _, err = tx.Exec(ctx, "INSERT INTO sessions(token,username,expires) VALUES($1,$2,now()+interval '30 minutes')", hash(token), candidate); err != nil {
+		return nil, err
+	}
+	if _, err = tx.Exec(ctx, "UPDATE users SET last_login_at=now() WHERE name=$1", candidate); err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	http.SetCookie(w, &http.Cookie{Name: "bonfire_session", Value: token, Path: "/api", MaxAge: 1800, HttpOnly: true, Secure: r.TLS != nil || strings.HasPrefix(r.Header.Get("Origin"), "https://"), SameSite: http.SameSiteStrictMode})
@@ -166,6 +218,9 @@ func (a *app) mfa(ctx context.Context, w http.ResponseWriter, r *http.Request) (
 			return nil, err
 		}
 		codes = append(codes, code)
+	}
+	if _, err = tx.Exec(ctx, "INSERT INTO audit(username,action,subject) VALUES($1,'TOTP eingerichtet','Konto')", name); err != nil {
+		return nil, err
 	}
 	return codes, tx.Commit(ctx)
 }

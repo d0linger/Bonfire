@@ -1,3 +1,8 @@
+import { fiscalPicker } from "./fiscal-picker.js";
+import { canOpenConsole } from "./workplace.js";
+import { mountBackup } from "./admin-backup.js";
+import { mountUsers, mountPasswordChange } from "./admin-users.js";
+import { mountAudit, mountStatus } from "./admin-audit.js";
 import { displayProof } from "./document-preview.js";
 import {
   icon,
@@ -2000,32 +2005,25 @@ async function selectFiscalWorkspace(yearID, eventID) {
 }
 function onlineAdmin() {
   return (
-    (onlineUser?.role === "Leitung"
-      ? (offlineEnabled
-          ? panel(
-              "Veranstaltung anlegen",
-              form(
-                "event",
-                select("General", "Arbeitsbereich", [
-                  ["", "Veranstaltung"],
-                  ["ja", "Allgemeines Kassenbuch ohne Veranstaltung"],
-                ]) +
-                  field("Name", "Name des Arbeitsbereichs", "text", true) +
-                  field("Starts", "Beginn", "date", true, today()) +
-                  field("Ends", "Ende", "date", true, today()) +
-                  select("Accounts", "Kontozuordnung", [
-                    ["", "Aus"],
-                    ["ja", "Ein"],
-                  ]),
-                "Veranstaltung speichern",
-              ),
-            )
-          : route(
-              "Geschäftsjahre",
-              "Geschäftsjahre verwalten",
-              "secondary",
-              "CalendarDays",
-            )) +
+    (offlineEnabled && onlineUser?.role === "Leitung"
+      ? panel(
+          "Veranstaltung anlegen",
+          form(
+            "event",
+            select("General", "Arbeitsbereich", [
+              ["", "Veranstaltung"],
+              ["ja", "Allgemeines Kassenbuch ohne Veranstaltung"],
+            ]) +
+              field("Name", "Name des Arbeitsbereichs", "text", true) +
+              field("Starts", "Beginn", "date", true, today()) +
+              field("Ends", "Ende", "date", true, today()) +
+              select("Accounts", "Kontozuordnung", [
+                ["", "Aus"],
+                ["ja", "Ein"],
+              ]),
+            "Veranstaltung speichern",
+          ),
+        ) +
         panel(
           "Benutzer zuweisen",
           form(
@@ -2311,7 +2309,17 @@ async function checkConnection() {
 function shell() {
   const active = !!s || logged,
     who = s || onlineUser;
-  nav.innerHTML = navigation(page, who?.user, who?.role, active);
+  const expanded =
+    document.querySelector("#admin-navigation")?.open ||
+    sectionOf(page) === "Verwaltung";
+  nav.innerHTML = navigation(
+    page,
+    who?.user,
+    who?.role,
+    active,
+    logged && !offlineEnabled,
+    expanded,
+  );
   const org = s
     ? rows().find((r) => r.Kind === "organization")?.Data
     : onlineData?.entries.find((r) => r.Kind === "organization")?.Data;
@@ -2321,7 +2329,9 @@ function shell() {
     (active
       ? page === "Einrichtung"
         ? "Gerät vorbereiten"
-        : titleOf(page)
+        : canOpenConsole(page, who?.role)
+          ? "Verwaltung   /   " + page
+          : titleOf(page)
       : saved
         ? "Entsperren"
         : "Anmeldung");
@@ -2342,27 +2352,23 @@ function shell() {
         )
       : "";
   if (!offlineEnabled && logged) {
-    const unassigned = allSpaces.some((e) => !e.Year)
-      ? [[legacyGroup, "Ohne Jahreszuordnung"]]
-      : [];
     picker.innerHTML =
-      select("year", "Geschäftsjahr", [
-        ["", "Geschäftsjahre verwalten"],
-        ...years.map((y) => [
-          y.ID,
-          y.Name + " · " + dat(y.Starts) + " – " + dat(y.Ends),
-        ]),
-        ...unassigned,
-      ]) +
-      (events.length
+      events.length && !canOpenConsole(page, who?.role)
         ? select(
             "workspace",
             "Arbeitsbereich",
             events.map((e) => [e.ID, e.Name]),
           )
-        : "");
-    picker.querySelector("[name=year]").value = selectedYear;
+        : "";
   }
+  document.querySelector("#sidebar-year").innerHTML =
+    logged && !offlineEnabled
+      ? fiscalPicker(
+          years,
+          selectedYear,
+          allSpaces.some((e) => !e.Year),
+        )
+      : "";
   if (picker.querySelector("[name=workspace]"))
     picker.querySelector("[name=workspace]").value = preferredEvent;
   paintConnection();
@@ -2445,11 +2451,45 @@ function onlineView() {
     )
   );
 }
+const adminViews = {
+  Benutzer: mountUsers,
+  Backup: mountBackup,
+  "Audit-Log": mountAudit,
+  Systemstatus: mountStatus,
+};
+let adminSearch = "",
+  passwordTicket = "";
 function show() {
   document.body.classList.toggle("auth-screen", !s && !logged);
   notice.textContent = "";
   state.textContent = "";
   shell();
+  if (passwordTicket) {
+    article.innerHTML = '<div class="auth-card admin-console"></div>';
+    mountPasswordChange(article.firstElementChild, passwordTicket, () => {
+      passwordTicket = "";
+      show();
+    });
+    return;
+  }
+  if (!offlineEnabled && logged && canOpenConsole(page, onlineUser.role)) {
+    article.innerHTML = '<div class="admin-console" aria-live="polite"></div>';
+    const host = article.firstElementChild;
+    const search = adminSearch;
+    adminSearch = "";
+    Promise.resolve(
+      adminViews[page](host, { api, identity: onlineUser, search }),
+    ).catch((err) => {
+      if (host.isConnected)
+        notice.textContent =
+          err.message || "Verwaltung konnte nicht geladen werden.";
+    });
+    return;
+  }
+  if (!offlineEnabled && logged && !s && page === "Verwaltung") {
+    article.innerHTML = pageHead("Organisation") + onlineAdmin();
+    return;
+  }
   if (
     !offlineEnabled &&
     logged &&
@@ -2743,12 +2783,12 @@ async function submit(f) {
       return;
     }
     loginChallenge = "";
-    await onlineStart({
-      user: loginIdentity.includes("@")
-        ? loginIdentity.toLowerCase()
-        : loginIdentity,
-      role: result,
-    });
+    if (result.passwordChange) {
+      passwordTicket = result.passwordChange;
+      show();
+      return;
+    }
+    await onlineStart(await api("workplace"));
     page = destination;
   }
   if (id === "mfa") {
@@ -3514,6 +3554,7 @@ async function submit(f) {
   show();
 }
 document.addEventListener("submit", (e) => {
+  if (e.target.closest(".admin-console")) return;
   e.preventDefault();
   if (e.target.id === "template")
     e.target.dataset.mode = e.submitter?.dataset.release ? "release" : "draft";
@@ -3537,6 +3578,7 @@ function updateCount(form) {
     : "Stückzahlen prüfen";
 }
 document.addEventListener("input", (e) => {
+  if (e.target.closest(".admin-console")) return;
   if (e.target.matches(".pieces input")) updateCount(e.target.form);
   if (
     ["export", "template"].includes(e.target.form?.id) &&
@@ -3555,6 +3597,7 @@ document.addEventListener("input", (e) => {
       !!option.value && !option.text.toLocaleLowerCase("de").includes(query);
 });
 document.addEventListener("change", (e) => {
+  if (e.target.closest(".admin-console")) return;
   if (e.target.name === "overview-period") {
     overviewPeriod = e.target.value;
     show();
@@ -3596,6 +3639,8 @@ document.addEventListener("change", (e) => {
   }
 });
 document.addEventListener("click", (e) => {
+  const disclosure = document.querySelector("#fiscal-switch[open]");
+  if (disclosure && !disclosure.contains(e.target)) disclosure.open = false;
   const b = e.target.closest("button");
   if (
     !b ||
@@ -3606,6 +3651,34 @@ document.addEventListener("click", (e) => {
   )
     return;
   if (busy) return;
+  if (
+    b.dataset.adminRoute &&
+    logged &&
+    canOpenConsole(b.dataset.adminRoute, onlineUser.role)
+  ) {
+    adminSearch = b.dataset.adminSearch || "";
+    page = b.dataset.adminRoute;
+    show();
+    return;
+  }
+  if (b.closest(".admin-console")) return;
+  if (b.hasAttribute("data-fiscal")) {
+    action(async () => {
+      donorAccess = false;
+      await selectFiscalWorkspace(b.dataset.fiscal, "");
+      page = selectedYear ? "Übersicht" : "Geschäftsjahre";
+      const mobile = document.body.classList.contains("menu-open");
+      document.body.classList.remove("menu-open");
+      document
+        .querySelector("#menu-toggle")
+        .setAttribute("aria-expanded", "false");
+      show();
+      document
+        .querySelector(mobile ? "#menu-toggle" : "#fiscal-switch summary")
+        ?.focus();
+    });
+    return;
+  }
   if (b.dataset.year || b.dataset.space) {
     action(async () => {
       donorAccess = false;
@@ -4025,6 +4098,12 @@ document.querySelector("#menu-toggle").addEventListener("click", () => {
     .setAttribute("aria-expanded", String(open));
 });
 document.addEventListener("keydown", (e) => {
+  const switcher = document.querySelector("#fiscal-switch[open]");
+  if (e.key === "Escape" && switcher) {
+    switcher.open = false;
+    switcher.querySelector("summary").focus();
+    return;
+  }
   if (e.key === "Escape" && document.body.classList.contains("menu-open")) {
     document.body.classList.remove("menu-open");
     const btn = document.querySelector("#menu-toggle");
@@ -4037,16 +4116,8 @@ document.querySelector("#workspace-picker").addEventListener("change", (e) =>
     try {
       if (!offlineEnabled) {
         donorAccess = false;
-        const pickingYear = e.target.name === "year";
-        await selectFiscalWorkspace(
-          pickingYear ? e.target.value : selectedYear,
-          pickingYear ? "" : e.target.value,
-        );
-        page = !selectedYear
-          ? "Geschäftsjahre"
-          : !pickingYear && !s?.event.General
-            ? "Veranstaltungen"
-            : "Übersicht";
+        await selectFiscalWorkspace(selectedYear, e.target.value);
+        page = s?.event.General ? "Übersicht" : "Veranstaltungen";
         show();
         return;
       }
@@ -4058,7 +4129,7 @@ document.querySelector("#workspace-picker").addEventListener("change", (e) =>
       preferredEvent = fresh.event.ID;
       show();
     } catch (err) {
-      e.target.value = e.target.name === "year" ? selectedYear : preferredEvent;
+      e.target.value = preferredEvent;
       throw err;
     }
   }),

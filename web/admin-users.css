@@ -1,0 +1,97 @@
+.account-console .account-section,
+.account-editor .actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.account-console .account-status {
+  display: inline-block;
+  padding: 0.18rem 0.55rem;
+  border-radius: 4px;
+  background: var(--surface-soft, #edf0f3);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.account-console .account-status.good {
+  background: #e6f3eb;
+  color: #285738;
+}
+.account-console .account-person {
+  display: block;
+  text-align: left;
+  padding: 0.3rem 0.2rem;
+  color: inherit;
+  background: none;
+  border: 0;
+}
+.account-console .account-person small {
+  display: block;
+  color: var(--muted, #5e6470);
+}
+.account-console .account-selected {
+  box-shadow: inset 3px 0 #af2330;
+}
+.account-facts {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) 2fr;
+  margin: 1rem 0;
+}
+.account-facts dt,
+.account-facts dd {
+  margin: 0;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--line, #d9dde2);
+  overflow-wrap: anywhere;
+}
+.account-console .account-notice:empty,
+.account-editor [role="alert"]:empty {
+  display: none;
+}
+.account-editor {
+  color: var(--text, #20242b);
+  background: var(--surface, #fff);
+  border: 1px solid var(--line, #d9dde2);
+  border-radius: 8px;
+  padding: 1.5rem;
+  width: min(34rem, 94vw);
+  max-height: 88vh;
+}
+.account-editor::backdrop {
+  background: #17202a75;
+}
+.account-editor form {
+  display: grid;
+  gap: 0.85rem;
+}
+.account-editor form > * {
+  margin: 0;
+}
+.account-editor form > label {
+  display: grid;
+  gap: 0.25rem;
+}
+.account-editor form > .account-check,
+.account-grants label {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+.account-editor input[type="checkbox"] {
+  width: 1rem;
+  min-height: 1rem;
+}
+.account-grants {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid var(--line, #d9dde2);
+  border-radius: 5px;
+  max-height: 16rem;
+  overflow: auto;
+}
+.account-grants summary {
+  cursor: pointer;
+}
+.account-editor [role="alert"] {
+  color: #b32935;
+}

@@ -1,0 +1,154 @@
+.ops-admin .page-head {
+  margin-bottom: 1.3rem;
+}
+.ops-admin .ops-panel {
+  margin: 0 0 1rem;
+  padding: 0;
+  border: 1px solid #cfd6dd;
+  border-radius: 0.5rem;
+  background: #fff;
+  overflow: hidden;
+}
+.ops-heading,
+.ops-row,
+.ops-pages {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.75rem 1.1rem;
+}
+.ops-heading {
+  border-bottom: 1px solid #dce2e6;
+}
+.ops-heading h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.ops-row {
+  border-bottom: 1px solid #edf0f2;
+  font-size: 0.89rem;
+  flex-wrap: wrap;
+}
+.ops-row:last-child {
+  border: 0;
+}
+.ops-row span,
+.ops-pages span,
+.ops-empty {
+  color: #536271;
+}
+.ops-row b {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.ops-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.ops-admin .ops-filter {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+.ops-filter label {
+  max-width: 100%;
+  min-width: 9rem;
+  flex: 1;
+}
+.ops-filter select,
+.ops-filter input {
+  width: 100%;
+}
+.ops-filter .actions {
+  margin: 0;
+}
+.ops-badge {
+  font-size: 0.77rem;
+  font-weight: 650;
+  background: #e7f2eb;
+  color: #2f614d;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+}
+.ops-panel .actions {
+  padding: 0.65rem 1rem;
+}
+.ops-pages .actions {
+  padding: 0;
+  margin: 0;
+}
+.ops-admin .ops-record {
+  background: transparent;
+  color: inherit;
+  border: 0;
+  text-align: left;
+  padding: 0.3rem 0;
+  min-height: 2.25rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.ops-admin .ops-selected {
+  background: #f8efef;
+}
+.ops-panel .list {
+  margin: 0;
+  overflow-x: auto;
+}
+.ops-admin td {
+  overflow-wrap: anywhere;
+}
+.ops-empty {
+  padding: 0.4rem 1rem;
+}
+.ops-notice:empty {
+  display: none;
+}
+.ops-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: #fcf2dd;
+  color: #714b06;
+  border: 1px solid #dfcb9a;
+  border-radius: 0.45rem;
+}
+@media (max-width: 760px) {
+  .ops-pair {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .ops-filter label {
+    min-width: 8rem;
+  }
+  .ops-heading,
+  .ops-row,
+  .ops-pages {
+    padding: 0.6rem 0.8rem;
+  }
+}
+@media (prefers-color-scheme: dark) {
+  .ops-admin .ops-panel {
+    background: var(--surface, #252b33);
+    border-color: #414b55;
+  }
+  .ops-row,
+  .ops-heading {
+    border-color: #46505a;
+  }
+  .ops-row span,
+  .ops-pages span,
+  .ops-empty {
+    color: #b5c0ca;
+  }
+  .ops-admin .ops-selected {
+    background: #443138;
+  }
+}

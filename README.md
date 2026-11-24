@@ -17,11 +17,19 @@ Auf bestehenden Entwicklungsinstallationen die vorhandene `.env` weiterverwenden
 
 1. Mit E-Mail-Adresse oder bestehendem Kontonamen und Passwort anmelden. Bei aktiviertem MFA folgt der Authenticator- oder Recoverycode.
 2. Unter **Geschäftsjahre** eine Bezeichnung, den ersten und den letzten Tag eingeben. Beide Tage gehören zum Jahr. Geschäftsjahre können kürzer oder länger als zwölf Monate sein. Eine Überschneidung wird abgewiesen. Für den Zeitraum entsteht ein allgemeines Kassenbuch.
-3. Oben das Geschäftsjahr auswählen. Für laufende Einnahmen und Ausgaben **Allgemeines Kassenbuch → Kassenbuch → Buchung erfassen** öffnen. Unter **Veranstaltungen** die Feste dieses Jahres anlegen. Jedes Fest führt eigene Geldtaschen, Preise, Sponsoren und Buchungen. Die Auswahl oben zeigt die zugänglichen Arbeitsbereiche des Jahres. Die Übersicht zeigt die Zahlen des ausgewählten Arbeitsbereichs.
-4. **Speichern** überträgt die Buchung direkt an PostgreSQL. Bei unterbrochener Verbindung ist keine Buchung möglich. Beide Kassiere können im selben zugewiesenen Arbeitsbereich buchen. **Serverstand aktualisieren** lädt die Buchungen des anderen Kontos. Berechtigungen lassen sich unter **Verwaltung** zuweisen.
-5. Vorhandene Arbeitsbereiche ohne Jahresbezug stehen unter **Geschäftsjahre verwalten → Bisherige Arbeitsbereiche** bereit. Die Leitung kann sie einem passenden Jahr zuordnen. Dabei werden der Veranstaltungszeitraum und bestehende Finanzbuchungen geprüft.
+3. In der linken Navigation unter dem BONFIRE-Logo das Geschäftsjahr auswählen. Unter der Bezeichnung steht der Zeitraum; bei 2027 beispielsweise 01.11.2026 – 31.12. Für laufende Einnahmen und Ausgaben **Allgemeines Kassenbuch → Kassenbuch → Buchung erfassen** öffnen. Unter **Veranstaltungen** die Feste dieses Jahres anlegen. Jedes Fest führt eigene Geldtaschen, Preise, Sponsoren und Buchungen. Die Auswahl oben zeigt die zugänglichen Arbeitsbereiche des Jahres. Die Übersicht zeigt die Zahlen des ausgewählten Arbeitsbereichs.
+4. **Speichern** überträgt die Buchung direkt an PostgreSQL. Bei unterbrochener Verbindung ist keine Buchung möglich. Beide Kassiere können im selben zugewiesenen Arbeitsbereich buchen. **Serverstand aktualisieren** lädt die Buchungen des anderen Kontos. Berechtigungen lassen sich unter **Verwaltung → Benutzer** zuweisen.
+5. Vorhandene Arbeitsbereiche ohne Jahresbezug stehen unter **Geschäftsjahr → Geschäftsjahre öffnen → Bisherige Arbeitsbereiche** bereit. Die Leitung kann sie einem passenden Jahr zuordnen. Dabei werden der Veranstaltungszeitraum und bestehende Finanzbuchungen geprüft.
 
 Der Offlinebetrieb ist vorerst deaktiviert. Bereits vorhandene verschlüsselte Geräteprofile bleiben im jeweiligen Browser erhalten. Ausschließlich dort gespeicherte Altvorgänge erscheinen erst nach einer gesonderten Übernahme im zentralen Kassenbuch. Für die Weiterarbeit das Browserprofil aufbewahren.
+
+## Verwaltung
+
+Der Eintrag **Verwaltung** in der linken Navigation öffnet die Unterseiten. Die Leitung erreicht **Backup**, **Benutzer**, **Audit-Log** und **Systemstatus** auch vor der Anlage des ersten Geschäftsjahrs. Die Rolle Prüfung kann das Audit der ihr zugewiesenen Arbeitsbereiche lesen. Eigene MFA-Einstellungen, fachliche Organisationseinstellungen und Datenaustausch bleiben unter **Organisation** erreichbar.
+
+Die Sicherungen umfassen den gesamten Serverbestand mit seinen Geschäftsjahren. Eine Restore-Probe läuft in einer getrennten Datenbank. Die [Anleitung für Backup und Wiederherstellung](docs/VERWALTUNG-BACKUP.md) beschreibt Verschlüsselung, Schlüsselverwahrung und S3-Konfiguration. Die [Anleitung für Audit und Systemstatus](docs/VERWALTUNG-AUDIT.md) erklärt Filter, Rechte und Integritätsprüfungen.
+
+Für einen vollständigen S3-Probelauf mit einem lokalen S3-kompatiblen Dienst und einem eigenen Test-Bucket `./ops/accept-s3.ps1` ausführen.
 
 ## Entwicklung und Tests
 

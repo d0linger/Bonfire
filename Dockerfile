@@ -14,8 +14,16 @@ COPY *.go ./
 COPY migrations ./migrations
 RUN CGO_ENABLED=0 go build -trimpath -o /bonfire .
 
-FROM alpine:3.24
+FROM postgres:18-alpine AS backup-worker
 WORKDIR /app
+COPY --from=server /bonfire /app/bonfire
+RUN mkdir -p /var/lib/bonfire-backup /var/lib/bonfire-key /run/bonfire-backup && chown -R 65532:65532 /var/lib/bonfire-backup /var/lib/bonfire-key /run/bonfire-backup
+USER 65532:65532
+ENTRYPOINT ["/app/bonfire", "backup-worker"]
+
+FROM alpine:3.24 AS app
+WORKDIR /app
+RUN mkdir -p /run/bonfire-backup && chown 65532:65532 /run/bonfire-backup
 COPY --from=server /bonfire /app/bonfire
 COPY --from=assets /src/dist /app/dist
 USER 65532:65532

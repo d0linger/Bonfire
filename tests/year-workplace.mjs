@@ -46,8 +46,19 @@ try {
     0,
   );
   await submit("login");
+  const chooseYear = async (id) => {
+    if (!(await page.locator("#sidebar").isVisible()))
+      await page.locator("#menu-toggle").click();
+    await page.locator("#sidebar #fiscal-switch summary").click();
+    await page
+      .locator('#fiscal-switch button[data-fiscal="' + id + '"]')
+      .click();
+    await page.waitForFunction(
+      () => !document.querySelector('article[aria-busy="true"]'),
+    );
+  };
   const createYear = async (label, start, end) => {
-    await page.locator("[name=year]").selectOption("");
+    await chooseYear("");
     const f = page.locator("#fiscal-year");
     await f.locator("[name=Name]").fill(label);
     await f.locator("[name=Starts]").fill(start);
@@ -60,7 +71,9 @@ try {
       await page.locator("[name=workspace] option:checked").textContent(),
       "Allgemeines Kassenbuch",
     );
-    return page.locator("[name=year]").inputValue();
+    return page
+      .locator("#fiscal-switch [aria-current=true]")
+      .getAttribute("data-fiscal");
   };
   const yearA = await createYear("2046", "2046-01-01", "2046-10-31");
   await go("Veranstaltungen");
@@ -120,7 +133,11 @@ try {
   assert.notEqual(yearA, yearB);
   await go("Veranstaltungen");
   assert.equal(await button("Übung Sommerfest").count(), 0);
-  await page.locator("[name=year]").selectOption(yearA);
+  assert.equal(
+    await page.locator("#fiscal-switch summary small").textContent(),
+    "01.11.2046 – 31.12.",
+  );
+  await chooseYear(yearA);
   await page
     .locator("[name=workspace] option")
     .filter({ hasText: "Übung Sommerfest" })

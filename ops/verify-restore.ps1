@@ -39,8 +39,8 @@ if($LASTEXITCODE -or (Compare-Object $expectedReports $restoredReports)){throw '
 foreach($line in $restoredReports){$fields=$line.Split('|');if($fields[1] -ne $fields[2]){throw 'Prüfsumme eines Spendenexports ungültig.'}}
 Write-Output ("Wiederhergestellte Statusschritte mit geprüftem Spendenexport: "+$restoredReports.Count)
 $name='bonfire-restore-'+[guid]::NewGuid().ToString('N')
-$env:BONFIRE_TEST_DB=$restored
-docker compose run -d --no-deps --name $name -p 127.0.0.1::8080 -e BONFIRE_TEST_DB --entrypoint sh app -c 'export DATABASE_URL="${DATABASE_URL%/bonfire*}/${BONFIRE_TEST_DB}?sslmode=disable"; exec /app/bonfire'
+$previousURL=$env:BONFIRE_URL
+docker compose run -d --no-deps --name $name -p 127.0.0.1::8080 -e "BONFIRE_TEST_DB=$restored" --entrypoint sh app -c 'export DATABASE_URL="${DATABASE_URL%/bonfire*}/${BONFIRE_TEST_DB}?sslmode=disable"; exec /app/bonfire'
 if($LASTEXITCODE -ne 0){throw 'Isolierte App konnte nicht starten.'}
 try {
   $port=(docker port $name 8080/tcp).Split(':')[-1]
@@ -58,6 +58,5 @@ try {
 } finally {
   docker stop $name | Out-Null
   docker rm $name | Out-Null
-  Remove-Item Env:BONFIRE_URL -ErrorAction SilentlyContinue
-  Remove-Item Env:BONFIRE_TEST_DB -ErrorAction SilentlyContinue
+  $env:BONFIRE_URL=$previousURL
 }

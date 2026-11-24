@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { fiscalRange } from "../web/fiscal-picker.js";
 import {
   cents,
   totalPieces,
@@ -10,6 +11,24 @@ import {
 const r = (Kind, Amount, Phase = "") => ({
   Kind,
   Data: { Amount, Phase, Wallet: "Nord" },
+});
+test("Jahresauswahl kürzt jedes Datum nur bei eindeutigem Bezugsjahr", () => {
+  const period = (Name, Starts, Ends) => fiscalRange({ Name, Starts, Ends });
+  assert.equal(
+    period("Geschäftsjahr 2027", "2026-11-01", "2027-12-31"),
+    "01.11.2026 – 31.12.",
+  );
+  assert.equal(
+    period("2027", "2027-04-01", "2028-03-31"),
+    "01.04. – 31.03.2028",
+  );
+  assert.equal(period("2026", "2026-01-01", "2026-10-31"), "01.01. – 31.10.");
+  for (const label of ["Rumpfjahr", "2026/2027"]) {
+    assert.equal(
+      period(label, "2026-11-01", "2027-12-31"),
+      "01.11.2026 – 31.12.2027",
+    );
+  }
 });
 test("Centbeträge und Stückelung", () => {
   assert.equal(cents("0,29"), 29);

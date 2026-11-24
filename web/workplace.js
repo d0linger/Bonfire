@@ -22,6 +22,12 @@ import {
   Plus,
   Flame,
   WifiOff,
+  Database,
+  Users,
+  FileText,
+  Activity,
+  ChevronDown,
+  Check,
 } from "lucide";
 import { closure } from "./context.js";
 import { eur, summary, groups, types } from "./domain.js";
@@ -50,6 +56,12 @@ const shapes = {
   Plus,
   Flame,
   WifiOff,
+  Database,
+  Users,
+  FileText,
+  Activity,
+  ChevronDown,
+  Check,
 };
 export function icon(name) {
   return (
@@ -99,8 +111,19 @@ export const adminTabs = [
   ["Gerät & Sync", "Gerät & Sync"],
   ["Datenaustausch", "Datenaustausch"],
 ];
+export const consolePages = [
+  ["Backup", "Database"],
+  ["Benutzer", "Users"],
+  ["Audit-Log", "FileText"],
+  ["Systemstatus", "Activity"],
+];
+export const canOpenConsole = (p, role) =>
+  consolePages.some(([key]) => key === p) &&
+  (role === "Leitung" || (role === "Prüfung" && p === "Audit-Log"));
 export const sectionOf = (p) =>
-  p === "Geschäftsjahre" || p === "Prüfprotokoll"
+  p === "Geschäftsjahre" ||
+  p === "Prüfprotokoll" ||
+  consolePages.some(([key]) => key === p)
     ? "Verwaltung"
     : p === "Veranstaltungsliste"
       ? "Veranstaltungen"
@@ -120,7 +143,14 @@ export const route = (p, t, css = "secondary", ico = "") =>
   (ico ? icon(ico) : "") +
   esc(t) +
   "</button>";
-export function navigation(page, user, role, active) {
+export function navigation(
+  page,
+  user,
+  role,
+  active,
+  online = false,
+  expanded = false,
+) {
   const main = modules.map(
     ([p, t, i]) =>
       '<button type="button" data-page="' +
@@ -136,7 +166,32 @@ export function navigation(page, user, role, active) {
     '<div class="nav-group">Arbeitsplatz</div>' +
     main.slice(0, -1).join("") +
     '<div class="nav-tail"><div class="nav-group">Organisation</div>' +
-    main.at(-1) +
+    (online
+      ? '<details id="admin-navigation"' +
+        (expanded ? " open" : "") +
+        "><summary>" +
+        icon("Settings2") +
+        "<span>Verwaltung<small>Betrieb, Sicherung &amp; System</small></span>" +
+        icon("ChevronDown") +
+        '</summary><div class="admin-links">' +
+        [
+          ...consolePages.filter(([key]) => canOpenConsole(key, role)),
+          ["Verwaltung", "Settings2"],
+        ]
+          .map(
+            ([key, glyph]) =>
+              '<button type="button" data-page="' +
+              key +
+              '"' +
+              (key === page ? ' aria-current="page"' : "") +
+              ">" +
+              icon(glyph) +
+              (key === "Verwaltung" ? "Organisation" : key) +
+              "</button>",
+          )
+          .join("") +
+        "</div></details>"
+      : main.at(-1)) +
     '<div class="identity"><span class="avatar">' +
     esc((user || "BF").slice(0, 2).toUpperCase()) +
     "</span><span>" +

@@ -44,6 +44,9 @@ func (a *app) access(ctx context.Context, w http.ResponseWriter, r *http.Request
 	if err != nil {
 		return nil, err
 	}
+	if _, err = tx.Exec(ctx, "UPDATE users SET account_revision=account_revision+1 WHERE name=$1", q.Name); err != nil {
+		return nil, err
+	}
 	if err = audit(ctx, tx, q.Event, actor, q.Action+" "+q.Reason, q.Name); err != nil {
 		return nil, err
 	}
