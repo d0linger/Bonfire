@@ -1,13 +1,19 @@
 # Encrypted round trip against an S3-compatible server on a disposable Docker network.
 $ErrorActionPreference = 'Stop'
 $project = 'bonfire-s3-' + [guid]::NewGuid().ToString('N')
-$originalPassword = $env:BONFIRE_ADMIN_PASSWORD
+$saved = @{}
+foreach ($key in 'COMPOSE_PROJECT_NAME','BONFIRE_DB_PASSWORD','BONFIRE_RUNTIME_PASSWORD','BONFIRE_ADMIN_PASSWORD') {
+  $saved[$key] = [Environment]::GetEnvironmentVariable($key,'Process')
+}
 $originalUrl = $env:BONFIRE_URL
 $originalMode = $env:BONFIRE_S3_TEST
 Push-Location (Join-Path $PSScriptRoot '..')
 $stack = @('compose', '-p', $project, '-f', 'compose.yaml', '-f', 'tests/compose.s3.yaml')
 try {
-  $env:BONFIRE_ADMIN_PASSWORD = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24))
+  $env:COMPOSE_PROJECT_NAME = $project
+  foreach ($key in 'BONFIRE_ADMIN_PASSWORD','BONFIRE_DB_PASSWORD','BONFIRE_RUNTIME_PASSWORD') {
+    [Environment]::SetEnvironmentVariable($key,[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24)),'Process')
+  }
   docker @stack up -d --build --wait
   if ($LASTEXITCODE) { throw 'Start der S3-Prüfinstallation fehlgeschlagen.' }
   $address = (docker @stack port app 8080).Trim()
@@ -20,6 +26,8 @@ try {
   docker @stack down -v
   $env:BONFIRE_URL = $originalUrl
   $env:BONFIRE_S3_TEST = $originalMode
-  $env:BONFIRE_ADMIN_PASSWORD = $originalPassword
+  foreach ($key in $saved.Keys) {
+    [Environment]::SetEnvironmentVariable($key,$saved[$key],'Process')
+  }
   Pop-Location
 }
