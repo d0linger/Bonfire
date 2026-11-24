@@ -1,0 +1,298 @@
+[
+  {
+    "token": "{{organization.name}}",
+    "type": "string"
+  },
+  {
+    "token": "{{organization.address}}",
+    "type": "postal_address"
+  },
+  {
+    "token": "{{organization.logo_asset_id}}",
+    "type": "asset_ref"
+  },
+  {
+    "token": "{{organization.contact}}",
+    "type": "contact_details"
+  },
+  {
+    "token": "{{organization.municipality_profile_id}}",
+    "type": "versioned_ref"
+  },
+  {
+    "token": "{{recipient.display_name}}",
+    "type": "string"
+  },
+  {
+    "token": "{{recipient.address}}",
+    "type": "postal_address"
+  },
+  {
+    "token": "{{recipient.salutation}}",
+    "type": "string"
+  },
+  {
+    "token": "{{document.id}}",
+    "type": "uuid"
+  },
+  {
+    "token": "{{document.number}}",
+    "type": "string"
+  },
+  {
+    "token": "{{document.issue_date}}",
+    "type": "date"
+  },
+  {
+    "token": "{{document.issue_place}}",
+    "type": "string"
+  },
+  {
+    "token": "{{document.service_date_or_period}}",
+    "type": "date_or_period"
+  },
+  {
+    "token": "{{document.title}}",
+    "type": "localized_text"
+  },
+  {
+    "token": "{{document.notes}}",
+    "type": "plain_or_safe_rich_text"
+  },
+  {
+    "token": "{{document.predecessor_id}}",
+    "type": "uuid"
+  },
+  {
+    "token": "{{event.id}}",
+    "type": "uuid"
+  },
+  {
+    "token": "{{event.name}}",
+    "type": "string"
+  },
+  {
+    "token": "{{event.date_or_period}}",
+    "type": "date_or_period"
+  },
+  {
+    "token": "{{event.template_bundle_version_id}}",
+    "type": "versioned_ref"
+  },
+  {
+    "token": "{{invoice.lines}}",
+    "type": "array<line>"
+  },
+  {
+    "token": "{{invoice.lines[].quantity}}",
+    "type": "exact_decimal"
+  },
+  {
+    "token": "{{invoice.lines[].description}}",
+    "type": "string"
+  },
+  {
+    "token": "{{invoice.lines[].unit_price_cents}}",
+    "type": "int64"
+  },
+  {
+    "token": "{{invoice.lines[].amount_cents}}",
+    "type": "int64"
+  },
+  {
+    "token": "{{invoice.total_cents}}",
+    "type": "int64"
+  },
+  {
+    "token": "{{invoice.due_date}}",
+    "type": "date"
+  },
+  {
+    "token": "{{payment.mode}}",
+    "type": "enum:cash|transfer|other"
+  },
+  {
+    "token": "{{payment.confirmation_id}}",
+    "type": "uuid"
+  },
+  {
+    "token": "{{payment.received_date}}",
+    "type": "date"
+  },
+  {
+    "token": "{{payment.received_cents}}",
+    "type": "int64"
+  },
+  {
+    "token": "{{payment.cash_account_id}}",
+    "type": "uuid"
+  },
+  {
+    "token": "{{payment.account_holder}}",
+    "type": "string"
+  },
+  {
+    "token": "{{payment.bank_name}}",
+    "type": "string"
+  },
+  {
+    "token": "{{payment.iban}}",
+    "type": "iban"
+  },
+  {
+    "token": "{{payment.reference}}",
+    "type": "string"
+  },
+  {
+    "token": "{{donation.id}}",
+    "type": "uuid"
+  },
+  {
+    "token": "{{donation.amount_cents}}",
+    "type": "int64"
+  },
+  {
+    "token": "{{donor.given_name}}",
+    "type": "string"
+  },
+  {
+    "token": "{{donor.family_name}}",
+    "type": "string"
+  },
+  {
+    "token": "{{donor.address}}",
+    "type": "postal_address"
+  },
+  {
+    "token": "{{donor.birth_date}}",
+    "type": "date"
+  },
+  {
+    "token": "{{donation.reporting_status}}",
+    "type": "enum"
+  },
+  {
+    "token": "{{collector.display_name}}",
+    "type": "string"
+  },
+  {
+    "token": "{{collector.signature}}",
+    "type": "signature_asset_or_paper"
+  },
+  {
+    "token": "{{legal.invoice_tax_block_id}}",
+    "type": "versioned_text_ref"
+  },
+  {
+    "token": "{{legal.donation_receipt_block_id}}",
+    "type": "versioned_text_ref"
+  },
+  {
+    "token": "{{purpose.text_block_id}}",
+    "type": "versioned_text_ref"
+  },
+  {
+    "token": "{{price_list.version_id}}",
+    "type": "versioned_ref"
+  },
+  {
+    "token": "{{price_list.sections}}",
+    "type": "array<section>"
+  },
+  {
+    "token": "{{price_list.items[].internal_label}}",
+    "type": "string"
+  },
+  {
+    "token": "{{price_list.items[].guest_label}}",
+    "type": "string"
+  },
+  {
+    "token": "{{price_list.items[].variant}}",
+    "type": "string"
+  },
+  {
+    "token": "{{price_list.items[].unit}}",
+    "type": "string"
+  },
+  {
+    "token": "{{price_list.items[].price_cents}}",
+    "type": "int64"
+  },
+  {
+    "token": "{{price_list.items[].allergens}}",
+    "type": "approved_list"
+  },
+  {
+    "token": "{{price_list.items[].side_or_supplier_note}}",
+    "type": "safe_text"
+  },
+  {
+    "token": "{{print_batch.copies}}",
+    "type": "positive_int"
+  },
+  {
+    "token": "{{print_batch.header_label}}",
+    "type": "string"
+  },
+  {
+    "token": "{{print_batch.header_value}}",
+    "type": "string"
+  },
+  {
+    "token": "{{print_batch.third_column_label}}",
+    "type": "string"
+  },
+  {
+    "token": "{{wallet.id}}",
+    "type": "uuid"
+  },
+  {
+    "token": "{{bar.id}}",
+    "type": "uuid"
+  },
+  {
+    "token": "{{cash_count.lines}}",
+    "type": "array<denomination_count>"
+  },
+  {
+    "token": "{{cash_count.manual_total_cents}}",
+    "type": "int64"
+  },
+  {
+    "token": "{{cash_count.phase}}",
+    "type": "enum:allocation|start|handover|end"
+  },
+  {
+    "token": "{{cash_count.confirmed_at}}",
+    "type": "datetime"
+  },
+  {
+    "token": "{{cash_movements}}",
+    "type": "array<movement_ref>"
+  },
+  {
+    "token": "{{report.period}}",
+    "type": "date_range"
+  },
+  {
+    "token": "{{report.closing}}",
+    "type": "closing_record"
+  },
+  {
+    "token": "{{report.review}}",
+    "type": "review_record"
+  },
+  {
+    "token": "{{report.journal_rows}}",
+    "type": "array<journal_row>"
+  },
+  {
+    "token": "{{report.evidence_items}}",
+    "type": "array<evidence_item>"
+  },
+  {
+    "token": "{{report.export_set}}",
+    "type": "export_set_record"
+  }
+]
