@@ -5,17 +5,18 @@ import { admin } from "./local-api.mjs";
 const fixture = JSON.parse(
   await readFile("test-results/gesamtfall.json", "utf8"),
 );
-assert.match(fixture.event, /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
-const snapshot = await fetch(
-  new URL(
-    "/api/workplace?event=" + encodeURIComponent(fixture.event),
-    process.env.BONFIRE_URL,
-  ),
-  { headers: { Authorization: admin } },
-);
+const target=new URL(process.env.BONFIRE_URL);
+assert.equal(target.hostname,"127.0.0.1");
+const base="http://127.0.0.1:"+target.port;
+const options={headers:{Authorization:admin},redirect:"error"};
+const events=await fetch(base+"/api/events",options);
+assert.equal(events.status,200);
+const matches=(await events.json()).filter(e=>e.Name===fixture.eventName);
+assert.equal(matches.length,1);
+const snapshot=await fetch(base+"/api/workplace?event="+encodeURIComponent(matches[0].ID),options);
 assert.equal(snapshot.status, 200);
 const { event, entries, pending, conflicts } = await snapshot.json();
-assert.equal(event.ID, fixture.event);
+assert.equal(event.ID, matches[0].ID);
 assert.equal(event.Closed, true);
 assert.equal(pending, 0);
 assert.equal(conflicts, 0);
