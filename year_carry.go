@@ -112,5 +112,10 @@ func carryYear(ctx context.Context, tx pgx.Tx, d device, source, stamp string, a
 			return nil, err
 		}
 	}
+	if len(totals) > 0 {
+		if _, err = tx.Exec(ctx, "UPDATE devices SET last_seq=$1,last_seen=now() WHERE id=$2", d.Last, d.ID); err != nil {
+			return nil, err
+		}
+	}
 	return true, tx.Commit(ctx)
 }

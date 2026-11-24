@@ -16,7 +16,7 @@ export function fiscalPicker(years, selected, hasLegacy) {
   const options = years.map((y) => ({
     id: y.ID,
     name: y.Name.replace(/^Geschäftsjahr\s+(?=\d{4}$)/i, ""),
-    range: fiscalRange(y),
+    range: fiscalRange(y) + (y.Closed ? " · Abgeschlossen" : ""),
   }));
   if (hasLegacy)
     options.push({ id: "unassigned", name: "Ohne Jahreszuordnung", range: "" });

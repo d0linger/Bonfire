@@ -202,19 +202,20 @@ func validateSettlement(rows []row) error {
 			continue
 		}
 		var booked *int64
-		var containsCount bool
+		var needsSettlement bool
 		others := make([]row, 0, len(rows))
 		for _, j := range rows {
 			if j.ID == "settlement:"+r.ID {
 				booked = j.Data.Amount
 				continue
 			}
-			if j.Kind == "count" && j.Data.Wallet == r.ID {
-				containsCount = true
+			if j.Data.Wallet == r.ID && (j.Kind == "count" ||
+				slices.Contains(journalKinds, j.Kind) && (j.Data.Method == "" || j.Data.Method == "Bar")) {
+				needsSettlement = true
 			}
 			others = append(others, j)
 		}
-		if !containsCount && booked == nil {
+		if !needsSettlement && booked == nil {
 			continue
 		}
 		amount, ok := walletRevenue(others, r.ID)

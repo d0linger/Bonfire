@@ -3,6 +3,20 @@ package main
 import "testing"
 
 func amount(n int64) *int64 { return &n }
+
+func TestUsedWalletRequiresSettlement(t *testing.T) {
+	wallet := row{ID: "tasche", Kind: "wallet"}
+	if err := validateSettlement([]row{wallet}); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"supply", "skim", "income", "expense"} {
+		movement := row{Kind: kind, Data: data{Wallet: wallet.ID, Amount: amount(500), Method: "Bar"}}
+		if err := validateSettlement([]row{wallet, movement}); err == nil {
+			t.Errorf("%s ohne Geldtaschenabrechnung freigegeben", kind)
+		}
+	}
+}
+
 func TestAccountReconciliation(t *testing.T) {
 	entries := []row{{Kind: "opening", Data: data{Account: "Kassa", Amount: amount(100000)}}, {Kind: "transfer", Data: data{Account: "Kassa", To: "Tasche", Amount: amount(30000)}}, {Kind: "actual", Data: data{Account: "Kassa", Amount: amount(70000)}}, {Kind: "actual", Data: data{Account: "Tasche", Amount: amount(30000)}}}
 	entries = append(entries, row{ID: "Kassa", Kind: "account"}, row{ID: "Tasche", Kind: "wallet"})

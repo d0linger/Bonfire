@@ -327,6 +327,71 @@ try {
     await page.locator("#fiscal-switch summary small").textContent(),
     "01.11.2046 – 31.12.",
   );
+  const closingFest = "Prüffest Jahresabschluss";
+  const response = await page.request.post(url + "/api/events", {
+    data: {
+      Year: yearB,
+      Name: closingFest,
+      Starts: "2047-09-01",
+      Ends: "2047-09-01",
+    },
+  });
+  assert.equal(response.status(), 200);
+  const fest = await response.json();
+  const ledgerB = (
+    await (await page.request.get(url + "/api/events?year=" + yearB)).json()
+  ).find((e) => e.General);
+  const counted = (Kind, Date, Amount) => ({
+    ID: randomUUID(),
+    Target: randomUUID(),
+    Kind,
+    Data: { Date, Amount, Label: "Übungszählung" },
+  });
+  for (const [id, ops] of [
+    [
+      fest.ID,
+      [counted("opening", fest.Starts, 0), counted("actual", fest.Ends, 0)],
+    ],
+    [ledgerB.ID, [counted("actual", ledgerB.Ends, 22850)]],
+  ]) {
+    const setup = await page.request.post(url + "/api/online?event=" + id, {
+      data: { Ops: ops },
+    });
+    assert.equal(
+      setup.status(),
+      200,
+      ops[0].Kind + ": " + (await setup.text()),
+    );
+  }
+  await go("Veranstaltungen");
+  await button(closingFest).click();
+  const closeDialog = async (name, reason) => {
+    await button(name).click();
+    const dialog = page.getByRole("dialog", { name, exact: true });
+    if (reason)
+      await dialog.getByLabel("Grund für die Wiederöffnung").fill(reason);
+    await dialog.getByRole("button", { name, exact: true }).click();
+    await dialog.waitFor({ state: "hidden" });
+  };
+  await closeDialog("Veranstaltung abschließen");
+  await button("Veranstaltung wieder öffnen").waitFor();
+  await go("Übersicht");
+  await closeDialog("Geschäftsjahr abschließen");
+  await page
+    .getByText("Geschäftsjahr abgeschlossen · Nur Lesen", { exact: true })
+    .waitFor();
+  await go("Veranstaltungen");
+  await button(closingFest).waitFor();
+  assert.equal(await button("Veranstaltung anlegen").count(), 0);
+  assert.equal(await button("Veranstaltungsbuchung erfassen").count(), 0);
+  await button(closingFest).click();
+  assert.equal(await button("Veranstaltung wieder öffnen").count(), 0);
+  await go("Übersicht");
+  await closeDialog("Geschäftsjahr wieder öffnen", "Korrektur im Test");
+  await go("Veranstaltungen");
+  await button(closingFest).click();
+  await closeDialog("Veranstaltung wieder öffnen", "Beleg ergänzen");
+  await button("Veranstaltung abschließen").waitFor();
   await chooseYear(yearA);
   await go("Veranstaltungen");
   const figures = eventRow.locator(".event-figures");

@@ -308,6 +308,9 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 	case "year-carry":
 		return carryYear(ctx, tx, d, q.Target, q.Stamp, q.AccountMap)
 	case "period-close", "period-open":
+		if d.Closed {
+			return nil, problem{409, "Der Arbeitsbereich ist abgeschlossen."}
+		}
 		return periodAction(ctx, tx, d, q.Action, q.Target, q.Reason)
 	case "prior":
 		if d.Role != roleAdmin {
@@ -319,6 +322,9 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 	case "numbers":
 		return numberReport(ctx, tx, d)
 	case "incident", "incomplete", "return":
+		if d.Closed {
+			return nil, problem{409, "Der Arbeitsbereich ist abgeschlossen."}
+		}
 		return incidentAction(ctx, tx, d, q.Action, q.Target, q.Reason)
 	case "period", "journal-period":
 		return a.globalPeriod(ctx, tx, d, q.Target, q.Reason, q.Action == "journal-period")
@@ -350,9 +356,41 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 		} else {
 			q.Action = "Kontozuordnung deaktiviert"
 		}
-	case "reopen":
-		if d.Role != roleAdmin || !d.Closed || len(strings.TrimSpace(q.Reason)) < 5 {
-			return nil, fail("Adminrecht und Wiederöffnungsgrund erforderlich.")
+	case "reopen", "year-reopen":
+		if d.Role != roleAdmin {
+			return nil, problem{403, "Nur Admins können einen Abschluss wieder öffnen."}
+		}
+		q.Reason = strings.TrimSpace(q.Reason)
+		if !d.Closed || len(q.Reason) < 5 || len(q.Reason) > 1000 {
+			return nil, fail("Abgeschlossenen Arbeitsbereich und Wiederöffnungsgrund angeben (5–1000 Zeichen).")
+		}
+		var downstream bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT FROM entries j JOIN events e ON e.id=j.event
+			WHERE e.closed AND j.kind='opening' AND j.data->'Fields'->>'yearSource'=$1 AND coalesce(j.data->'Fields'->>'yearPeriod','')='')
+			OR EXISTS(SELECT FROM period_closures p CROSS JOIN LATERAL jsonb_array_elements(p.snapshot) j
+			WHERE p.reopened_at IS NULL AND j->>'Kind'='opening' AND j->'Data'->'Fields'->>'yearSource'=$1 AND coalesce(j->'Data'->'Fields'->>'yearPeriod','')='')`, d.Event).Scan(&downstream); err != nil {
+			return nil, err
+		}
+		if downstream {
+			return nil, problem{409, "Zuerst den abhängigen Folgeabschluss wieder öffnen."}
+		}
+		if q.Action == "year-reopen" {
+			y, err := yearForClosure(ctx, tx, d)
+			if err != nil {
+				return nil, err
+			}
+			if !y.Closed {
+				return nil, fail("Das Geschäftsjahr ist bereits offen.")
+			}
+			if _, err = tx.Exec(ctx, "UPDATE fiscal_years SET closed=false WHERE id=$1", y.ID); err != nil {
+				return nil, err
+			}
+			q.Action, q.Target = "Geschäftsjahr wieder geöffnet", y.ID
+		} else {
+			if err = requireOpenYear(ctx, tx, d.Event); err != nil {
+				return nil, err
+			}
+			q.Action, q.Target = "Arbeitsbereich wieder geöffnet", d.Event
 		}
 		_, err = tx.Exec(ctx, "UPDATE events SET closed=false WHERE id=$1", d.Event)
 	case "reprint":

@@ -440,6 +440,12 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+	const closeYear = "Geschäftsjahr abschließen"
+	if q.Action == closeYear {
+		if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(751025)"); err != nil {
+			return nil, err
+		}
+	}
 	d, err := lock(ctx, tx, r)
 	if err != nil {
 		return nil, err
@@ -610,7 +616,20 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	if err = tx.QueryRow(ctx, "SELECT count(*) FROM devices WHERE event=$1 AND NOT online_actor AND NOT sealed", d.Event).Scan(&pending); err != nil {
 		return nil, err
 	}
-	if q.Action == "Abschluss" {
+	var year fiscalYear
+	if q.Action == closeYear {
+		year, err = yearForClosure(ctx, tx, d)
+		if err != nil {
+			return nil, err
+		}
+		if !year.Closed {
+			if err = checkYearEvents(ctx, tx, year.ID); err != nil {
+				return nil, err
+			}
+		}
+	}
+	alreadyClosed := d.Closed
+	if q.Action == "Abschluss" || q.Action == closeYear && !alreadyClosed {
 		if d.Role != roleAdmin {
 			return nil, problem{403, "Adminrecht für den Abschluss erforderlich."}
 		}
@@ -619,6 +638,9 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		}
 		if err = validateSettlement(entries); err != nil {
 			return nil, fail(err.Error())
+		}
+		if err = checkOpenPayments(entries); err != nil {
+			return nil, err
 		}
 		if err = validateCarry(ctx, tx, entries); err != nil {
 			return nil, err
@@ -635,7 +657,30 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 			return nil, err
 		}
 		d.Closed = true
-		if err = audit(ctx, tx, d.Event, d.User, "Veranstaltungsabschluss", d.Event); err != nil {
+		action := "Veranstaltungsabschluss"
+		if q.Action == closeYear {
+			action = "Kassenbuch abgeschlossen"
+		}
+		if err = audit(ctx, tx, d.Event, d.User, action, d.Event); err != nil {
+			return nil, err
+		}
+	}
+	if q.Action == closeYear && !year.Closed {
+		if alreadyClosed {
+			if err = validateSettlement(entries); err != nil {
+				return nil, fail(err.Error())
+			}
+			if err = checkOpenPayments(entries); err != nil {
+				return nil, err
+			}
+			if err = validateCarry(ctx, tx, entries); err != nil {
+				return nil, err
+			}
+		}
+		if _, err = tx.Exec(ctx, "UPDATE fiscal_years SET closed=true WHERE id=$1", year.ID); err != nil {
+			return nil, err
+		}
+		if err = audit(ctx, tx, d.Event, d.User, "Geschäftsjahr abgeschlossen", year.ID); err != nil {
 			return nil, err
 		}
 	}

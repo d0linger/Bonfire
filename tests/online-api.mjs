@@ -162,7 +162,7 @@ await send({
     make("expense", "Material", 40),
     make("refund", "Rückzahlung", 15),
     make("opening", "Anfang", 0),
-    make("actual", "Istbestand", 210),
+    make("actual", "Istbestand", 510),
   ],
 });
 const [beforeReimbursement] = await call(
@@ -173,7 +173,15 @@ assert.equal(beforeReimbursement.PaidCents, 40);
 assert.equal(beforeReimbursement.OutstandingCents, 50);
 const reimbursement = make("reimbursement", "Einkauf erstattet", 50);
 reimbursement.Data.Reference = outlay.Target;
+await send({ Action: "Abschluss" }, 422);
 await send({ Ops: [reimbursement] });
+await send({ Action: "Abschluss" }, 422);
+const sponsorPayment = make("payment", "Rechnung beglichen", 300);
+sponsorPayment.Data.Reference = bill.Target;
+await send({ Ops: [sponsorPayment] });
+const ledgerPath = "online?event=" + ledger.ID;
+const finalizeYear = { Action: "Geschäftsjahr abschließen" };
+await call(ledgerPath, cash, finalizeYear, 409);
 for (const scoped of [review, writeSession]) {
   await call(path, scoped, { Action: "Abschluss" }, 403);
   await call("admin/users", scoped, undefined, 403);
@@ -184,11 +192,39 @@ assert.deepEqual(
   scopedEvents.map((e) => e.ID),
   [event.ID],
 );
-assert.equal(scopedEvents[0].ReceiptsCents, 300);
+assert.equal(scopedEvents[0].ReceiptsCents, 600);
 assert.equal(scopedEvents[0].PaidCents, 90);
 assert.equal(scopedEvents[0].OutstandingCents, 0);
 assert.equal(scopedEvents[0].Closed, true);
 await send({ Ops: [make("income", "Verspätet", 10)] }, 403);
+await call(ledgerPath, cash, finalizeYear, 422);
+await call(ledgerPath, cash, {
+  Ops: [make("opening", "Eröffnung", 0), make("actual", "Gezählt", 0)],
+});
+assert.equal((await call(ledgerPath, cash, finalizeYear)).yearClosed, true);
+const manage = (id, user, Action, Reason, status) =>
+  call("manage", user, { Action, Reason }, status, { "X-Bonfire-Event": id });
+await manage(event.ID, cash, "reopen", "Korrektur erforderlich", 409);
+await call(
+  "events",
+  cash,
+  { Year: year.ID, Name: "Spätes Fest", Starts: date, Ends: date },
+  409,
+);
+await call(
+  ledgerPath,
+  cash,
+  { Ops: [make("income", "Alter Browserdialog", 10)] },
+  403,
+);
+await manage(event.ID, writeSession, "reopen", "Korrektur erforderlich", 403);
+await manage(ledger.ID, cash, "year-reopen", "", 422);
+await manage(ledger.ID, cash, "year-reopen", "Beleg aus Jahresprüfung", 200);
+assert.equal((await send({})).closed, true);
+assert.equal((await call(ledgerPath, cash, {})).closed, false);
+await manage(event.ID, cash, "reopen", "Beleg aus Festabrechnung", 200);
+assert.equal((await send({})).closed, false);
+await call(path, writeSession, { Ops: [make("income", "Nach Freigabe", 10)] });
 await call("logout", cash, {});
 await send({}, 401);
 console.log(

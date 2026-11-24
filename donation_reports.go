@@ -126,6 +126,9 @@ func (a *app) donationReports(ctx context.Context, w http.ResponseWriter, r *htt
 	if !idPattern.MatchString(q.Report) {
 		return nil, fail("Prüflauf wählen.")
 	}
+	if d.Closed && q.Action != "Datei" {
+		return nil, problem{409, "Der Arbeitsbereich ist abgeschlossen."}
+	}
 	if q.Action != "Datei" {
 		if !idPattern.MatchString(q.Request) || len(q.Reason) < 5 || len(q.Reason) > 500 {
 			return nil, fail("Begründung oder externen Nachweis angeben.")

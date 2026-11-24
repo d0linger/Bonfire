@@ -13,6 +13,7 @@ import (
 
 type fiscalYear struct {
 	ID, Name, Starts, Ends string
+	Closed                 bool
 }
 
 func (a *app) years(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
@@ -21,7 +22,7 @@ func (a *app) years(ctx context.Context, w http.ResponseWriter, r *http.Request)
 		return nil, err
 	}
 	if r.Method == http.MethodGet {
-		rows, err := a.db.Query(ctx, `SELECT y.id::text,y.name,y.starts::text,y.ends::text FROM fiscal_years y
+		rows, err := a.db.Query(ctx, `SELECT y.id::text,y.name,y.starts::text,y.ends::text,y.closed FROM fiscal_years y
 			WHERE $1='Admin' OR EXISTS(SELECT 1 FROM events e JOIN grants_event g ON g.event=e.id
 				WHERE e.fiscal_year=y.id AND g.username=$2) ORDER BY y.starts DESC`, role, user)
 		if err != nil {
@@ -37,6 +38,7 @@ func (a *app) years(ctx context.Context, w http.ResponseWriter, r *http.Request)
 		return nil, err
 	}
 	y.Name = strings.TrimSpace(y.Name)
+	y.Closed = false
 	if y.Name == "" || len(y.Name) > 100 || !date(y.Starts) || !date(y.Ends) || y.Starts > y.Ends {
 		return nil, fail("Bezeichnung und Zeitraum des Geschäftsjahrs prüfen.")
 	}
@@ -114,6 +116,9 @@ var fiscalDatedKinds = strings.Fields("income expense refund deposit deposit-ret
 // Membership must remain stable for an approved fiscal snapshot, including
 // existing entries recorded outside the event dates.
 func checkYearSetup(ctx context.Context, tx pgx.Tx, eventID string) error {
+	if err := requireOpenYear(ctx, tx, eventID); err != nil {
+		return err
+	}
 	var frozen bool
 	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM events e JOIN period_closures p ON p.fiscal_year=e.fiscal_year
 		WHERE e.id=$1 AND p.reopened_at IS NULL AND ((e.starts<=p.ends AND e.ends>=p.starts)

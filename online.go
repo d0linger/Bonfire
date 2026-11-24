@@ -78,6 +78,11 @@ func onlineDetails(ctx context.Context, tx pgx.Tx, d device, out map[string]any)
 		return err
 	}
 	out["event"], out["user"], out["role"] = e, d.User, d.Role
+	var yearClosed bool
+	if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT FROM fiscal_years WHERE id=nullif($1,'')::uuid AND closed)", e.Year).Scan(&yearClosed); err != nil {
+		return err
+	}
+	out["yearClosed"] = yearClosed
 	out["device"], out["donorAccess"] = d.ID, d.Donor
 	out["nextNumber"], out["first"] = next, d.Block*1000
 	out["limit"], out["paperLimit"] = d.Block*1000+d.DigitalCount-1, d.Block*1000+999

@@ -1254,7 +1254,7 @@ function records() {
             )
             .join("") +
           "</table></div>" +
-          (s.role === "Admin" && originals.length
+          (s.role === "Admin" && !s.closed && originals.length
             ? popupForm(
                 "dispatch",
                 "Übergabe dokumentieren",
@@ -1315,7 +1315,7 @@ function records() {
         )
         .join("");
   }
-  if (page === "Perioden" && s.role === "Admin" && !s.recovery) {
+  if (page === "Perioden" && s.role === "Admin" && !s.recovery && !s.closed) {
     detail += popupForm(
       "periodAction",
       "Periodenstand ändern",
@@ -1328,7 +1328,7 @@ function records() {
       "Periodenstand bestätigen",
     );
   }
-  if (page === "Perioden" && s.role === "Admin")
+  if (page === "Perioden" && s.role === "Admin" && !s.closed)
     detail += popupForm(
       "carry",
       "Vorperiodenstand übernehmen",
@@ -1660,16 +1660,17 @@ function donationPanel() {
   };
   const options =
     latest && latest.status !== "Korrektur" ? next[latest.status] : ["Geprüft"];
-  content += popupForm(
-    "donorDecision",
-    "Prüfvermerk erfassen",
-    select(
-      "step",
-      "Entscheidung",
-      options.map((v) => [v, v]),
-    ) + field("reason", "Prüfvermerk oder externer Nachweis", "text", true),
-    "Entscheidung dokumentieren",
-  );
+  if (!s.closed)
+    content += popupForm(
+      "donorDecision",
+      "Prüfvermerk erfassen",
+      select(
+        "step",
+        "Entscheidung",
+        options.map((v) => [v, v]),
+      ) + field("reason", "Prüfvermerk oder externer Nachweis", "text", true),
+      "Entscheidung dokumentieren",
+    );
   const released = review.history.filter((h) => h.status === "Exportiert");
   if (released.length)
     content += form(
@@ -2415,6 +2416,61 @@ async function openEventCleanup(trigger, workspace, message = "") {
     });
   });
 }
+function closingControls() {
+  if (offlineEnabled || s.role !== "Admin") return "";
+  const year = s.event.General && !!s.event.Year;
+  if (!year && s.yearClosed) return "";
+  const title = year
+    ? "Geschäftsjahr"
+    : s.event.General
+      ? "Kassenbuch"
+      : "Veranstaltung";
+  const name = year ? fiscalYear().Name : s.event.Name;
+  const closed = year ? s.yearClosed : s.closed;
+  const verb = closed ? "wieder öffnen" : "abschließen";
+  const description = closed
+    ? year
+      ? "Das allgemeine Kassenbuch wird zur Bearbeitung freigegeben. Abgeschlossene Veranstaltungen lassen sich anschließend einzeln öffnen."
+      : "Nach der Freigabe sind Buchungen und Berichtigungen wieder möglich."
+    : year
+      ? "Alle Veranstaltungen müssen abgeschlossen sein. Beim Bestätigen werden das allgemeine Kassenbuch geprüft und das Geschäftsjahr für Änderungen gesperrt."
+      : "Bestände und Abrechnung werden geprüft. Nach dem Abschluss ist der Arbeitsbereich schreibgeschützt.";
+  return (
+    popupForm(
+      "scope-closure",
+      title + " " + verb,
+      "<p>" +
+        esc(name) +
+        " · " +
+        esc(description) +
+        "</p>" +
+        (closed
+          ? field("reason", "Grund für die Wiederöffnung", "text", true)
+          : "") +
+        '<input type="hidden" name="workspace" value="' +
+        esc(s.event.ID) +
+        '">' +
+        '<input type="hidden" name="action" value="' +
+        (closed
+          ? year
+            ? "year-reopen"
+            : "reopen"
+          : year
+            ? "Geschäftsjahr abschließen"
+            : "Abschluss") +
+        '">',
+      title + " " + verb,
+    ) +
+    (year && !closed && s.closed
+      ? popupForm(
+          "reopen",
+          "Kassenbuch wieder öffnen",
+          field("reason", "Grund für die Wiederöffnung", "text", true),
+          "Kassenbuch wieder öffnen",
+        )
+      : "")
+  );
+}
 function eventCleanupButton(event) {
   return onlineUser?.role === "Admin" && !event.Closed && !event.General
     ? '<button type="button" class="secondary" aria-haspopup="dialog" data-event-cleanup="' +
@@ -2474,7 +2530,9 @@ async function showEventsOfYear() {
       fiscalYear()
         ? "Geschäftsjahr " + fiscalYear().Name
         : "Bisherige Arbeitsbereiche",
-      fiscalYear() && onlineUser.role === "Admin" ? eventForm() : "",
+      fiscalYear() && !fiscalYear().Closed && onlineUser.role === "Admin"
+        ? eventForm()
+        : "",
     ) +
     '<div class="event-list-host" aria-busy="true">Veranstaltungen werden geladen …</div>';
   const host = article.querySelector(".event-list-host");
@@ -3113,7 +3171,12 @@ function show() {
     "   ·   " +
     s.ops.length +
     " ausstehend";
-  if (!offlineEnabled) state.textContent = s.closed ? "Abgeschlossen" : "";
+  if (!offlineEnabled)
+    state.textContent = s.yearClosed
+      ? "Geschäftsjahr abgeschlossen · Nur Lesen"
+      : s.closed
+        ? "Abgeschlossen · Nur Lesen"
+        : "";
   const isEvent = isOnlineEventPage() || sectionOf(page) === "Veranstaltungen",
     isAdmin = sectionOf(page) === "Verwaltung";
   article.innerHTML =
@@ -3191,6 +3254,10 @@ function show() {
               "Files",
             )
           : "");
+  if (!offlineEnabled && (onOverview() || page === "Perioden"))
+    article
+      .querySelector(".page-head")
+      ?.insertAdjacentHTML("beforeend", closingControls());
   if (page === "Dokumente") installStudio();
   const periodSelect = article.querySelector("[name=reportPeriod]");
   if (periodSelect) periodSelect.value = chosenPeriod;
@@ -3591,6 +3658,22 @@ async function submit(f) {
   if (id === "reopen") {
     await api("manage", { Action: "reopen", Reason: vals.reason }, bearer());
     await sync();
+  }
+  if (id === "scope-closure") {
+    if (vals.workspace !== s.event.ID)
+      throw Error("Arbeitsbereich erneut öffnen.");
+    if (["reopen", "year-reopen"].includes(vals.action)) {
+      await api(
+        "manage",
+        { Action: vals.action, Reason: vals.reason },
+        bearer(),
+      );
+      await sync();
+    } else {
+      await sync({ Action: vals.action });
+    }
+    [years, allSpaces] = await Promise.all([api("years"), api("events")]);
+    events = allSpaces.filter((e) => (e.Year || legacyGroup) === selectedYear);
   }
   if (id === "handover") {
     const wallet = rows().find((r) => r.ID === vals.wallet),

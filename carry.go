@@ -15,6 +15,17 @@ func validateCarry(ctx context.Context, tx pgx.Tx, rows []row) error {
 	sources := map[string]priorPeriod{}
 	for _, r := range rows {
 		v := r.Data
+		if r.Kind == "opening" && v.Fields["yearSource"] != "" && v.Fields["yearPeriod"] == "" {
+			var current bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT FROM events e WHERE e.id=$1 AND e.closed
+				AND (SELECT max(version)::text FROM event_closures WHERE event=e.id)=$2)`,
+				v.Fields["yearSource"], v.Fields["yearStamp"]).Scan(&current); err != nil {
+				return err
+			}
+			if !current {
+				return fail("Vorjahresabschluss geändert. Den übertragenen Anfangsbestand vor dem Abschluss prüfen und berichtigen.")
+			}
+		}
 		if source := v.Fields["yearPeriod"]; r.Kind == "opening" && source != "" {
 			var active bool
 			if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT FROM period_closures WHERE id=$1 AND reopened_at IS NULL)", source).Scan(&active); err != nil {

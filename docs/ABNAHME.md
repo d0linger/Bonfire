@@ -113,6 +113,10 @@ Die Ausführung auf dem normalen lokalen Port 8137 wurde separat geprüft. Anmel
 
 ## Getrennte Buchungswege im Onlinebetrieb
 
+`tests/online-api.mjs` prüft die Abschlusssperren mit offenen Privatauslagen, einer unbezahlten Sponsoringforderung, einem offenen Fest und fehlenden Istbeständen im Kassenbuch. Nach dem Abschluss müssen auch Buchungen aus einem bereits geöffneten Dialog und das nachträgliche Anlegen einer Veranstaltung am Server scheitern. Der Test prüft die begründete Admin-Freigabe und eine anschließende Buchung mit Schreibrecht.
+
+`tests/year-workplace.mjs` prüft beide Abschlussdialoge nach einer Vorjahresübernahme. Der Test öffnet das Jahr wieder und prüft, dass das Fest bis zu seiner eigenen Freigabe gesperrt bleibt.
+
 `tests/year-workplace.mjs` prüft beim Jahreswechsel den Wechsel zwischen manueller Eingabe und Vorjahresübernahme, die Rückmeldung bei fehlendem Abschluss sowie Vorschau und Übernahme eines bestätigten Istbestands von 228,50 EUR. `tests/years.mjs` prüft zusätzlich die Übernahme aus einer freigegebenen Ganzjahresperiode, eine veraltete Quellkennung, wiederholtes Bestätigen, Adminrechte und einen Veranstaltungsübertrag von 0,00 EUR auf ein neues Zielkonto.
 
 Die Veranstaltungsliste zeigt Zeitraum, Buchungsstatus, Einnahmen, Ausgaben und Ergebnis je Fest. `tests/year-workplace.mjs` prüft nach dem Jahreswechsel 12,34 EUR Einnahmen, 3,34 EUR Ausgaben und 10,00 EUR offene Privatauslagen. Liste und Festübersicht müssen dasselbe Ergebnis von −1,00 EUR zeigen. `tests/online-api.mjs` prüft Rückzahlungen, interne Transfers, die Erstattung einer Privatauslage und die Sicht eines Kontos mit eingeschränkter Freigabe.
