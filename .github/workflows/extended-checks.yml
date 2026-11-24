@@ -30,5 +30,8 @@ jobs:
         run: |
           ./ops/init.ps1
           ./ops/test-backup-upgrade.ps1 -PreviousSource (Join-Path $env:RUNNER_TEMP 'bonfire-schema21')
-          ./ops/accept-online.ps1
           ./ops/accept-s3.ps1
+      - name: Scheduled online acceptance
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: ./ops/accept-online.ps1
