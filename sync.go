@@ -678,7 +678,8 @@ func (a *app) user(ctx context.Context, w http.ResponseWriter, r *http.Request) 
 	if err = read(r, &v); err != nil {
 		return nil, err
 	}
-	if !key.MatchString(v.Name) || len(v.Password) < 14 || len(v.Password) > 72 || !slices.Contains([]string{"Kassa", "Prüfung"}, v.Role) {
+	v.Name = loginName(v.Name)
+	if !validLoginName(v.Name) || len(v.Password) < 14 || len(v.Password) > 72 || !slices.Contains([]string{"Kassa", "Prüfung"}, v.Role) {
 		return nil, fail("Name, Rolle oder Passwort ungültig.")
 	}
 	digest, err := bcrypt.GenerateFromPassword([]byte(v.Password), 12)

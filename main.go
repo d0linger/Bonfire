@@ -91,6 +91,7 @@ func secret() string {
 func hash(s string) []byte { b := sha256.Sum256([]byte(s)); return b[:] }
 func (a *app) auth(ctx context.Context, r *http.Request) (string, string, error) {
 	name, pw, ok := r.BasicAuth()
+	name = loginName(name)
 	deny := problem{401, "Anmeldung fehlgeschlagen."}
 	if !ok && r.URL.Path != "/api/login" {
 		if c, err := r.Cookie("bonfire_session"); err == nil {
@@ -340,6 +341,9 @@ func initialize(ctx context.Context, db *pgxpool.Pool) error {
 		return err
 	}
 	if err = applyUpgrade(ctx, tx, 13, "migrations/013.sql"); err != nil {
+		return err
+	}
+	if err = applyUpgrade(ctx, tx, 14, "migrations/014.sql"); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

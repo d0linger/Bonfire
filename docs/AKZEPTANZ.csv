@@ -96,7 +96,7 @@
 "UX-05";"Orientierung und Einrichtung";"TEILSTAND";"tests/workplace.mjs prüft Übersicht direkt nach Anmeldung und Neuladen, acht Module, mobile Navigation, Bereichsrechte und unveränderte Gerätezahl. Nutzertest offen"
 "SEC-01";"Serverseitige Rechte";"TEILSTAND";"tests/security.mjs und tests/api.mjs prüfen Rollen und Datenprojektion"
 "SEC-02";"Geschützte lokale Profile";"TEILSTAND";"Verschlüsseltes IDB-Profil mit lokalem Passwort. Angriffshärtung auf Zielbetrieb offen"
-"SEC-03";"Anmeldung, 2FA und Recovery";"GEPRÜFT";"tests/security.mjs prüft TOTP und nur einmal nutzbaren Recoverycode"
+"SEC-03";"Anmeldung, 2FA und Recovery";"GEPRÜFT";"tests/security.mjs prüft TOTP und einmalige Recoverycodes. tests/login.mjs prüft E-Mail-Anmeldung, korrektes Passwort vor Codeabfrage, fehlende Sitzung vor MFA, TOTP und Recovery im Browser."
 "SEC-04";"Sichere Dateien und Vorlagen";"TEILSTAND";"Dateisignaturen, Größen, OOXML-Filter; vertiefte Dateisicherheitsprüfung offen"
 "SEC-05";"Nachvollziehbares Finanzaudit";"TEILSTAND";"Storno/Ersatz, Originale, Audit. Laufzeitrolle mit eingeschränkten Tabellenrechten"
 "SEC-06";"Geheimnisse und datensparsame Protokolle";"TEILSTAND";"Geheimnisse in ignorierter .env. Audit ohne Originalbytes. Vollständige Logprüfung offen"

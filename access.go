@@ -18,7 +18,8 @@ func (a *app) access(ctx context.Context, w http.ResponseWriter, r *http.Request
 	if err = read(r, &q); err != nil {
 		return nil, err
 	}
-	if !key.MatchString(q.Name) || !idPattern.MatchString(q.Event) || len(strings.TrimSpace(q.Reason)) < 3 {
+	q.Name = loginName(q.Name)
+	if !validLoginName(q.Name) || !idPattern.MatchString(q.Event) || len(strings.TrimSpace(q.Reason)) < 3 {
 		return nil, fail("Name, Veranstaltung und Begründung angeben.")
 	}
 	tx, err := a.db.Begin(ctx)

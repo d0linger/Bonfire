@@ -8,11 +8,15 @@ import (
 	"crypto/subtle"
 	"encoding/base32"
 	"encoding/binary"
+	"errors"
 	"fmt"
-	"github.com/jackc/pgx/v5"
 	"net/http"
+	"net/mail"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func otpMatch(secret, code string, at time.Time) (int64, bool) {
@@ -44,8 +48,41 @@ func (a *app) logout(ctx context.Context, w http.ResponseWriter, r *http.Request
 	http.SetCookie(w, &http.Cookie{Name: "bonfire_session", Path: "/api", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	return true, nil
 }
+func loginName(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.Contains(value, "@") {
+		return strings.ToLower(value)
+	}
+	return value
+}
+
+func validLoginName(name string) bool {
+	if !strings.Contains(name, "@") {
+		return key.MatchString(name)
+	}
+	address, err := mail.ParseAddress(name)
+	return len(name) <= 254 && !strings.Contains(name, ":") && err == nil && address.Address == name
+}
+
+var factorRequired = problem{401, "Zweiter Faktor erforderlich."}
+
 func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
-	name, role, err := a.auth(ctx, r)
+	var name, role string
+	var err error
+	if token, completing := strings.CutPrefix(r.Header.Get("Authorization"), "Bonfire-Challenge "); completing {
+		name, role, err = a.completeLogin(ctx, token, r.Header.Get("X-Bonfire-OTP"))
+	} else {
+		name, role, err = a.auth(ctx, r)
+		if errors.Is(err, factorRequired) && r.Header.Get("X-Bonfire-Login") == "staged" {
+			username, _, _ := r.BasicAuth()
+			token := secret()
+			if _, err = a.db.Exec(ctx, "DELETE FROM login_challenges WHERE expires <= now()"); err != nil {
+				return nil, err
+			}
+			_, err = a.db.Exec(ctx, "INSERT INTO login_challenges(token,username) VALUES ($1,$2)", hash(token), loginName(username))
+			return map[string]string{"challenge": token}, err
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -56,6 +93,44 @@ func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request)
 	}
 	http.SetCookie(w, &http.Cookie{Name: "bonfire_session", Value: token, Path: "/api", MaxAge: 1800, HttpOnly: true, Secure: r.TLS != nil || strings.HasPrefix(r.Header.Get("Origin"), "https://"), SameSite: http.SameSiteStrictMode})
 	return role, nil
+}
+
+func (a *app) completeLogin(ctx context.Context, token, code string) (string, string, error) {
+	expired := problem{410, "Anmeldung abgelaufen. Bitte erneut anmelden."}
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	defer tx.Rollback(ctx)
+	var name, role, otpSecret string
+	err = tx.QueryRow(ctx, `UPDATE login_challenges c SET remaining=c.remaining-1 FROM users u
+		WHERE c.username=u.name AND c.token=$1 AND c.expires>now() AND c.remaining>0
+		AND u.active AND u.otp_secret IS NOT NULL RETURNING u.name,u.role,u.otp_secret`, hash(token)).Scan(&name, &role, &otpSecret)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", expired
+	}
+	if err != nil {
+		return "", "", err
+	}
+	if err = verifyCode(ctx, tx, name, otpSecret, code); err != nil {
+		var denied problem
+		if errors.As(err, &denied) {
+			if commitErr := tx.Commit(ctx); commitErr != nil {
+				return "", "", commitErr
+			}
+		}
+		return "", "", err
+	}
+	if _, err = tx.Exec(ctx, "DELETE FROM login_challenges WHERE token=$1", hash(token)); err != nil {
+		return "", "", err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return "", "", err
+	}
+	a.mu.Lock()
+	delete(a.attempts, name)
+	a.mu.Unlock()
+	return name, role, nil
 }
 func (a *app) mfa(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
 	name, _, err := a.auth(ctx, r)
@@ -102,14 +177,31 @@ func (a *app) factor(ctx context.Context, name, code string) error {
 	if secret == nil {
 		return nil
 	}
-	if step, ok := otpMatch(*secret, code, time.Now()); ok {
-		tag, err := a.db.Exec(ctx, "UPDATE users SET otp_last=$1 WHERE name=$2 AND otp_last<$1", step, name)
-		if err == nil && tag.RowsAffected() == 1 {
+	if code == "" {
+		return factorRequired
+	}
+	return verifyCode(ctx, a.db, name, *secret, code)
+}
+
+type factorExecutor interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+func verifyCode(ctx context.Context, db factorExecutor, name, secret, code string) error {
+	if step, ok := otpMatch(secret, code, time.Now()); ok {
+		tag, err := db.Exec(ctx, "UPDATE users SET otp_last=$1 WHERE name=$2 AND otp_last<$1", step, name)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 1 {
 			return nil
 		}
 	}
-	tag, err := a.db.Exec(ctx, "DELETE FROM recovery_codes WHERE username=$1 AND digest=$2", name, hash(code))
-	if err == nil && tag.RowsAffected() == 1 {
+	tag, err := db.Exec(ctx, "DELETE FROM recovery_codes WHERE username=$1 AND digest=$2", name, hash(code))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 1 {
 		return nil
 	}
 	return problem{401, "Zweiter Faktor ungültig oder bereits verwendet."}

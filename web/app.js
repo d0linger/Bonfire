@@ -1724,7 +1724,7 @@ function onlineAdmin() {
           "Benutzer zuweisen",
           form(
             "user",
-            field("Name", "Benutzername", "text", true) +
+            field("Name", "E-Mail-Adresse oder Benutzername", "text", true) +
               field("Password", "Startpasswort", "password", true) +
               select("Role", "Rolle", [
                 ["Kassa", "Kassa"],
@@ -1778,7 +1778,7 @@ function onlineAdmin() {
 }
 function profileTools() {
   return panel(
-    "Weitere Arbeitsprofile",
+    "Offlineprofile auf diesem Gerät",
     button("newProfile", "Neues Arbeitsprofil", true) +
       profilesLocal
         .map(
@@ -1791,7 +1791,8 @@ function profileTools() {
         )
         .join("") +
       (!saved
-        ? form(
+        ? "<h3>Gerätesicherung einsehen</h3><p>Öffne eine verschlüsselte Sicherung mit ihrem bisherigen lokalen Passwort. Das Archiv zeigt den gespeicherten Stand. Buchen und Synchronisieren sind im Archiv gesperrt.</p>" +
+          form(
             "recoverProfile",
             label(
               "Verschlüsselte Gerätesicherung",
@@ -1802,26 +1803,86 @@ function profileTools() {
         : ""),
   );
 }
-function signIn() {
-  return panel(
-    "An der Installation anmelden",
-    form(
-      "login",
-      field("user", "Benutzername", "text", true) +
-        field("pass", "Passwort", "password", true) +
-        field("otp", "Zweiter Faktor oder Recoverycode (falls eingerichtet)"),
-      "Anmelden",
-    ),
-  );
-}
-function unlockPanel() {
-  return panel(
-    "Lokales Profil",
-    form(
+let loginChallenge = "",
+  loginIdentity = "",
+  useRecoveryCode = false,
+  profileHelp = false;
+function authSurface() {
+  const brand = document.querySelector("#sidebar header").outerHTML;
+  let title, content, secondary;
+  if (profileHelp) {
+    title = "Offlineprofile und Sicherungen";
+    content = profileTools();
+    secondary = button("backLogin", "Zurück", true);
+  } else if (saved) {
+    title = "Gerät entsperren";
+    content = form(
       "unlock",
-      field("pass", "Lokales Passwort", "password", true),
+      label(
+        "Lokales Passwort",
+        '<input type="password" name="pass" autocomplete="current-password" required>',
+      ),
       "Entsperren",
-    ) + button("recover", "Verschlüsseltes Profil sichern", true),
+    );
+    secondary =
+      button("recover", "Gerätesicherung speichern", true) +
+      button("profileHelp", "Weitere Offlineprofile", true);
+  } else if (loginChallenge) {
+    title = useRecoveryCode ? "Recoverycode eingeben" : "Anmeldung bestätigen";
+    content =
+      '<p class="auth-hint">' +
+      esc(loginIdentity) +
+      "</p>" +
+      form(
+        "loginFactor",
+        label(
+          useRecoveryCode
+            ? "Recoverycode"
+            : "Code aus deiner Authenticator-App",
+          '<input name="otp" type="text" autocomplete="one-time-code" autocapitalize="none" spellcheck="false" required ' +
+            (useRecoveryCode
+              ? 'maxlength="16"'
+              : 'inputmode="numeric" pattern="[0-9]{6}" maxlength="6"') +
+            ">",
+        ),
+        "Bestätigen",
+      );
+    secondary =
+      button(
+        "changeFactor",
+        useRecoveryCode
+          ? "Authenticator-Code verwenden"
+          : "Recoverycode verwenden",
+        true,
+      ) + button("backLogin", "Zurück zur Anmeldung", true);
+  } else {
+    title = "Anmelden";
+    content = form(
+      "login",
+      label(
+        "E-Mail-Adresse oder Benutzername",
+        '<input name="user" type="text" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" value="' +
+          esc(loginIdentity) +
+          '" required>',
+      ) +
+        label(
+          "Passwort",
+          '<input name="pass" type="password" autocomplete="current-password" required>',
+        ),
+      "Anmelden",
+    );
+    secondary = button("profileHelp", "Offlineprofile und Sicherungen", true);
+  }
+  return (
+    '<div class="auth-card">' +
+    brand +
+    '<div class="auth-body"><h1>' +
+    title +
+    "</h1>" +
+    content +
+    "</div><footer>" +
+    secondary +
+    "</footer></div>"
   );
 }
 let entryOpen = false;
@@ -2038,24 +2099,12 @@ function onlineView() {
   );
 }
 function show() {
+  document.body.classList.toggle("auth-screen", !s && !logged);
   notice.textContent = "";
   state.textContent = "";
   shell();
   if (!s) {
-    article.innerHTML = logged
-      ? onlineView()
-      : pageHead(
-          saved ? "Gerät entsperren" : "Willkommen bei BONFIRE",
-          saved
-            ? "Das Arbeitsprofil ist auf diesem Gerät gespeichert."
-            : "Melde dich an, um deinen Finanzarbeitsplatz zu öffnen.",
-        ) +
-        (saved ? unlockPanel() : signIn()) +
-        "<details><summary>Geräteprofile und Wiederherstellung</summary><p>Lokale Profile gehören zur Adresse <strong>" +
-        esc(location.origin) +
-        "</strong> und zu diesem Browserprofil.</p>" +
-        profileTools() +
-        "</details>";
+    article.innerHTML = logged ? onlineView() : authSurface();
     const selector = article.querySelector("#prepare [name=event]");
     if (
       selector &&
@@ -2280,15 +2329,46 @@ async function submit(f) {
       );
     }
   }
-  if (id === "login") {
-    const bytes = new TextEncoder().encode(vals.user + ":" + vals.pass);
-    const candidate = "Basic " + btoa(String.fromCharCode(...bytes));
+  if (id === "login" || id === "loginFactor") {
+    const headers = { "X-Bonfire-Login": "staged" };
+    if (id === "login") {
+      loginIdentity = vals.user.trim();
+      const bytes = new TextEncoder().encode(loginIdentity + ":" + vals.pass);
+      headers.Authorization = "Basic " + btoa(String.fromCharCode(...bytes));
+    } else {
+      headers.Authorization = "Bonfire-Challenge " + loginChallenge;
+      headers["X-Bonfire-OTP"] = vals.otp.trim();
+    }
     const res = await fetch("/api/login", {
       method: "POST",
-      headers: { Authorization: candidate, "X-Bonfire-OTP": vals.otp },
+      headers,
     });
-    if (!res.ok) throw Error(await res.text());
-    await onlineStart({ user: vals.user, role: await res.json() });
+    if (!res.ok) {
+      if (res.status === 410) {
+        loginChallenge = "";
+        useRecoveryCode = false;
+        show();
+        article.querySelector("[name=pass]")?.focus();
+      } else if (id === "loginFactor") {
+        f.elements.otp.select();
+      }
+      throw Error(await res.text());
+    }
+    const result = await res.json();
+    if (result.challenge) {
+      loginChallenge = result.challenge;
+      useRecoveryCode = false;
+      show();
+      article.querySelector("[name=otp]").focus();
+      return;
+    }
+    loginChallenge = "";
+    await onlineStart({
+      user: loginIdentity.includes("@")
+        ? loginIdentity.toLowerCase()
+        : loginIdentity,
+      role: result,
+    });
     page = destination;
   }
   if (id === "mfa") {
@@ -3242,6 +3322,22 @@ document.addEventListener("click", (e) => {
       case "refreshWorkplace":
         await onlineStart(onlineUser);
         break;
+      case "profileHelp":
+      case "backLogin":
+      case "changeFactor":
+        profileHelp = b.dataset.act === "profileHelp";
+        if (b.dataset.act === "changeFactor")
+          useRecoveryCode = !useRecoveryCode;
+        else {
+          loginChallenge = "";
+          useRecoveryCode = false;
+        }
+        show();
+        (
+          article.querySelector("[name=otp], [name=user], #unlock input") ||
+          article
+        ).focus();
+        return;
       case "focusEntry":
         entryOpen = true;
         show();

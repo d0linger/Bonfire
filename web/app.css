@@ -824,6 +824,88 @@ details > summary + section {
 .mobile-kind {
   display: none;
 }
+
+body.auth-screen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  min-height: 100svh;
+  border-top: 3px solid #b91c24;
+}
+.auth-screen #sidebar,
+.auth-screen .topbar,
+.auth-screen .workspace-line {
+  display: none;
+}
+.auth-screen .work-area {
+  width: min(100%, 454px);
+  padding: 28px 16px;
+  margin-inline: auto;
+}
+.auth-card {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgb(24 30 38 / 8%);
+}
+.auth-card header {
+  padding: 22px clamp(22px, 5vw, 32px);
+  background: #20242b;
+  border-bottom: 3px solid #b91c24;
+}
+.auth-body {
+  padding: 26px clamp(22px, 5vw, 32px);
+}
+.auth-body h1 {
+  margin: 0 0 20px;
+  font-size: 28px;
+  line-height: 1.15;
+}
+.auth-body .auth-hint {
+  margin: -10px 0 18px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.auth-body .form,
+.auth-card #login .form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.auth-body input {
+  width: 100%;
+  min-height: 46px;
+}
+.auth-body .actions button {
+  width: 100%;
+  min-height: 46px;
+  justify-content: center;
+}
+.auth-body input[name="otp"] {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.15em;
+}
+.auth-card footer {
+  padding: 6px 20px;
+  text-align: center;
+  border-top: 1px solid var(--line);
+}
+.auth-card footer button.secondary {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-weight: 500;
+  min-height: 44px;
+}
+.auth-card footer button:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+.auth-body section {
+  border: 0;
+  padding: 0;
+}
 @media (max-width: 760px) {
   .ledger-list .mobile-kind {
     display: block;

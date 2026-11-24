@@ -31,6 +31,8 @@ Ein Fehler im ersten Kaltstarttest betraf die vom Dateiserver umgeleitete URL f�
 
 ## Arbeitsplatz und Gestaltung
 
+`tests/login.mjs` prüft den Anmeldungseinstieg mit einem erfundenen E-Mail-Konto. Ohne MFA führt das Passwort direkt zur Übersicht. Mit MFA erscheint der zweite Schritt nach erfolgreicher Passwortprüfung. Bis zur Bestätigung verweigert der Server den Sitzungszugriff. Im Browser gelingen TOTP sowie ein Recoverycode nach einer Fehleingabe. Die Ansichten bei 1280 und 390 Pixeln stehen unter `test-results/ansichten/login-desktop.png` und `test-results/ansichten/login-mfa-mobil.png`.
+
 `tests/workplace.mjs` meldet ein zugewiesenes Prüfkonto an. Ein Anfangsbestand von 2.400,00 Euro, Einnahmen von 1.055,00 Euro und Ausgaben von 218,50 Euro ergeben in der Oberfläche 3.236,50 Euro. Alle acht Hauptmodule öffnen sich vor jeder Gerätevorbereitung. Ein fremder Bereich liefert HTTP 403. Der Test wechselt ins Mobilmenü und prüft, dass die Gerätezahl beim Lesen unverändert bleibt. Screenshots mit erfundenen Daten liegen unter `test-results/ansichten/`. `tests/offline.mjs` öffnet die tatsächliche Druckvorschau vor der Originalausgabe und speichert sie unter `test-results/ansichten-dokumente.png`.
 
 ## Durchgängiger Gesamtfall END-01

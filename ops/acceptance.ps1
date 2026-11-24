@@ -15,7 +15,7 @@ try {
   $env:BONFIRE_URL='http://'+$address
   node build.mjs
   if($LASTEXITCODE){throw 'Lokales Offlinepaket konnte nicht erstellt werden.'}
-  foreach($suite in 'api','accounts','import','security','incidents','donation-reports','wallet-settlement','prices','conflict-originals','lifecycle','account-mode','carry-forward','attachments','layout-limits','workplace','offline','documents','storage','word-layout'){
+  foreach($suite in 'api','accounts','import','security','incidents','donation-reports','wallet-settlement','prices','conflict-originals','lifecycle','account-mode','carry-forward','attachments','layout-limits','workplace','login','offline','documents','storage','word-layout'){
     node "tests/$suite.mjs"
     if($LASTEXITCODE){throw "Fehler in tests/$suite.mjs"}
   }

@@ -36,6 +36,7 @@ func configureRuntime(ctx context.Context, pool *pgxpool.Pool) error {
  GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO bonfire_runtime;
  GRANT INSERT ON users,events,grants_event,devices,entries,operations,audit,originals,sessions,recovery_codes,event_closures,period_closures,directory,journal_history,print_log,donation_reports,donation_report_steps,price_history TO bonfire_runtime;
  GRANT UPDATE ON entries,events,devices,directory TO bonfire_runtime;
+ GRANT INSERT, DELETE, UPDATE(remaining) ON login_challenges TO bonfire_runtime;
  GRANT UPDATE(otp_secret,otp_last) ON users TO bonfire_runtime;
  GRANT UPDATE(outcome) ON operations TO bonfire_runtime;
  GRANT UPDATE(reopened_at,reopened_by,reopened_reason) ON period_closures TO bonfire_runtime;

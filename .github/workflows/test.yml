@@ -39,6 +39,7 @@ jobs:
           node tests/layout-limits.mjs
           npx playwright install --with-deps chromium
           BONFIRE_URL=http://127.0.0.1:8137 node tests/workplace.mjs
+          BONFIRE_URL=http://127.0.0.1:8137 node tests/login.mjs
           node tests/offline.mjs
           node tests/documents.mjs
           node tests/storage.mjs
