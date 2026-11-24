@@ -1,0 +1,36 @@
+name: Browser checks
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    name: Accessibility and CSP (${{ matrix.engine }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
+    env:
+      BONFIRE_ENGINE: ${{ matrix.engine }}
+      BONFIRE_PORT: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps "$BONFIRE_ENGINE"
+      - shell: pwsh
+        run: ./ops/init.ps1
+      - run: docker compose up -d --build --wait
+      - run: |
+          export BONFIRE_URL="http://$(docker compose port app 8080)"
+          node tests/browser-guards.mjs
+      - if: always()
+        run: docker compose down --volumes

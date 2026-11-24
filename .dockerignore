@@ -1,0 +1,12 @@
+*
+!Dockerfile
+!package.json
+!package-lock.json
+!build.mjs
+!web/
+!web/**
+!go.mod
+!go.sum
+!*.go
+!migrations/
+!migrations/*.sql

@@ -1,0 +1,80 @@
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: bonfire
+      POSTGRES_USER: bonfire
+      POSTGRES_PASSWORD: ${BONFIRE_DB_PASSWORD:?Lokales Datenbankpasswort setzen}
+    volumes:
+      - data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "bonfire", "-d", "bonfire"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  migrate:
+    image: "${COMPOSE_PROJECT_NAME:-bonfire-app}:local"
+    build: .
+    command: ["migrate"]
+    environment:
+      DATABASE_URL: postgres://bonfire:${BONFIRE_DB_PASSWORD}@db/bonfire?sslmode=disable
+      BONFIRE_ADMIN_PASSWORD: ${BONFIRE_ADMIN_PASSWORD:?Lokales Startpasswort setzen}
+      BONFIRE_RUNTIME_PASSWORD: ${BONFIRE_RUNTIME_PASSWORD:?Separates Runtime-Kennwort setzen}
+    depends_on:
+      db:
+        condition: service_healthy
+  app:
+    image: "${COMPOSE_PROJECT_NAME:-bonfire-app}:local"
+    pull_policy: never
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      BONFIRE_BACKUP_SOCKET: /run/bonfire-backup/worker.sock
+      BONFIRE_PASSKEY_ORIGIN: ${BONFIRE_PASSKEY_ORIGIN:-http://localhost:${BONFIRE_PORT:-8137}}
+      DATABASE_URL: postgres://bonfire_runtime:${BONFIRE_RUNTIME_PASSWORD}@db/bonfire?sslmode=disable
+    ports:
+      - "127.0.0.1:${BONFIRE_PORT:-8137}:8080"
+    volumes:
+      - backup-ipc:/run/bonfire-backup:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+  backup:
+    build:
+      context: .
+      target: backup-worker
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://bonfire:${BONFIRE_DB_PASSWORD}@db/bonfire?sslmode=disable
+      BONFIRE_RUNTIME_PASSWORD: ${BONFIRE_RUNTIME_PASSWORD}
+      BONFIRE_S3_ENDPOINT: ${BONFIRE_S3_ENDPOINT:-}
+      BONFIRE_S3_BUCKET: ${BONFIRE_S3_BUCKET:-}
+      BONFIRE_S3_PREFIX: ${BONFIRE_S3_PREFIX:-bonfire}
+      BONFIRE_S3_REGION: ${BONFIRE_S3_REGION:-}
+      BONFIRE_S3_ACCESS_KEY: ${BONFIRE_S3_ACCESS_KEY:-}
+      BONFIRE_S3_SECRET_KEY: ${BONFIRE_S3_SECRET_KEY:-}
+      BONFIRE_S3_USE_HTTP: ${BONFIRE_S3_USE_HTTP:-false}
+      TZ: ${BONFIRE_TZ:-Europe/Vienna}
+    volumes:
+      - backups:/var/lib/bonfire-backup
+      - backup-key:/var/lib/bonfire-key
+      - backup-ipc:/run/bonfire-backup
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+volumes:
+  data:
+  backups:
+  backup-key:
+  backup-ipc:
