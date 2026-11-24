@@ -100,11 +100,23 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 	if len(byEvent) == 0 {
 		return "", fail("No workspace balances in this period.")
 	}
-	for _, eventRows := range byEvent {
+	for event, eventRows := range byEvent {
 		if err = checkBalance(eventRows, accountMode); err != nil {
 			return "", err
 		}
-		if err = validateSettlement(eventRows); err != nil {
+		// A wallet settlement spans its opening and closing counts. Load prior
+		// wallet movements only for validation, outside the frozen period snapshot.
+		earlier, err := tx.Query(ctx, `SELECT id,kind,device::text,revision,data FROM entries
+   WHERE event=$1 AND (data->>'Date')::date<$2 AND kind=ANY($3)`, event, start,
+			[]string{"count", "supply", "skim", "return", "cashback", "transfer", "expense", "refund", "deposit-return", "income", "donation", "payment", "presale", "deposit"})
+		if err != nil {
+			return "", err
+		}
+		history, err := pgx.CollectRows(earlier, pgx.RowToStructByPos[row])
+		if err != nil {
+			return "", err
+		}
+		if err = validateSettlement(append(history, eventRows...)); err != nil {
 			return "", fail(err.Error())
 		}
 	}

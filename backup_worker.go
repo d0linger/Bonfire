@@ -312,6 +312,10 @@ func (b *backupWorker) run(q backupCommand, actor, key string, days int, pr *bac
 	if err != nil {
 		result.Outcome = "failed"
 		result.Message = safeBackupError(err)
+		if errors.Is(err, errRestoredPending) {
+			result.Outcome = "warning"
+			result.Message = "Restored database is live. Audit or journal cleanup is pending."
+		}
 	}
 	if err = b.audit(actor, q.Action+" "+result.Outcome, q.Target); err != nil {
 		log.Print("Sicherungsdienst: DB-Audit vorübergehend nicht erreichbar")

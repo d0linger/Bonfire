@@ -101,6 +101,14 @@ type authDB interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
+func loginBucket(r *http.Request, name string) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	return host + "|" + name
+}
+
 func (a *app) authenticate(ctx context.Context, db authDB, r *http.Request) (string, string, error) {
 	name, pw, ok := r.BasicAuth()
 	name = loginName(name)
@@ -120,11 +128,7 @@ func (a *app) authenticate(ctx context.Context, db authDB, r *http.Request) (str
 	if !ok || !validLoginName(name) || len(pw) > 72 {
 		return "", "", deny
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	bucket := host + "|" + name
+	bucket := loginBucket(r, name)
 	a.mu.Lock()
 	if time.Now().After(a.reset) {
 		clear(a.attempts)
@@ -137,7 +141,7 @@ func (a *app) authenticate(ctx context.Context, db authDB, r *http.Request) (str
 	a.attempts[bucket]++
 	a.mu.Unlock()
 	var digest, role, account string
-	err = db.QueryRow(ctx, "SELECT password,role,name FROM users WHERE coalesce(login_alias,name)=$1 AND active AND (NOT password_change_required OR $2)", name, r.URL.Path == "/api/login").Scan(&digest, &role, &account)
+	err := db.QueryRow(ctx, "SELECT password,role,name FROM users WHERE coalesce(login_alias,name)=$1 AND active AND (NOT password_change_required OR $2)", name, r.URL.Path == "/api/login").Scan(&digest, &role, &account)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", "", err
 	}
