@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"testing"
+	"time"
 )
 
 func TestBackupArchiveAuthentication(t *testing.T) {
@@ -31,5 +32,14 @@ func TestBackupArchiveAuthentication(t *testing.T) {
 		if _, err = unsealBackup(bytes.NewReader(data), &discarded, key); err == nil {
 			t.Fatal("Manipulation unerkannt")
 		}
+	}
+}
+
+func TestImpossibleBackupSchedule(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	worker := backupWorker{state: backupState{Schedules: map[string]backupSchedule{"local": {Cron: "0 0 31 2 *", Since: start}}}}
+	status := worker.health("local", start.AddDate(1, 0, 0))
+	if status.Next != nil || status.Due {
+		t.Fatalf("impossible schedule has a next execution: %+v", status)
 	}
 }

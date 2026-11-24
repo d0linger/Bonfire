@@ -58,3 +58,22 @@ func TestInvoicePositionRounding(t *testing.T) {
 		t.Fatal("too many positions accepted")
 	}
 }
+
+func TestCountCutoff(t *testing.T) {
+	opening, closing, before, after := int64(1000), int64(2000), int64(200), int64(300)
+	rows := []row{
+		{ID: "w", Kind: "wallet"},
+		{Kind: "count", Data: data{Wallet: "w", Phase: "Anfang", Date: "2026-07-01", Amount: &opening}},
+		{Kind: "supply", Data: data{Wallet: "w", Date: "2026-07-01", Amount: &before}},
+		{Kind: "count", Data: data{Wallet: "w", Phase: "Ende", Date: "2026-07-02", Amount: &closing}},
+		{Kind: "supply", Data: data{Wallet: "w", Date: "2026-07-03", Amount: &after}},
+	}
+	if got, ok := walletRevenue(rows, "w"); !ok || got != 800 {
+		t.Fatalf("individual settlement = %d, valid = %v", got, ok)
+	}
+	rows[3].Data.Wallet = ""
+	rows[3].Data.Fields = map[string]string{"countScope": "all"}
+	if got, ok := pooledRevenue(rows); !ok || got != 800 {
+		t.Fatalf("pooled settlement = %d, valid = %v", got, ok)
+	}
+}
