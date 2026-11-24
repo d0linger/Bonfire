@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="theme-color" content="#20242b" />
+    <script src="/theme.js"></script>
     <title>BONFIRE · Feuerwehrfinanzen</title>
     <link rel="icon" href="/icon-32.png" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
@@ -34,6 +35,14 @@
           Menü</button
         ><span id="station" class="station"></span><span id="crumb"></span
         ><span id="connection"></span>
+        <label class="theme-choice"
+          ><span>Darstellung</span>
+          <select id="theme-mode" aria-label="Darstellung">
+            <option value="system">System</option>
+            <option value="light">Hell</option>
+            <option value="dark">Dunkel</option>
+          </select>
+        </label>
       </div>
       <div class="work-area">
         <div class="workspace-line">

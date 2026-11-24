@@ -4348,6 +4348,7 @@ document.addEventListener("click", (e) => {
           "/",
           "/app.js",
           "/app.css",
+          "/theme.js",
           "/manifest.webmanifest",
           "/logo-original.svg",
           "/icon-192.png",

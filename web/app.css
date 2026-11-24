@@ -204,6 +204,8 @@ th {
   color: #626a75;
 }
 
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 :root {
   color-scheme: light dark;
   --bg: light-dark(#f4f5f7, #171a20);
@@ -523,6 +525,24 @@ main {
 }
 .topbar #connection svg {
   width: 16px;
+}
+.topbar .theme-choice {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: .45rem;
+  color: var(--muted);
+  font-size: .8rem;
+}
+.theme-choice select {
+  width: auto;
+  min-height: 44px;
+  background: var(--soft);
+  color: var(--ink);
+}
+@media (max-width: 760px) {
+  .theme-choice span { display: none; }
+  .topbar #crumb { min-width: 0; overflow-wrap: anywhere; }
 }
 .work-area {
   max-width: 1500px;
@@ -982,14 +1002,26 @@ body.auth-screen {
   border-top: 3px solid #b91c24;
 }
 .auth-screen #sidebar,
-.auth-screen .topbar,
+.auth-screen .topbar > :is(#menu-toggle, #station, #crumb, #connection),
 .auth-screen .workspace-line {
   display: none;
 }
+.auth-screen main {
+  min-height: calc(100svh - 3px);
+  display: flex;
+  flex-direction: column;
+}
+.auth-screen .topbar {
+  position: static;
+  justify-content: flex-end;
+  border: 0;
+  background: transparent;
+}
+.auth-screen .theme-choice span { display: inline; }
 .auth-screen .work-area {
   width: min(100%, 454px);
   padding: 28px 16px;
-  margin-inline: auto;
+  margin: auto;
 }
 .auth-card {
   overflow: hidden;

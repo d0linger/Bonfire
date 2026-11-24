@@ -13,12 +13,51 @@ const browser = await chromium.launch({
   executablePath: process.env.BONFIRE_BROWSER || undefined,
 });
 try {
-  const page = await browser.newPage({
+  const context = await browser.newContext({
     viewport: { width: 1360, height: 900 },
+    colorScheme: "light",
   });
+  const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(url.href);
+  const appearance = page.getByRole("combobox", { name: "Darstellung" });
+  const background = (locator) =>
+    locator.evaluate((el) => getComputedStyle(el).backgroundColor);
+  const checkScheme = async (scheme) => {
+    await page.waitForFunction(
+      (value) => document.documentElement.dataset.theme === value,
+      scheme,
+    );
+    assert.equal(
+      await background(page.locator("body")),
+      scheme === "dark" ? "rgb(23, 26, 32)" : "rgb(244, 245, 247)",
+    );
+  };
+  assert.equal(await appearance.inputValue(), "system");
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await appearance.isVisible());
+  assert.ok(await page.locator("#menu-toggle").isHidden());
+  assert.ok(await page.locator("#connection").isHidden());
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await checkScheme("light");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await checkScheme("dark");
+  await appearance.selectOption("light");
+  await checkScheme("light");
+  await page.reload();
+  assert.equal(await appearance.inputValue(), "light");
+  await checkScheme("light");
+  const other = await context.newPage();
+  await other.goto(url.href);
+  await other
+    .getByRole("combobox", { name: "Darstellung" })
+    .selectOption("dark");
+  await checkScheme("dark");
+  assert.equal(await appearance.inputValue(), "dark");
+  await other.close();
+  await page.emulateMedia({ colorScheme: "light" });
+  await checkScheme("dark");
   await page.locator("#login [name=user]").fill("leitung");
   await page.locator("#login [name=pass]").fill(password);
   await page.locator("#login button").click();
@@ -45,6 +84,11 @@ try {
         .waitFor();
     }
     if (name === "Audit-Log") {
+      const panel = view.locator(".ops-panel").first();
+      assert.equal(await background(panel), "rgb(34, 39, 48)");
+      await appearance.selectOption("system");
+      await checkScheme("light");
+      assert.equal(await background(panel), "rgb(255, 255, 255)");
       await view
         .locator(".ops-pages, .ops-empty")
         .filter({ hasNotText: "geladen" })
@@ -109,6 +153,9 @@ try {
     }
   }
   await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await appearance.isVisible());
+  await appearance.selectOption("dark");
+  await checkScheme("dark");
   assert.ok(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

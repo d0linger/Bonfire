@@ -22,7 +22,7 @@
 }
 .bk .bk-stats {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  border: 1px solid #d4d9df;
+  border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface, #fff);
   padding: 1rem;
@@ -30,7 +30,7 @@
 }
 .bk .bk-stats > div {
   padding: 0 0.7rem;
-  border-left: 1px solid #d4d9df;
+  border-left: 1px solid var(--line);
 }
 .bk .bk-stats > div:first-child {
   border: 0;
@@ -53,14 +53,14 @@
 .bk .bk-badge {
   font-size: 0.8rem;
   font-weight: 600;
-  background: #e9f2ed;
-  color: #336749;
+  background: var(--okbg);
+  color: var(--ok);
   padding: 0.22rem 0.55rem;
   border-radius: 4px;
 }
 .bk .bk-warn {
-  background: #fcf0d6;
-  color: #805b0c;
+  background: var(--warnbg);
+  color: var(--warn);
 }
 .bk dl {
   display: grid;
@@ -85,7 +85,7 @@
   width: min(580px, 94vw);
   max-height: 88dvh;
   overflow: auto;
-  border: 1px solid #bfc5cc;
+  border: 1px solid var(--line);
   border-radius: 12px;
   padding: 1.5rem;
   background: var(--surface, #fff);
@@ -106,7 +106,7 @@
   display: none;
 }
 .bk-dialog [role="alert"] {
-  color: #a01622;
+  color: var(--red);
 }
 @media (max-width: 720px) {
   .bk .bk-stats,

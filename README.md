@@ -15,6 +15,8 @@ Auf bestehenden Entwicklungsinstallationen die vorhandene `.env` weiterverwenden
 
 ## Von der Anmeldung zum Finanzarbeitsplatz
 
+Oben rechts unter **Darstellung** stehen **System**, **Hell** und **Dunkel** zur Wahl. Standardmäßig folgt BONFIRE dem Betriebssystem. Eine manuelle Auswahl gilt im jeweiligen Browser für Anmeldung und Arbeitsplatz und bleibt nach einem Neustart erhalten.
+
 1. Mit E-Mail-Adresse oder bestehendem Kontonamen und Passwort anmelden. Bei aktiviertem MFA folgt der Authenticator- oder Recoverycode.
 2. Unter **Geschäftsjahre** eine Bezeichnung, den ersten und den letzten Tag eingeben. Beide Tage gehören zum Jahr. Geschäftsjahre können kürzer oder länger als zwölf Monate sein. Eine Überschneidung wird abgewiesen. Für den Zeitraum entsteht ein allgemeines Kassenbuch.
 3. In der linken Navigation unter dem BONFIRE-Logo das Geschäftsjahr auswählen. Unter der Bezeichnung steht der Zeitraum; bei 2027 beispielsweise 01.11.2026 – 31.12. Für laufende Einnahmen und Ausgaben **Allgemeines Kassenbuch → Kassenbuch → Buchung erfassen** öffnen. Unter **Veranstaltungen** die Feste dieses Jahres anlegen. Jedes Fest führt eigene Geldtaschen, Preise, Sponsoren und Buchungen. Die Auswahl oben zeigt die zugänglichen Arbeitsbereiche des Jahres. Die Übersicht zeigt die Zahlen des ausgewählten Arbeitsbereichs.
