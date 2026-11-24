@@ -1,16 +1,18 @@
 import { testPassword } from "./test-password.mjs";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scryptSync } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-const base = process.env.BONFIRE_URL || "http://127.0.0.1:8137";
-const pw =
-  testPassword();
+const target = new URL(process.env.BONFIRE_URL);
+assert.equal(target.hostname, "127.0.0.1");
+assert.equal(target.protocol, "http:");
+const base = "http://127.0.0.1:" + (target.port || "80");
+const pw = testPassword();
 const basic = (name, pass) =>
   "Basic " + Buffer.from(name + ":" + pass).toString("base64");
 const admin = basic("leitung", pw);
 async function post(path, auth, body, status = 200) {
   const res = await fetch(base + "/api/" + path, {
-    method: "POST",
+    method: "POST", redirect: "error",
     headers: { Authorization: auth, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -29,9 +31,11 @@ const rec = (seq, kind, label, n) => ({
   Data: { Label: label, Date: "2026-09-11", Amount: n },
 });
 if (process.argv.includes("--replay")) {
-  const { d, acked, pending } = JSON.parse(
-    await readFile("test-results/replay.json", "utf8"),
-  );
+  const packet = JSON.parse(await readFile("test-results/replay.json", "utf8"));
+  const key = scryptSync(pw,Buffer.from(packet.salt,"base64"),32);
+  const cipher = createDecipheriv("aes-256-gcm",key,Buffer.from(packet.iv,"base64"));
+  cipher.setAuthTag(Buffer.from(packet.tag,"base64"));
+  const { d, acked, pending } = JSON.parse(Buffer.concat([cipher.update(Buffer.from(packet.body,"base64")),cipher.final()]).toString("utf8"));
   const sent = await send(d, { Ops: [acked, pending] });
   assert.equal(sent.last, 2);
   assert.equal(sent.entries.filter((r) => r.Kind !== "contact").length, 2);
@@ -98,9 +102,13 @@ if (process.argv.includes("--replay")) {
     pending = rec(2, "expense", "Noch ausständig", 50);
   await send(d, { Ops: [acked] });
   await mkdir("test-results", { recursive: true });
+  const salt=randomBytes(16), iv=randomBytes(12);
+  const cipher=createCipheriv("aes-256-gcm",scryptSync(pw,salt,32),iv);
+  const bytes=Buffer.from(JSON.stringify({d:{device:d.device,token:d.token},acked,pending}));
+  const body=Buffer.concat([cipher.update(bytes),cipher.final()]);
   await writeFile(
     "test-results/replay.json",
-    JSON.stringify({ d, acked, pending }),
+    JSON.stringify({salt:salt.toString("base64"),iv:iv.toString("base64"),tag:cipher.getAuthTag().toString("base64"),body:body.toString("base64")}),
     { mode: 0o600 },
   );
   console.log(
