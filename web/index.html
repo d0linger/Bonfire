@@ -42,14 +42,29 @@
           Menü</button
         ><span id="station" class="station"></span><span id="crumb"></span
         ><span id="connection"></span>
-        <label class="theme-choice"
-          ><span>Darstellung</span>
-          <select id="theme-mode" aria-label="Darstellung">
-            <option value="system">System</option>
-            <option value="light">Hell</option>
-            <option value="dark">Dunkel</option>
-          </select>
-        </label>
+        <button
+          id="theme-mode"
+          type="button"
+          aria-label="Dunkelmodus"
+          aria-pressed="false"
+        >
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            fill="none"
+          >
+            <circle
+              cx="12"
+              cy="12"
+              r="9"
+              stroke="currentColor"
+              stroke-width="2"
+            />
+            <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" />
+          </svg>
+        </button>
       </div>
       <div class="work-area">
         <div class="workspace-line">

@@ -21,7 +21,10 @@ try {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(url.href);
-  const appearance = page.getByRole("combobox", { name: "Darstellung" });
+  const appearance = page.getByRole("button", {
+    name: "Dunkelmodus",
+    exact: true,
+  });
   const background = (locator) =>
     locator.evaluate((el) => getComputedStyle(el).backgroundColor);
   const checkScheme = async (scheme) => {
@@ -33,8 +36,11 @@ try {
       await background(page.locator("body")),
       scheme === "dark" ? "rgb(23, 26, 32)" : "rgb(244, 245, 247)",
     );
+    assert.equal(
+      await appearance.getAttribute("aria-pressed"),
+      String(scheme === "dark"),
+    );
   };
-  assert.equal(await appearance.inputValue(), "system");
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await appearance.isVisible());
   assert.ok(await page.locator("#menu-toggle").isHidden());
@@ -43,18 +49,14 @@ try {
   await checkScheme("light");
   await page.emulateMedia({ colorScheme: "dark" });
   await checkScheme("dark");
-  await appearance.selectOption("light");
+  await appearance.press("Space");
   await checkScheme("light");
   await page.reload();
-  assert.equal(await appearance.inputValue(), "light");
   await checkScheme("light");
   const other = await context.newPage();
   await other.goto(url.href);
-  await other
-    .getByRole("combobox", { name: "Darstellung" })
-    .selectOption("dark");
+  await other.getByRole("button", { name: "Dunkelmodus", exact: true }).click();
   await checkScheme("dark");
-  assert.equal(await appearance.inputValue(), "dark");
   await other.close();
   await page.emulateMedia({ colorScheme: "light" });
   await checkScheme("dark");
@@ -86,7 +88,7 @@ try {
     if (name === "Audit-Log") {
       const panel = view.locator(".ops-panel").first();
       assert.equal(await background(panel), "rgb(34, 39, 48)");
-      await appearance.selectOption("system");
+      await appearance.click();
       await checkScheme("light");
       assert.equal(await background(panel), "rgb(255, 255, 255)");
       await view
@@ -154,7 +156,7 @@ try {
   }
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await appearance.isVisible());
-  await appearance.selectOption("dark");
+  await appearance.click();
   await checkScheme("dark");
   assert.ok(
     await page.evaluate(

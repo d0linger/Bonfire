@@ -15,7 +15,7 @@ Auf bestehenden Entwicklungsinstallationen die vorhandene `.env` weiterverwenden
 
 ## Von der Anmeldung zum Finanzarbeitsplatz
 
-Oben rechts unter **Darstellung** stehen **System**, **Hell** und **Dunkel** zur Wahl. Standardmäßig folgt BONFIRE dem Betriebssystem. Eine manuelle Auswahl gilt im jeweiligen Browser für Anmeldung und Arbeitsplatz und bleibt nach einem Neustart erhalten.
+Der halb gefüllte Kreis oben rechts schaltet mit einem Klick zwischen Hell- und Dunkelmodus um. Bis zur ersten manuellen Auswahl folgt BONFIRE dem Betriebssystem. Die Auswahl gilt im jeweiligen Browser für Anmeldung und Arbeitsplatz und bleibt nach einem Neustart erhalten.
 
 1. Mit E-Mail-Adresse oder bestehendem Kontonamen und Passwort anmelden. Bei aktiviertem MFA folgt der Authenticator- oder Recoverycode.
 2. Unter **Geschäftsjahre** eine Bezeichnung, den ersten und den letzten Tag eingeben. Beide Tage gehören zum Jahr. Geschäftsjahre können kürzer oder länger als zwölf Monate sein. Eine Überschneidung wird abgewiesen. Für den Zeitraum entsteht ein allgemeines Kassenbuch.

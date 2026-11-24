@@ -6,7 +6,7 @@ Der [Abgleich mit der Designübergabe](DESIGNABGLEICH.md) ordnet die acht Hauptm
 
 ## Benutzerrollen
 
-Der Browsertest `tests/admin-navigation.mjs` prüft die Darstellung bei der Anmeldung und im Arbeitsplatz. Er wechselt zwischen Hell, Dunkel und System, prüft die Farben im Audit und die mobile Auswahl. Die manuelle Auswahl bleibt beim Neuladen erhalten und wird in einem zweiten Tab desselben Browserprofils übernommen.
+Der Browsertest `tests/admin-navigation.mjs` prüft die automatische Übernahme der Systemdarstellung vor der ersten Auswahl und den Wechsel über die Icon-Schaltfläche per Tastatur und Klick. Er prüft den Schaltzustand, die Farben im Audit und die mobile Bedienung. Die manuelle Auswahl bleibt beim Neuladen erhalten und wird in einem zweiten Tab desselben Browserprofils übernommen.
 
 Die Migration von Schema 25 auf 26 wurde in PostgreSQL mit drei bestehenden Testkonten geprüft. Das frühere Leitungskonto erhielt Admin, das Kassenkonto Write und das Prüfkonto Read. Beide zuvor gespeicherten Veranstaltungszuweisungen waren nach dem Upgrade vorhanden.
 

@@ -14,8 +14,14 @@
         : preference;
     document.documentElement.dataset.theme = effective;
     meta.content = effective === "dark" ? "#222730" : "#ffffff";
-    const select = document.getElementById("theme-mode");
-    if (select) select.value = preference;
+    const button = document.getElementById("theme-mode");
+    if (button) {
+      button.setAttribute("aria-pressed", String(effective === "dark"));
+      button.title =
+        effective === "dark"
+          ? "Zum Hellmodus wechseln"
+          : "Zum Dunkelmodus wechseln";
+    }
   }
   function restore() {
     try {
@@ -30,13 +36,14 @@
     if (event.key === key || event.key === null) restore();
   });
   document.addEventListener("DOMContentLoaded", () => {
-    const select = document.getElementById("theme-mode");
-    select.value = preference;
-    select.addEventListener("change", () => {
-      apply(select.value);
+    const button = document.getElementById("theme-mode");
+    apply(preference);
+    button.addEventListener("click", () => {
+      apply(
+        document.documentElement.dataset.theme === "dark" ? "light" : "dark",
+      );
       try {
-        if (preference === "system") localStorage.removeItem(key);
-        else localStorage.setItem(key, preference);
+        localStorage.setItem(key, preference);
       } catch {
         // Browsers with storage disabled keep the choice for this page.
       }

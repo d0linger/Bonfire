@@ -539,22 +539,23 @@ main {
 .topbar #connection svg {
   width: 16px;
 }
-.topbar .theme-choice {
-  display: inline-flex;
+#theme-mode {
+  display: grid;
+  place-items: center;
   flex: none;
-  align-items: center;
-  gap: .45rem;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
   color: var(--muted);
-  font-size: .8rem;
 }
-.theme-choice select {
-  width: auto;
-  min-height: 44px;
+#theme-mode:hover {
   background: var(--soft);
   color: var(--ink);
 }
 @media (max-width: 760px) {
-  .theme-choice span { display: none; }
   .topbar #crumb { min-width: 0; overflow-wrap: anywhere; }
 }
 .work-area {
@@ -1046,7 +1047,6 @@ body.auth-screen {
   border: 0;
   background: transparent;
 }
-.auth-screen .theme-choice span { display: inline; }
 .auth-screen .work-area {
   width: min(100%, 454px);
   padding: 28px 16px;
