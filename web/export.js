@@ -52,7 +52,7 @@ export function snapshot(index, s, rows, opts) {
   const v = chosen?.Data || {};
   if (index === 11 || index === 12) {
     if (chosen?.Kind !== (index === 11 ? "payment" : "donation"))
-      throw Error("Passenden Zahlungseingang auswählen.");
+      throw Error("Choose the corresponding payment.");
     const org = rows.find((r) => r.Kind === "organization")?.Data;
     const recipient = rows.find(
       (r) =>
@@ -66,7 +66,7 @@ export function snapshot(index, s, rows, opts) {
       opts.number &&
       (!org?.Label || !org.Address || !recipient?.Label || !recipient.Address)
     )
-      throw Error("Anschrift der Feuerwehr und des Empfängers erforderlich.");
+      throw Error("Enter the addresses of the fire brigade and the recipient.");
     const title = index === 11 ? "Payment confirmation" : "Donation confirmation";
     return {
       index,
@@ -93,7 +93,7 @@ export function snapshot(index, s, rows, opts) {
           ...(recipient?.Address || "").split(/\r?\n/),
         ].filter(Boolean),
         meta: [today(), opts.number ? "Receipt " + opts.number : "Preview"],
-        intro: "Wir bestätigen den Eingang über " + eur(v.Amount) + ".",
+        intro: "We acknowledge receipt of " + eur(v.Amount) + ".",
         blocks: [
           {
             headers: ["Date", "Payment method", "Payment reference", "Received"],
@@ -138,23 +138,23 @@ export function snapshot(index, s, rows, opts) {
       : v.Contact;
   const contact = rows.find((r) => r.ID === recipientID)?.Data;
   if (index <= 2 || index === 6) {
-    if (!chosen) throw Error("Zugehörigen Fachvorgang auswählen.");
+    if (!chosen) throw Error("Choose the related transaction.");
     const allowed =
       index === 0 ? ["sponsorship"] : index === 1 ? ["payment"] : ["donation"];
     if (!allowed.includes(chosen.Kind))
-      throw Error("Der Vorgang passt nicht zum gewählten Dokument.");
+      throw Error("The transaction does not match the selected document.");
     if (index === 1 && v.Method !== "Bar")
-      throw Error("Barbestätigung erfordert einen erfassten Bareingang.");
+      throw Error("A cash receipt requires a recorded cash payment.");
     if (index === 2 && (v.Method !== "Bar" || !v.Wallet))
       throw Error(
-        "Für einen Barspendenbeleg Geldtasche und Barzahlung erfassen.",
+        "Record the cash donation and its wallet before issuing a receipt.",
       );
     if (
       opts.number &&
       (!org?.Label || !org.Address || !contact?.Address || !contact?.Label)
     )
       throw Error(
-        "Organisation und Empfänger mit Anschrift sind für die Originalausgabe erforderlich.",
+        "Enter the organization and recipient addresses before issuing the original.",
       );
     if (org?.Address) add(org.Address);
     add(contact?.Label || "Anonymous");
@@ -178,7 +178,7 @@ export function snapshot(index, s, rows, opts) {
           !v.Fields?.service)
       )
         throw Error(
-          "Für das Rechnungsoriginal fehlen Kontodaten, Rechtstext, Leistung oder Fälligkeit.",
+          "Enter the account details, legal text, service and due date before issuing the invoice.",
         );
       if (v.Fields?.service) add("Service", v.Fields.service);
       if (v.Fields?.due) add("Due on", v.Fields.due);
@@ -195,10 +195,10 @@ export function snapshot(index, s, rows, opts) {
     if (index === 1) {
       const parent = rows.find((r) => r.ID === v.Reference);
       if (!parent || !v.Wallet)
-        throw Error("Forderung und tatsächliche Barkassa angeben.");
+        throw Error("Choose the receivable and the cash register that received the payment.");
       if (opts.number && (!org.Fields?.legal || !parent.Data.Fields?.service))
         throw Error(
-          "Für den Barbeleg fehlen freigegebener Rechtstext oder Leistungszeitraum.",
+          "Enter the approved legal text and service period for the cash receipt.",
         );
       const paid = rows
         .filter((r) => r.Kind === "payment" && r.Data.Reference === v.Reference)
@@ -207,14 +207,14 @@ export function snapshot(index, s, rows, opts) {
       add("Remaining", eur(parent.Data.Amount - paid));
     }
     if (index === 2 && opts.number && !config.File)
-      throw Error("Freigegebener LFK-Druckhintergrund fehlt.");
+      throw Error("Add the approved LFK print background.");
     if (
       index === 2 &&
       opts.number &&
       (!org?.Fields?.donationLegal || !contact?.Fields?.birth || !v.Reference)
     )
       throw Error(
-        "Freigegebener Belegtext, Spenderdaten oder Sammlung fehlen.",
+        "Enter the approved receipt text, donor details and collection.",
       );
     if (index === 2 && contact?.Fields?.birth)
       add("Date of birth", contact.Fields.birth);
@@ -230,7 +230,7 @@ export function snapshot(index, s, rows, opts) {
           r.Data.Category === (index === 3 ? "Getränk" : "Essen")),
     );
     if (!prices.length)
-      throw Error("Freigegebene Veranstaltungspreise fehlen.");
+      throw Error("Approve event prices before generating a price list.");
     for (const r of prices)
       add(
         [r.Data.Label, r.Data.Variant, r.Data.Unit].filter(Boolean).join(" · "),
@@ -238,7 +238,7 @@ export function snapshot(index, s, rows, opts) {
       );
   } else if (index === 7) {
     if (chosen && !["count", "plan"].includes(chosen.Kind))
-      throw Error("Zählung oder Wechselgeldplan auswählen.");
+      throw Error("Select a cash count or change float plan.");
     add(
       chosen
         ? chosen.Kind === "plan"
@@ -261,7 +261,7 @@ export function snapshot(index, s, rows, opts) {
     add("Direct costs", eur(money.costs));
     add("Net result from recorded entries", eur(money.result));
   } else if (index === 9) {
-    add("Status", s.closed ? "Freigegeben" : "Provisional");
+    add("Status", s.closed ? "Approved" : "Provisional");
     add("Opening balance", eur(rows.find((r) => r.Kind === "opening")?.Data.Amount));
     add("Cash surplus", eur(money.ear));
     const actuals = rows.filter((r) => r.Kind === "actual");
@@ -305,7 +305,7 @@ export function snapshot(index, s, rows, opts) {
   const validate = { 7: t8, 8: t9, 9: t10 }[index];
   if (validate && !validate(context))
     throw Error(
-      "Exportdaten unvollständig: " +
+      "Incomplete export data: " +
         validate.errors.map((e) => e.instancePath + " " + e.message).join(", "),
     );
   const result = {
@@ -464,7 +464,7 @@ export async function render(s) {
             const text = cells[j] || "";
             if (pdf.getTextWidth(text) > widths[j] - 3)
               throw Error(
-                "Kartentext zu lang für die gewählte Spalte: " + text,
+                "Card text exceeds the column width: " + text,
               );
             pdf.rect(x, cy, widths[j], rh);
             pdf.text(

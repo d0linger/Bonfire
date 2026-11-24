@@ -28,12 +28,21 @@ jobs:
       - run: npm ci
       - run: make lint
       - run: make test
+      - name: Check document pagination and overflow
+        run: node tests/layout-limits.mjs
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - shell: pwsh
         run: |
           ./ops/init.ps1
           ./ops/accept-online.ps1
+      - name: Preserve synthetic export samples
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: synthetic-document-profiles
+          path: test-results/online-exports/
+          retention-days: 7
+          if-no-files-found: error
   coverage:
     name: Go and browser-domain coverage
     runs-on: ubuntu-latest

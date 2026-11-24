@@ -33,7 +33,7 @@ export async function guestSheets(s) {
         units = pdf.splitTextToSize(unit || "", width * 0.18);
       const count = Math.max(names.length, units.length, 1);
       if (count + 1 > cap)
-        throw Error("Ein Preislisteneintrag ist länger als ein halbes Blatt.");
+        throw Error("A price list entry exceeds half a page.");
       if (groups.at(-1).length + count + Number(heading) > cap) {
         groups.push([]);
         heading = true;
