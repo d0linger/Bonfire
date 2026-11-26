@@ -669,8 +669,8 @@ try {
   await page.locator("#fiscal-switch summary").click();
   await page.locator('#fiscal-switch [data-fiscal=""]').click();
   await check("Geschäftsjahre");
-  await page.getByRole("button", { name: "Geschäftsjahr anlegen" }).click();
-  await check("Geschäftsjahr anlegen", page.getByRole("dialog"));
+  await page.getByRole("button", { name: "Create fiscal year" }).click();
+  await check("Create fiscal year", page.getByRole("dialog"));
   assert.deepEqual(failures, []);
   console.log(
     "PASS Aktionsabstände in " +

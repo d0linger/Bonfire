@@ -59,8 +59,8 @@ try {
   };
   const createYear = async (label, start, end) => {
     await chooseYear("");
-    await button("Geschäftsjahr anlegen").click();
-    await page.getByRole("dialog", { name: "Geschäftsjahr anlegen" }).waitFor();
+    await button("Create fiscal year").click();
+    await page.getByRole("dialog", { name: "Create fiscal year" }).waitFor();
     const f = page.locator("#fiscal-year");
     await f.locator("[name=Name]").fill(label);
     await f.locator("[name=Starts]").fill(start);
@@ -81,25 +81,25 @@ try {
   };
   const yearA = await createYear("Entwurf 2046", "2046-01-02", "2046-10-30");
   await chooseYear("");
-  await button("Geschäftsjahr Entwurf 2046 bearbeiten").click();
+  await button("Edit fiscal year Entwurf 2046").click();
   const yearDialog = page.getByRole("dialog", {
-    name: "Geschäftsjahr bearbeiten",
+    name: "Edit fiscal year",
   });
   assert.equal(
-    await yearDialog.getByLabel("Bezeichnung").inputValue(),
+    await yearDialog.getByLabel("Name").inputValue(),
     "Entwurf 2046",
   );
   assert.equal(
-    await yearDialog.getByLabel("Von", { exact: true }).inputValue(),
+    await yearDialog.getByLabel("Start date", { exact: true }).inputValue(),
     "2046-01-02",
   );
   assert.equal(
-    await yearDialog.getByLabel("Bis", { exact: true }).inputValue(),
+    await yearDialog.getByLabel("End date", { exact: true }).inputValue(),
     "2046-10-30",
   );
-  await yearDialog.getByLabel("Bezeichnung").fill("2046");
-  await yearDialog.getByLabel("Von", { exact: true }).fill("2046-01-01");
-  await yearDialog.getByLabel("Bis", { exact: true }).fill("2046-10-31");
+  await yearDialog.getByLabel("Name").fill("2046");
+  await yearDialog.getByLabel("Start date", { exact: true }).fill("2046-01-01");
+  await yearDialog.getByLabel("End date", { exact: true }).fill("2046-10-31");
   await submit("year-edit");
   await yearDialog.waitFor({ state: "hidden" });
   const yearRow = page
@@ -138,8 +138,8 @@ try {
     "175,50",
   );
   await go("Events");
-  await button("Veranstaltung anlegen").click();
-  await page.getByRole("dialog", { name: "Veranstaltung anlegen" }).waitFor();
+  await button("Create event").click();
+  await page.getByRole("dialog", { name: "Create event" }).waitFor();
   const event = page.locator("#event");
   await event.locator("[name=Name]").fill("Übung Sommerfest");
   await event.locator("[name=Starts]").fill("2046-08-20");
@@ -158,7 +158,7 @@ try {
   await eventRow
     .getByText("20.08.2046 – 21.08.2046", { exact: true })
     .waitFor();
-  await eventRow.getByText("Buchung offen", { exact: true }).waitFor();
+  await eventRow.getByText("Open for bookings", { exact: true }).waitFor();
   await eventRow
     .getByRole("button", { name: "Record event transaction" })
     .click();
@@ -361,7 +361,7 @@ try {
   );
   await go("Events");
   await page
-    .getByText("Für dieses Geschäftsjahr gibt es noch keine Veranstaltung.")
+    .getByText("There are no events in this fiscal year yet.")
     .waitFor();
   assert.equal(await button("Übung Sommerfest").count(), 0);
   assert.equal(
@@ -423,7 +423,7 @@ try {
     .waitFor();
   await go("Events");
   await button(closingFest).waitFor();
-  assert.equal(await button("Veranstaltung anlegen").count(), 0);
+  assert.equal(await button("Create event").count(), 0);
   assert.equal(await button("Record event transaction").count(), 0);
   await button(closingFest).click();
   assert.equal(await button("Veranstaltung wieder öffnen").count(), 0);
@@ -438,9 +438,9 @@ try {
   const figures = eventRow.locator(".event-figures");
   await figures.waitFor();
   assert.deepEqual(await figures.locator("dt").allTextContents(), [
-    "Einnahmen",
-    "Ausgaben",
-    "Ergebnis",
+    "Income",
+    "Expenses",
+    "Net result",
   ]);
   assert.match(await figures.locator("dd").nth(0).innerText(), /12,34/);
   assert.match(await figures.locator("dd").nth(1).innerText(), /3,34/);
