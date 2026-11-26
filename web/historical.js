@@ -10,6 +10,7 @@ const parse = (bytes) => {
 };
 const all = (node, name) => [...node.getElementsByTagNameNS("*", name)];
 const excluded = (text) => /gemeinde|globalbudget/i.test(text);
+const localDate = /^(\d{1,2})\.(\d{1,2})\.(\d{4})?$/;
 function sourceCents(value) {
   if (!/^-?\d+(?:[.,]\d{1,2})?$/.test(value)) return null;
   try {
@@ -126,7 +127,8 @@ export async function historyPreview(file, role, year) {
       );
       const header =
         (!headings.size || !row.cells.some((c) =>
-          c.formula !== null || (c.type === "n" && c.value !== "") || c.type === "d")) &&
+          c.formula !== null || (c.type === "n" && c.value !== "") || c.type === "d" ||
+          localDate.test(c.value) || /^\d{4}-\d{2}-\d{2}$/.test(c.value))) &&
         texts.some((c) =>
           /^(datum|buchungsdatum|bezeichnung|beschreibung|buchungstext)$/i.test(
             c.value.trim(),
@@ -158,7 +160,7 @@ export async function historyPreview(file, role, year) {
           /datum/i.test(headings.get(c.col) || "") ||
           dateStyle.has(c.style) ||
           c.type === "d";
-        const match = /^(\d{1,2})\.(\d{1,2})\.(\d{4})?$/.exec(c.value);
+        const match = localDate.exec(c.value);
         let day = "",
           source = "";
         if (match) {
