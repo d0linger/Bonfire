@@ -105,7 +105,7 @@ type changeAccount struct {
 
 func accountPassword(value string) ([]byte, error) {
 	if len(value) < 14 || len(value) > 72 {
-		return nil, fail("Das Passwort muss 14 bis 72 Bytes umfassen.")
+		return nil, fail("The password must be 14 to 72 bytes long.")
 	}
 	return bcrypt.GenerateFromPassword([]byte(value), 12)
 }

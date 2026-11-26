@@ -152,6 +152,7 @@
       "organization.logo_asset_id",
       "recipient.salutation",
       "event.id",
+      "event.name",
       "purpose.text_block_id",
       "collector.display_name",
       "collector.signature",

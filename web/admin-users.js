@@ -1,3 +1,7 @@
+function validatePassword(value) {
+  const bytes = new TextEncoder().encode(value).length;
+  if (bytes < 14 || bytes > 72) throw Error("The password must be 14 to 72 bytes long.");
+}
 import { esc, icon } from "./workplace.js";
 
 const roles = ["Admin", "Write", "Read"];
@@ -136,7 +140,7 @@ function editFields(action, user, events) {
         "Password",
         "password",
         "",
-        'required minlength=14 maxlength=72 autocomplete="new-password"',
+        'required autocomplete="new-password"',
       ) +
       '<label class="account-check"><input name="MustChange" type="checkbox" checked> Require a password change at next sign-in</label>';
   }
@@ -318,6 +322,7 @@ export async function mountUsers(host, { api }) {
       const submitter = e.submitter;
       if (submitter) submitter.disabled = true;
       try {
+        if (input.Password !== undefined) validatePassword(input.Password);
         const result = await api("admin/users", input);
         if (result.signedOut) {
           location.reload();
@@ -399,14 +404,14 @@ export function mountPasswordChange(host, ticket, onDone) {
       "Password",
       "password",
       "",
-      'required minlength=14 maxlength=72 autocomplete="new-password"',
+      'required autocomplete="new-password"',
     ) +
     field(
       "Confirm new password",
       "Confirm",
       "password",
       "",
-      'required minlength=14 maxlength=72 autocomplete="new-password"',
+      'required autocomplete="new-password"',
     ) +
     '<p role="alert"></p><div class="actions"><button>Save password</button><button type="button" class="secondary">Back to sign-in</button></div></form></div>';
   host.replaceChildren(root);
@@ -424,6 +429,7 @@ export function mountPasswordChange(host, ticket, onDone) {
     }
     button.disabled = true;
     try {
+      validatePassword(f.elements.Password.value);
       const res = await fetch("/api/password-change", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

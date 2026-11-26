@@ -91,6 +91,7 @@ await send(
   },
   422,
 );
+out = await send(b, {});
 assert.equal(out.entries.find((r) => r.ID === id).Revision, 3);
 const left = await prepare("Kontakt Ost"),
   right = await prepare("Kontakt West");

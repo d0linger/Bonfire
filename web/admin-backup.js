@@ -261,14 +261,18 @@ export async function mountBackup(host, { api }) {
           : history()) +
       button("refresh", "Refresh");
   }
-  async function refresh() {
+  let scheduleDirty = false;
+  host.addEventListener("input", (e) => {
+    if (e.target.closest('[data-bk-form="schedule"]')) scheduleDirty = true;
+  });
+  async function refresh(poll = false) {
     clearTimeout(timer);
     state = await api("admin/backup?files=all");
     if (!host.isConnected) return;
-    render();
+    if (!poll || (!dialog?.open && !scheduleDirty)) render();
     if (state.active) {
       timer = setTimeout(() => {
-        if (host.isConnected) refresh().catch((e) => message(e.message));
+        if (host.isConnected) refresh(true).catch((e) => message(e.message));
       }, 1500);
     }
   }
@@ -346,6 +350,7 @@ export async function mountBackup(host, { api }) {
     if (!b) return;
     try {
       if (b.dataset.backupTab) {
+        scheduleDirty = false;
         tab = b.dataset.backupTab;
         render();
         return;
@@ -400,6 +405,7 @@ export async function mountBackup(host, { api }) {
     e.preventDefault();
     e.stopPropagation();
     const v = Object.fromEntries(new FormData(f));
+    const owner = f.closest("dialog");
     const submitter = e.submitter;
     if (submitter) submitter.disabled = true;
     try {
@@ -411,6 +417,7 @@ export async function mountBackup(host, { api }) {
             cron: v.cron.trim(),
             days: Number(v.days || 0),
           });
+          scheduleDirty = false;
           notice = "Schedule saved.";
           await refresh();
           break;
@@ -432,6 +439,7 @@ export async function mountBackup(host, { api }) {
           if (!res.ok) throw Error(await res.text());
           const out = await res.json();
           uploaded = { target: "upload", name: out.name };
+          if (dialog !== owner || !owner?.open || !host.isConnected) break;
           selected = uploaded;
           restoreDialog();
           break;
@@ -446,6 +454,7 @@ export async function mountBackup(host, { api }) {
           break;
       }
     } catch (err) {
+      if (owner && (owner !== dialog || !owner.open)) return;
       if (dialog?.open)
         dialog.querySelector("[role=alert]").textContent = err.message;
       else message(err.message);

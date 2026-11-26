@@ -10,6 +10,9 @@ import { admin } from "./local-api.mjs";
 const url = new URL(process.env.BONFIRE_URL);
 assert.equal(url.hostname, "127.0.0.1");
 assert.ok(url.port && url.port !== "8137", "Use a disposable test stack");
+const engines = { chromium, firefox, webkit };
+const engine = process.env.BONFIRE_ENGINE || "chromium";
+assert.ok(Object.hasOwn(engines, engine), "Unsupported browser engine");
 // All engines exercise Secure session cookies over a real TLS connection.
 const proxy = createServer({
   key: await readFile(join(process.env.RUNNER_TEMP, "browser.key")),
@@ -27,10 +30,9 @@ const proxy = createServer({
 });
 await new Promise(resolve => proxy.listen(0, "127.0.0.1", resolve));
 const origin = "https://127.0.0.1:" + proxy.address().port;
-const engines = { chromium, firefox, webkit };
-const engine = process.env.BONFIRE_ENGINE || "chromium";
-const browser = await engines[engine].launch({ executablePath: process.env.BONFIRE_BROWSER });
+let browser;
 try {
+  browser = await engines[engine].launch({ executablePath: process.env.BONFIRE_BROWSER });
   for (const colorScheme of ["light","dark"]) {
     const context = await browser.newContext({
       ignoreHTTPSErrors: true, colorScheme, viewport: colorScheme === "dark" ? {width:390,height:844} : {width:1440,height:900},
@@ -74,6 +76,8 @@ try {
     const administration = page.locator("#admin-navigation");
     if ((await administration.getAttribute("open")) === null) await administration.locator("summary").click();
     await administration.locator('[data-page="Audit-Log"]').click();
+    // The login above creates the audit event this test expands.
+    await page.locator("button[data-entry]").first().waitFor();
     await page.locator("button[data-entry]").first().click();
     await page.locator(".ops-detail:not([hidden])").waitFor();
     await audit("expanded audit event");
@@ -84,6 +88,5 @@ try {
   }
   console.log("PASS accessibility, response policies and session persistence in "+engine);
 } finally {
-  await browser.close();
-  proxy.close();
+  try { await browser?.close(); } finally { proxy.close(); }
 }

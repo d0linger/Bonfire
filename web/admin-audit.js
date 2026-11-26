@@ -230,12 +230,13 @@ export function mountAudit(host, { api, identity, search = "" }) {
   }
   const query = () =>
     new URLSearchParams(Object.entries(filters).filter(([, v]) => v));
-  async function fetchPage() {
+  async function fetchPage(candidate = cursors.slice()) {
     const token = ++revision,
       params = query();
-    if (cursors.at(-1)) params.set("before", cursors.at(-1));
+    if (candidate.at(-1)) params.set("before", candidate.at(-1));
     const reply = await api("admin/audit?" + params);
     if (token !== revision) return;
+    cursors.splice(0, cursors.length, ...candidate);
     items = reply.rows;
     more = reply.more;
     loaded = true;
@@ -264,8 +265,7 @@ export function mountAudit(host, { api, identity, search = "" }) {
     e.stopPropagation();
     const { auditYear, ...fields } = Object.fromEntries(new FormData(e.target));
     Object.assign(filters, fields, { year: auditYear });
-    cursors.splice(1);
-    run(fetchPage);
+    run(() => fetchPage([""]));
   });
   root.addEventListener("click", (e) => {
     const b = e.target.closest("button");
@@ -292,14 +292,11 @@ export function mountAudit(host, { api, identity, search = "" }) {
       switch (b.dataset.check) {
         case "clear":
           for (const k of Object.keys(filters)) filters[k] = "";
-          cursors.splice(1);
-          break;
+          return fetchPage([""]);
         case "prev":
-          cursors.pop();
-          break;
+          return fetchPage(cursors.slice(0, -1));
         case "next":
-          cursors.push(String(items.at(-1).ID));
-          break;
+          return fetchPage([...cursors, String(items.at(-1).ID)]);
         case "integrity":
           proof = await api("admin/audit/integrity");
           render();
@@ -319,7 +316,6 @@ export function mountAudit(host, { api, identity, search = "" }) {
         default:
           return;
       }
-      await fetchPage();
     });
   });
   render();

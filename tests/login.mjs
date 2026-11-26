@@ -41,9 +41,7 @@ try {
   await mkdir("test-results/ansichten", { recursive: true });
   await page.screenshot({ path: "test-results/ansichten/login-desktop.png" });
   assert.equal(await page.locator("[name=otp],#recoverProfile").count(), 0);
-  await click("Offlineprofile und Sicherungen");
-  await page.getByRole("button", { name: "Als Lesearchiv öffnen" }).waitFor();
-  await click("Zurück");
+  assert.equal(await page.locator("#recoverProfile").count(), 0);
   await login();
   await page.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
   const { secret } = await api("mfa", basic(user, pw), {});

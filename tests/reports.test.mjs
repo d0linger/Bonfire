@@ -74,7 +74,7 @@ test("100 EUR Zusage, 40 EUR Zahlung und eine dokumentierte Übergabe haben getr
   );
   assert.ok(
     !bill.after.some(
-      (s) => s.includes("Payment reference") || s.includes("Fällig"),
+      (s) => s.includes("Payment reference") || s.includes("Due"),
     ),
   );
 });

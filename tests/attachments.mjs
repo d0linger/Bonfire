@@ -52,6 +52,9 @@ await send(uploader, { Ops: [payment, meta] });
 let out = await send(peer, {});
 assert.equal(out.entries.find((r) => r.ID === meta.Target).Data.File, "");
 await send(uploader, { Action: "Ende", Last: 2 }, 422);
+const altered = Buffer.from(bytes);
+altered[altered.length - 1] ^= 1;
+await send(uploader, { Ops: [{ ...body, Data: { ...body.Data, File: altered.toString("base64") } }] }, 422);
 await send(
   uploader,
   {

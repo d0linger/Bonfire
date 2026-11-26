@@ -267,6 +267,9 @@ await api(
   dest.ID,
 );
 await api("manage", manager, take, 200, dest.ID);
+const firstCarry = (await api("online?event=" + dest.ID, manager, {})).entries.filter((r) => r.Kind === "opening");
+assert.equal(firstCarry.length, 1);
+assert.equal(firstCarry[0].Data.Amount, 120);
 await api("manage", manager, take, 200, dest.ID);
 const imported = (
   await api("online?event=" + dest.ID, manager, {})
@@ -364,9 +367,10 @@ await api(
 );
 const festOpening = (
   await api("online?event=" + destFest.ID, manager, {})
-).entries.find((r) => r.Kind === "opening");
-assert.equal(festOpening.Data.Amount, 0);
-assert.equal(festOpening.Data.Account, destAccount);
+).entries.filter((r) => r.Kind === "opening");
+assert.equal(festOpening.length, 1);
+assert.equal(festOpening[0].Data.Amount, 0);
+assert.equal(festOpening[0].Data.Account, destAccount);
 console.log(
   "PASS Freie Geschäftsjahre 2026/2027, allgemeine Kassenbücher, Jahreswechsel, Geldbuchungen an beiden Grenzen, Veranstaltungsfilter, Zugriffsrechte, Jahresauswertung und Abschluss mit Schreibschutz.",
 );

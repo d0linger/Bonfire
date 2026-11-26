@@ -94,6 +94,8 @@ await send({
 const safe = await api("admin/audit/export?event=" + e.ID, manager, {});
 assert.ok(!safe.csv.includes(sensitive));
 assert.ok(safe.csv.includes("Sensible Angabe ausgeblendet"));
+const otherExport = await api("admin/audit/export?event=" + other.ID, manager, {});
+assert.ok(otherExport.csv.includes(other.Name));
 for (const Role of ["Read", "Write"]) {
   const Name = "audit-" + Role.toLowerCase() + suffix,
     Password = randomUUID();
@@ -101,6 +103,8 @@ for (const Role of ["Read", "Write"]) {
   const cookie = await login(basic(Name, Password));
   await api("admin/status", cookie, undefined, 403);
   await api("admin/audit/integrity", cookie, undefined, 403);
+  const allowedExport = await api("admin/audit/export?event=" + e.ID, cookie, {});
+  assert.ok(allowedExport.csv.includes(e.Name));
   const scoped = await api("admin/audit", cookie);
   assert.ok(scoped.rows.length);
   assert.ok(scoped.rows.every((row) => row.Event === e.Name));

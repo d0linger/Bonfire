@@ -62,7 +62,8 @@ if (
 await mkdir("dist", { recursive: true });
 await writeFile("dist/logo-original.svg", svg);
 await copyFile("node_modules/lucide/LICENSE", "dist/lucide-license.txt");
-for (const size of [32, 192, 512]) {
+const iconSizes = [32, 192, 512];
+for (const size of iconSizes) {
   const inset = 5;
   const padded =
     '<svg xmlns="http://www.w3.org/2000/svg" width="' +
@@ -80,12 +81,13 @@ for (const size of [32, 192, 512]) {
     .png()
     .toFile("dist/icon-" + size + ".png");
 }
-for (const file of [
+const staticFiles = [
   "index.html",
   "theme.js",
   "word-renderer.html",
   "manifest.webmanifest",
-])
+];
+for (const file of staticFiles)
   await copyFile("web/" + file, "dist/" + file);
 const styles = [
   "app.css",
@@ -142,7 +144,8 @@ await build({
   target: "es2022",
   outfile: "dist/word-renderer.js",
 });
-const files = (await readdir("dist")).filter((f) => f !== "sw.js").sort();
+const files = [...staticFiles, ...iconSizes.map((n) => "icon-" + n + ".png"),
+  "app.css", "app.js", "word-renderer.js", "lucide-license.txt", "logo-original.svg"].sort();
 const hash = createHash("sha256");
 for (const f of files) hash.update(await readFile("dist/" + f));
 hash.update(await readFile("web/sw.js"));

@@ -21,12 +21,18 @@ export async function guestSheets(s) {
     top = 12,
     lineHeight = 6,
     half = s.height / 2;
-  const cap = Math.floor((half - 2 * top) / lineHeight) - 2,
-    groups = [[]],
+  const groups = [[]],
     width = s.width - 2 * left;
   pdf.setFont(s.font, "normal");
   pdf.setFontSize(10);
+  const notes = (s.tables.after || []).filter(Boolean).flatMap((t) => pdf.splitTextToSize(t, width * 0.97));
+  const cap = Math.floor((half - 2 * top) / lineHeight) - 2 - notes.length;
+  if (cap < 2) throw Error("The price-list note exceeds the space on the half-page layout.");
   for (const block of s.tables.blocks) {
+    pdf.setFont(s.font, "bold");
+    if (pdf.getTextWidth(block.headers[0]) > width * 0.61)
+      throw Error("The category heading exceeds the name column: " + block.headers[0]);
+    pdf.setFont(s.font, "normal");
     let heading = true;
     for (const [item, unit, price] of block.rows) {
       const names = pdf.splitTextToSize(item, width * 0.61),
@@ -70,6 +76,7 @@ export async function guestSheets(s) {
         { name: s.title, bold: true },
         { name: s.event + " · " + (page + 1) + " / " + groups.length },
         ...group,
+        ...notes.map((name) => ({ name, full: true })),
       ];
       const wordRows = [],
         columns = [0.65, 0.19, 0.16].map((n) => mm(width * n));
@@ -88,7 +95,8 @@ export async function guestSheets(s) {
         if (line.unit) pdf.text(line.unit, left + width * 0.65, y);
         if (line.price)
           pdf.text(line.price, left + width, y, { align: "right" });
-        const cells = i < 2 ? [line.name] : [line.name, line.unit, line.price];
+        const full = i < 2 || line.full;
+        const cells = full ? [line.name] : [line.name, line.unit, line.price];
         wordRows.push(
           new TableRow({
             height: { value: mm(lineHeight), rule: HeightRule.EXACT },
@@ -96,10 +104,10 @@ export async function guestSheets(s) {
               (text, j) =>
                 new TableCell({
                   width: {
-                    size: i < 2 ? mm(width) : columns[j],
+                    size: full ? mm(width) : columns[j],
                     type: WidthType.DXA,
                   },
-                  columnSpan: i < 2 ? 3 : 1,
+                  columnSpan: full ? 3 : 1,
                   children: [
                     new Paragraph({
                       alignment:
