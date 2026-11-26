@@ -32,10 +32,29 @@ jobs:
         run: node tests/layout-limits.mjs
       - run: npm run build
       - run: npx playwright install --with-deps chromium
-      - shell: pwsh
+      - name: Prepare disposable integration coverage directory
+        run: install -d -m 0777 test-results/integration-counters
+      - name: Exercise the instrumented online application
+        shell: pwsh
+        env:
+          COMPOSE_FILE: compose.yaml:tests/compose.coverage.yaml
         run: |
           ./ops/init.ps1
           ./ops/accept-online.ps1
+      - name: Report application coverage from the Compose run
+        run: |
+          go tool covdata textfmt -i=test-results/integration-counters -o=test-results/integration.cover
+          go tool cover -func=test-results/integration.cover | tee test-results/integration-functions.txt
+          go tool cover -html=test-results/integration.cover -o test-results/integration.html
+          grep -Eq 'login[[:space:]]+[1-9][0-9]*([.][0-9]+)?%' test-results/integration-functions.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: integration-coverage
+          path: |
+            test-results/integration.cover
+            test-results/integration-functions.txt
+            test-results/integration.html
+          if-no-files-found: error
       - name: Preserve synthetic export samples
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -95,12 +114,7 @@ jobs:
     timeout-minutes: 2
     needs: [test, security, container, analysis, browser, recovery, coverage]
     env:
-      COVERAGE: ${{ needs.coverage.result }}
-      RECOVERY: ${{ needs.recovery.result }}
-      ANALYSIS: ${{ needs.analysis.result }}
-      BROWSER: ${{ needs.browser.result }}
-      ONLINE: ${{ needs.test.result }}
-      CONTAINER: ${{ needs.container.result }}
-      SECURITY: ${{ needs.security.result }}
+      JOB_RESULTS: ${{ toJSON(needs) }}
     steps:
-      - run: test "$COVERAGE" = success && test "$ONLINE" = success && test "$SECURITY" = success && test "$CONTAINER" = success && test "$ANALYSIS" = success && test "$BROWSER" = success && test "$RECOVERY" = success
+      - name: Require every prerequisite to pass
+        run: jq -e 'length > 0 and all(.[]; .result == "success")' <<< "$JOB_RESULTS"

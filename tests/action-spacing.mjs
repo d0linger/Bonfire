@@ -490,6 +490,7 @@ try {
       const supply = (await api(endpoint, {})).entries.find(
         (r) => r.Kind === "supply",
       );
+      assert.equal(supply.Data.To, supply.Data.Wallet);
       assert.equal(supply.Data.Amount, 2500);
       assert.equal(supply.Data.Pieces[1000], 2);
       assert.equal(supply.Data.Pieces[100], 5);
