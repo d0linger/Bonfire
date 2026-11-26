@@ -195,15 +195,15 @@ try {
   await openMenu();
   await page.locator('nav [data-page="Veranstaltungen"]').click();
   await page.locator('[data-event-edit="' + source.ID + '"]').click();
-  const editor = page.getByRole("dialog", { name: "Veranstaltung bearbeiten" });
+  const editor = page.getByRole("dialog", { name: "Edit event" });
   assert.equal(
-    await editor.getByLabel("Veranstaltungsname").inputValue(),
+    await editor.getByLabel("Event name").inputValue(),
     source.Name,
   );
-  await editor.getByLabel("Veranstaltungsname").fill(updated.Name);
-  await editor.getByLabel("Beginn").fill(updated.Starts);
-  await editor.getByLabel("Ende").fill(updated.Ends);
-  await editor.getByRole("button", { name: "Änderungen speichern" }).click();
+  await editor.getByLabel("Event name").fill(updated.Name);
+  await editor.getByLabel("Start date").fill(updated.Starts);
+  await editor.getByLabel("End date").fill(updated.Ends);
+  await editor.getByRole("button", { name: "Save changes" }).click();
   await editor.waitFor({ state: "hidden" });
   await page.getByRole("button", { name: updated.Name, exact: true }).waitFor();
   const saved = (await call("events")).find((e) => e.ID === source.ID);
@@ -237,12 +237,12 @@ try {
   const dialog = page.getByRole("dialog", { name: updated.Name });
   assert.ok(await dialog.evaluate((d) => d.matches(":modal")));
   for (const [target, destination, button] of [
-    [extra.Target, "remove", "Eintrag entfernen"],
-    [donation.Target, ledger.ID, "Jetzt umbuchen"],
+    [extra.Target, "remove", "Remove entry"],
+    [donation.Target, ledger.ID, "Move entry"],
   ]) {
     await dialog.locator("select[name=Target]").selectOption(target);
-    await dialog.getByLabel("Aktion oder Ziel").selectOption(destination);
-    await dialog.getByLabel("Begründung").fill("Fiktive Zuordnung berichtigt");
+    await dialog.getByLabel("Action or destination").selectOption(destination);
+    await dialog.getByLabel("Reason").fill("Fiktive Zuordnung berichtigt");
     await dialog.getByRole("button", { name: button }).click();
     await page.waitForFunction(
       (id) =>
@@ -252,11 +252,11 @@ try {
       target,
     );
   }
-  await dialog.getByRole("button", { name: "Abbrechen" }).click();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
   assert.ok(await trigger.isVisible());
   await trigger.click();
   await dialog
-    .getByRole("button", { name: "Veranstaltung löschen", exact: true })
+    .getByRole("button", { name: "Delete event", exact: true })
     .click();
   await dialog.waitFor({ state: "hidden" });
   assert.equal(await trigger.count(), 0);
