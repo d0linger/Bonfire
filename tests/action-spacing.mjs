@@ -141,7 +141,7 @@ try {
       await page.locator("#admin-navigation summary").click();
     await btn.click();
   }
-  await check("Übersicht");
+  await check("Overview");
   await page.locator("#fiscal-switch summary").click();
   await page.locator('#fiscal-switch [data-fiscal="' + year.ID + '"]').click();
 
@@ -154,7 +154,7 @@ try {
   await page.locator("#filter input").fill(label);
   await page.locator("#filter button").click();
   await page.getByText("No entries.", { exact: true }).waitFor();
-  await check("Leere Kontakte");
+  await check("Empty contacts");
   async function createAndEdit(section, name) {
     const dialog = page.getByRole("dialog");
     await page
@@ -292,7 +292,9 @@ try {
             await dialog
               .locator("[name=Reference]")
               .selectOption({ label: "Bannerrechnung" });
-            await dialog.locator("[name=Method]").selectOption("Überweisung");
+            const method = dialog.getByLabel("Payment method", { exact: true });
+            await method.selectOption({ label: "Bank transfer" });
+            assert.equal(await method.inputValue(), "Überweisung");
           }
         }
         await dialog
@@ -410,7 +412,7 @@ try {
         );
         await trigger.click();
         const again = page.waitForEvent("download");
-        await editor.getByRole("button", { name: "PDF speichern" }).click();
+        await editor.getByRole("button", { name: "Save PDF" }).click();
         const download = await again,
           stream = await download.createReadStream(),
           chunks = [];
@@ -439,7 +441,7 @@ try {
         "Count closing balance",
       ]);
       await actions.getByText("More actions", { exact: true }).click();
-      await check("Weitere Geldtaschenvorgänge", actions);
+      await check("More wallet actions", actions);
       assert.deepEqual(await actions.getByRole("heading").allTextContents(), [
         "Before the event",
         "During the event",
@@ -480,7 +482,7 @@ try {
       await quick(1000, 2).click();
       await quick(100, 5).click();
       assert.match(await dialog.locator("#count-total").innerText(), /25,00/);
-      await check("Stückelung beim Nachlegen", dialog);
+      await check("Change top-up denominations", dialog);
       assert.equal(await dialog.locator("[name=To]").count(), 0);
       await dialog
         .getByRole("button", { name: "Save", exact: true })
@@ -631,7 +633,7 @@ try {
     await check(key);
     if (key === "Benutzer") {
       await page.locator("[data-account-id]").first().click();
-      await check("Kontoaktionen", page.getByRole("dialog"));
+      await check("Account actions", page.getByRole("dialog"));
       await page.keyboard.press("Escape");
     }
     const dialogs =
@@ -669,14 +671,14 @@ try {
   }
   await page.locator("#fiscal-switch summary").click();
   await page.locator('#fiscal-switch [data-fiscal=""]').click();
-  await check("Geschäftsjahre");
+  await check("Fiscal years");
   await page.getByRole("button", { name: "Create fiscal year" }).click();
   await check("Create fiscal year", page.getByRole("dialog"));
   assert.deepEqual(failures, []);
   console.log(
-    "PASS Aktionsabstände in " +
+    "PASS action spacing across " +
       views +
-      " Ansichten und Dialogzuständen bei 390 und 1440 Pixeln.",
+      " views and dialogs at 390 and 1440 pixels.",
   );
 } finally {
   await browser.close();
