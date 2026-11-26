@@ -27,6 +27,8 @@ try {
   const directory = button(page.locator("nav"), "Wallet list");
   if (!(await directory.isVisible())) await page.locator("#admin-navigation summary").click();
   await directory.click();
+  await page.getByRole("heading", { name: "Wallet list", exact: true }).waitFor();
+  assert.equal(await button(page, "Bulk wallet entry").count(), 0);
   for (const name of [first, second]) {
     await button(page, "Create wallet").click();
     await dialog.getByLabel("Wallet name").fill(name);
@@ -73,6 +75,63 @@ try {
   assert.equal(await dialog.locator('[name="amount"]').inputValue(), "");
   await page.keyboard.press("Escape");
   assert.deepEqual(entriesByID((await eventState()).entries), entriesByID(afterAssignment), "viewing a float suggestion must not change the ledger");
+  const walletIDs = assigned.map(row => row.ID).sort();
+  for (const mode of ["opening", "topup"]) {
+    await button(page, "Bulk wallet entry").click();
+    const form = dialog.locator("#bulk-wallets");
+    await form.getByLabel("Action", { exact: true }).selectOption(mode);
+    for (const name of [first, second]) {
+      await form.getByRole("checkbox", { name: new RegExp(name) }).check();
+    }
+    const perWallet = mode === "opening" ? /12,50/ : /12,00/;
+    const aggregate = mode === "opening" ? /25,00/ : /24,00/;
+    if (mode === "opening") {
+      await form.getByLabel("Amount per wallet in EUR").fill("12.50");
+    } else {
+      await form.getByLabel("Change source").selectOption("main-cashbox");
+      await form.getByLabel("Enter amount", { exact: true }).selectOption("pieces");
+      await form.locator('[data-denomination="1000"][data-step="1"]').click();
+      await form.locator('[data-denomination="100"][data-step="2"]').click();
+    }
+    assert.match(await form.locator("#bulk-per-wallet").innerText(), perWallet);
+    assert.match(await form.locator("#bulk-total").innerText(), aggregate);
+    assert.match(await form.locator("#bulk-wallet-count").innerText(), /2/);
+    assert.ok(await dialog.evaluate(el => el.getBoundingClientRect().right <= innerWidth + 1));
+    const batchPath = "**/api/events/wallet-batch";
+    let interruptedRequest;
+    if (mode === "topup") {
+      const breakdown = await form.locator(".bulk-denominations").innerText();
+      assert.match(breakdown, /4 \u00d7 [^\d]*1,00/);
+      assert.match(breakdown, /2 \u00d7 [^\d]*10,00/);
+      await page.route(batchPath, async route => {
+        interruptedRequest = route.request().postDataJSON();
+        const committed = await route.fetch();
+        assert.equal(committed.status(), 200);
+        await route.abort("failed"); // The server committed, but the cashier did not receive its response.
+      }, { times: 1 });
+    }
+    await button(form, "Save wallet entries").click();
+    if (mode === "topup") {
+      await dialog.locator(".entry-error:not(:empty)").waitFor();
+      assert.ok(await form.getByLabel("Action", { exact: true }).isDisabled());
+      const retried = page.waitForRequest(request => new URL(request.url()).pathname === "/api/events/wallet-batch");
+      await button(dialog, "Retry wallet entries").click();
+      assert.deepEqual((await retried).postDataJSON(), interruptedRequest);
+    }
+    await dialog.waitFor({ state: "hidden" });
+    const kind = mode === "opening" ? "count" : "supply";
+    const saved = (await eventState()).entries.filter(row => row.Kind === kind);
+    assert.deepEqual(saved.map(row => row.Data.Wallet).sort(), walletIDs);
+    for (const row of saved) {
+      assert.equal(row.Data.Amount, mode === "opening" ? 1250 : 1200);
+      if (mode === "opening") assert.equal(row.Data.Phase, "Anfang");
+      else {
+        assert.deepEqual(row.Data.Pieces, { 1000: 1, 100: 2 });
+        assert.equal(row.Data.Account, "main-cashbox");
+      }
+    }
+  }
+  console.log("PASS mobile event bulk entry previews the per-wallet and combined total and saves opening counts and change deliveries");
   console.log("PASS create reusable wallets on desktop, select several on mobile, identify assigned wallets and view the suggested opening float");
 } finally {
   await browser.close();
