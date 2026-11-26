@@ -125,10 +125,18 @@ export async function historyPreview(file, role, year) {
       const texts = row.cells.filter(
         (c) => ["s", "inlineStr", "str"].includes(c.type) && c.value.trim(),
       );
-      const header =
-        (!headings.size || !row.cells.some((c) =>
-          c.formula !== null || (c.type === "n" && c.value !== "") || c.type === "d" ||
-          localDate.test(c.value) || /^\d{4}-\d{2}-\d{2}$/.test(c.value))) &&
+      const matchesPriorHeader = texts.some((c) =>
+        headings.get(c.col)?.toLowerCase() === c.value.trim().toLowerCase() &&
+        /^(datum|buchungsdatum|bezeichnung|beschreibung|buchungstext)$/i.test(c.value.trim()));
+      const hasBookingValue = row.cells.some((c) => {
+        if (c.formula !== null || c.type === "d" || localDate.test(c.value) ||
+            /^\d{4}-\d{2}-\d{2}$/.test(c.value)) return true;
+        if (c.type !== "n" || c.value === "") return false;
+        const yearAnnotation = /^\d{4}$/.test(c.value) && !dateStyle.has(c.style) &&
+          !headings.has(c.col) && (!headings.size || matchesPriorHeader);
+        return !yearAnnotation;
+      });
+      const header = !hasBookingValue &&
         texts.some((c) =>
           /^(datum|buchungsdatum|bezeichnung|beschreibung|buchungstext)$/i.test(
             c.value.trim(),
