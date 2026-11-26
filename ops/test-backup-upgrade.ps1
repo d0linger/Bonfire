@@ -58,7 +58,10 @@ try {
   $entry = @{ID=[guid]::NewGuid().ToString();Target=$target;Kind='income';Data=@{Label='Übungseintritt';Date='2049-03-01';Amount=125}}
   $null = Post-Data ('online?event=' + $event.ID) @{Ops=@($entry)}
   # Some legacy entries have no matching operation in the audit history.
-  $legacyEvent = Post-Data 'events' @{Name='Legacy order fixture';Starts='2049-03-01';Ends='2049-03-01';Year=$year.ID}
+  $legacyEvent = Post-Data 'events' @{Name='Legacy order fixture';Starts='2049-03-01';Ends='2049-03-02';Year=$year.ID}
+  $opening = @{ID=[guid]::NewGuid().ToString(); Target=[guid]::NewGuid().ToString(); Kind='opening'; Data=@{Label='Opening';Date='2049-03-01';Amount=0}}
+  $observation = @{ID=[guid]::NewGuid().ToString(); Target=[guid]::NewGuid().ToString(); Kind='actual'; Data=@{Label='Observed cash';Date='2049-03-02';Amount=125}}
+  $null = Post-Data ('online?event=' + $legacyEvent.ID) @{Ops=@($opening,$observation)}
   $legacyID = [guid]::NewGuid().ToString()
   $fixtureSQL = "INSERT INTO entries(event,id,revision,device,kind,data) SELECT :'legacy'::uuid, :'id', revision, device, kind, data FROM entries WHERE event=:'event'::uuid AND id=:'source';"
   $fixtureSQL | docker compose -p $project exec -T db psql -X -v ON_ERROR_STOP=1 -U bonfire -d bonfire -v "legacy=$($legacyEvent.ID)" -v "id=$legacyID" -v "event=$($event.ID)" -v "source=$target"
@@ -99,9 +102,25 @@ try {
   $book = Post-Data ('online?event=' + $event.ID) @{}
   $restored = @($book.entries | Where-Object {$_.ID -eq $target})
   if ($restored.Count -ne 1 -or $restored[0].Data.Amount -ne 125) {throw 'Ursprüngliche Finanzbuchung fehlt.'}
-  $orderSQL = "SELECT count(*) FROM settlement_entries WHERE (event=:'event'::uuid AND id=:'source' AND (data->>'PostingOrder')::bigint>0) OR (event=:'legacy'::uuid AND id=:'id' AND NOT (data ? 'PostingOrder'));"
+  $orderSQL = "SELECT count(*) FROM settlement_entries WHERE (event=:'event'::uuid AND id=:'source' AND (data->>'PostingOrder')::bigint>0) OR (event=:'legacy'::uuid AND id=:'id' AND NOT (data ? 'PostingOrder') AND (data->>'BalanceOrder')::bigint > (SELECT balance_order FROM entries WHERE event=:'event'::uuid AND id=:'source'));"
   $orders = $orderSQL | docker compose -p $project exec -T db psql -X -At -v ON_ERROR_STOP=1 -U bonfire -d bonfire -v "legacy=$($legacyEvent.ID)" -v "id=$legacyID" -v "event=$($event.ID)" -v "source=$target"
   if ($LASTEXITCODE -or $orders -ne '2') {throw 'Restored legacy entries must distinguish known posting order from unknown order.'}
+  $close = @{Action='Abschluss'}
+  try {
+    $null = Post-Data ('online?event=' + $legacyEvent.ID) $close
+    throw 'Historical observation accepted before recount.'
+  } catch {
+    if ($_.Exception.Response.StatusCode.value__ -ne 422 -or $_.ErrorDetails.Message -notmatch 'final posting') {throw}
+  }
+  $observation.ID = [guid]::NewGuid().ToString()
+  $observation.Base = 1
+  $observation.Data.Note = 'Reconfirmed after migration'
+
+  $recount = Post-Data ('online?event=' + $legacyEvent.ID) @{Ops=@($observation)}
+  $count = $recount.entries | Where-Object {$_.ID -eq $observation.Target}
+  $historical = $recount.entries | Where-Object {$_.ID -eq $legacyID}
+  if (!(Post-Data ('online?event=' + $legacyEvent.ID) $close).closed) {throw 'Reconfirmed event did not close.'}
+  if (!$count -or !$historical -or [long]$count.Data.BalanceOrder -le [long]$historical.Data.BalanceOrder) {throw 'Recount must supersede the migrated posting boundary.'}
   Remove-TestBooking
   $null = Post-Data 'events/delete' @{Event=$event.ID}
   $events = Invoke-RestMethod -Uri ($api + 'events') -WebSession $session
