@@ -47,6 +47,7 @@ type problem struct {
 func (p problem) Error() string { return p.message }
 func fail(s string) error       { return problem{422, s} }
 
+var onlineSaveErrors atomic.Uint64
 var rejectedSync atomic.Uint64
 var failedRequests atomic.Uint64
 
@@ -66,6 +67,9 @@ func route(fn endpoint) http.HandlerFunc {
 			if !errors.As(err, &p) {
 				p = problem{500, "Datenbankvorgang fehlgeschlagen."}
 				log.Printf("request handler failed (%T)", err)
+			}
+			if r.Method == http.MethodPost && r.URL.Path == "/api/online" && p.code >= 500 {
+				onlineSaveErrors.Add(1)
 			}
 			http.Error(w, p.message, p.code)
 			return
