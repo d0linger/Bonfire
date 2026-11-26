@@ -86,22 +86,22 @@ try {
   await page.reload();
   await main.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
   for (const name of [
-    "Kassenbuch",
-    "Veranstaltungen",
-    "Kontakte",
-    "Spenden",
-    "Dokumente",
-    "Abschluss",
-    "Verwaltung",
-    "Übersicht",
+    "Cashbook",
+    "Events",
+    "Contacts",
+    "Donations",
+    "Documents",
+    "Closing",
+    "Administration",
+    "Overview",
   ]) {
     await page
       .locator("nav")
       .getByRole("button", { name, exact: true })
       .click();
-    if (name === "Kassenbuch")
+    if (name === "Cashbook")
       await main.getByText("Kuchenstand", { exact: true }).waitFor();
-    if (name === "Veranstaltungen")
+    if (name === "Events")
       await main
         .getByRole("button", { name: "Wallets", exact: true })
         .click();
