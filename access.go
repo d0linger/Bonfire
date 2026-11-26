@@ -22,7 +22,7 @@ func (a *app) access(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock_shared(751025)"); err != nil {
+	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(751025)"); err != nil {
 		return nil, err
 	}
 	var actor string

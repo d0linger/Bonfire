@@ -227,9 +227,12 @@ func yearAccountBalances(ctx context.Context, tx pgx.Tx, year string) ([]account
 		if b.Kind == "account" || b.Kind == "wallet" {
 			key := b.Event + "/" + id
 			names[key] = b.Label + " · " + b.Space
-			if master != "" && b.mode {
+			if master != "" {
 				linked[key] = master
-				balances[master] = &accountBalance{ID: master, Name: name, Shared: true}
+				names[key] = name
+				if b.mode {
+					balances[master] = &accountBalance{ID: master, Name: name, Shared: true}
+				}
 			}
 			continue
 		}
@@ -243,11 +246,15 @@ func yearAccountBalances(ctx context.Context, tx pgx.Tx, year string) ([]account
 		balance := func(id string) *accountBalance {
 			key := b.Event + "/" + id
 			name := names[key]
+			if master := linked[key]; master != "" {
+				if balances[master] == nil {
+					balances[master] = &accountBalance{ID: master, Name: name, Shared: true}
+				}
+				return balances[master]
+			}
 			if !b.mode {
 				key = b.Event
 				name = b.Space + " · Gesamt"
-			} else if master := linked[key]; master != "" {
-				return balances[master]
 			}
 			if name == "" {
 				name = b.Space + " · ohne Kontozuordnung"

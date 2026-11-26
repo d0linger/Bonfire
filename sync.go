@@ -565,10 +565,11 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 					return nil, err
 				}
 			}
-			if origin.IncidentState == "returning" {
-				if err = validate(o, d.Accounts); err != nil {
-					return nil, err
-				}
+			if current > 0 && len(strings.TrimSpace(o.Data.Note)) < 3 {
+				o.Data.Note = q.Reason
+			}
+			if err = validate(o, d.Accounts); err != nil {
+				return nil, err
 			}
 			outcome, err := inspect(ctx, tx, origin, o)
 			if err != nil {
