@@ -470,6 +470,7 @@ try {
       });
       assert.deepEqual(await actions.getByRole("button").allTextContents(), [
         "Add wallet",
+        "Add from wallet list",
         "Count opening balance",
         "Add change",
         "Count closing balance",
