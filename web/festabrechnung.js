@@ -26,16 +26,16 @@ export function festivalStatement(rows) {
   const by = (k) => rows.filter((r) => r.Kind === k);
   const cash = [
     ...[
-      ["Anfangswechselgeld", "Anfang"],
-      ["Gezählter Endbestand", "Ende"],
+      ["Opening change float", "Anfang"],
+      ["Counted closing balance", "Ende"],
     ].map(([t, p]) => {
       const found = counts.filter((r) => r.Data.Phase === p);
       return { ...line(t, found), value: found.length ? amount(found) : null };
     }),
     ...[
-      ["Nachgelegtes Wechselgeld", "supply"],
-      ["Abschöpfungen", "skim"],
-      ["Bargeld an Gäste", "cashback"],
+      ["Change top-ups", "supply"],
+      ["Cash collections", "skim"],
+      ["Cashback to guests", "cashback"],
     ].map(([t, k]) => line(t, by(k))),
   ];
   const claims = new Map(by("sponsorship").map((r) => [r.ID, r]));
@@ -48,27 +48,27 @@ export function festivalStatement(rows) {
   );
   const result = [
     {
-      title: "Bareinnahmen aus der Zählung",
+      title: "Cash takings from counts",
       value: derived,
       details: countedRows,
     },
     line(
-      "Weitere Einnahmen",
+      "Other income",
       by("income").filter((r) => !settlement(r)),
     ),
-    line("Vorverkauf", by("presale")),
+    line("Advance sales", by("presale")),
     line(
-      "Bezahltes Sponsoring",
+      "Sponsorship payments",
       by("payment").filter((r) => !ordinary(r)),
     ),
-    line("Bezahlte Rechnungen", by("payment").filter(ordinary)),
-    line("Spenden", by("donation")),
-    line("Kartenumsatz", by("card")),
+    line("Invoice payments", by("payment").filter(ordinary)),
+    line("Donations", by("donation")),
+    line("Card sales", by("card")),
     ...[
-      ["Rückzahlungen", "refund"],
-      ["Direkte Ausgaben", "expense"],
-      ["Privatauslagen", "outlay"],
-      ["Anbietergebühren", "fee"],
+      ["Refunds", "refund"],
+      ["Direct expenses", "expense"],
+      ["Personal advances", "outlay"],
+      ["Provider fees", "fee"],
     ].map(([t, k]) => ({ ...line(t, by(k)), value: -amount(by(k)) })),
   ];
   const booked = rows.filter((r) => !settlement(r));
@@ -91,7 +91,7 @@ export function festivalPanel(rows) {
           '<details class="filter-box"><summary>' +
           esc(l.title) +
           " · " +
-          (l.value == null ? "Zählung offen" : eur(l.value)) +
+          (l.value == null ? "Count outstanding" : eur(l.value)) +
           "</summary>" +
           (l.details
             .map(
@@ -104,16 +104,16 @@ export function festivalPanel(rows) {
                 eur(r.Data.Amount ?? 0) +
                 "</p>",
             )
-            .join("") || "<p>Keine Buchungen.</p>") +
+            .join("") || "<p>No postings.</p>") +
           "</details>",
       )
       .join("");
   return (
-    "<section><h2>Festabrechnung</h2>" +
-    block("Bargeld", f.cash) +
-    block("Festergebnis", f.result) +
-    "<p><strong>Ergebnis · " +
-    (f.total == null ? "Zählung offen" : eur(f.total)) +
+    "<section><h2>Event financial statement</h2>" +
+    block("Cash", f.cash) +
+    block("Event result", f.result) +
+    "<p><strong>Result · " +
+    (f.total == null ? "Count outstanding" : eur(f.total)) +
     "</strong></p></section>"
   );
 }
