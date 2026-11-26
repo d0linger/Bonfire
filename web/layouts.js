@@ -14,7 +14,7 @@ import {
   Header,
   PageNumber,
 } from "docx";
-import { eur, types, summary, denom } from "./domain.js";
+import { financialLabel, eur, types, summary, denom } from "./domain.js";
 import { lineCents } from "./positions.js";
 const mm = (v) => Math.round((v * 1440) / 25.4);
 export function tablesFor(i, s, rows, subject, opts) {
@@ -157,9 +157,9 @@ export function tablesFor(i, s, rows, subject, opts) {
     return {
       intro: row
         ? (pooled ? "All wallets · " : "") +
-          v.Phase +
+          financialLabel(v.Phase) +
           " · " +
-          (v.Status || "Unconfirmed")
+          (financialLabel(v.Status) || "Unconfirmed")
         : "Blank cash count",
       blocks: [
         {
@@ -330,7 +330,7 @@ export function tablesFor(i, s, rows, subject, opts) {
               r.Data.Date,
               types[r.Kind],
               r.Data.Label,
-              r.Data.Method || "",
+              financialLabel(r.Data.Method) || "",
               eur(r.Data.Amount),
             ]),
         },

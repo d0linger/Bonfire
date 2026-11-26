@@ -19,7 +19,7 @@ import {
   WidthType,
   HeightRule,
 } from "docx";
-import { denom, eur, summary, types, today } from "./domain.js";
+import { financialLabel, denom, eur, summary, types, today } from "./domain.js";
 import contracts from "./contracts.json" with { type: "json" };
 export const profiles = [
   "Sponsorship invoice · bank transfer",
@@ -98,7 +98,7 @@ export function snapshot(index, s, rows, opts) {
           {
             headers: ["Date", "Payment method", "Payment reference", "Received"],
             widths: [30, 32, 76, 32],
-            rows: [[v.Date, v.Method || "—", v.Label, eur(v.Amount)]],
+            rows: [[v.Date, financialLabel(v.Method) || "—", v.Label, eur(v.Amount)]],
           },
         ],
         after: [org?.Label || "Fire brigade"],
@@ -249,7 +249,7 @@ export function snapshot(index, s, rows, opts) {
     if (chosen)
       add(
         v.Fields?.countScope === "all" ? "All wallets" : v.Wallet,
-        v.Phase,
+        financialLabel(v.Phase),
       );
     if (!chosen || v.Pieces)
       for (const d of denom)
