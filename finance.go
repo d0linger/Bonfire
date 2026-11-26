@@ -53,9 +53,16 @@ func cashAdjustment(r row, includes func(string) bool, pooled bool) int64 {
 	return adjustment
 }
 
+func withinCount(movement, closing data) bool {
+	if closing.Date == "" || movement.Date != closing.Date {
+		return closing.Date == "" || movement.Date < closing.Date
+	}
+	return movement.PostingOrder == 0 || closing.PostingOrder == 0 || movement.PostingOrder <= closing.PostingOrder
+}
+
 func walletRevenue(rows []row, wallet string) (int64, bool) {
 	var start, end *int64
-	var cutoff string
+	var cutoff data
 	for _, r := range rows {
 		v := r.Data
 		if r.Kind == "count" && v.Wallet == wallet {
@@ -63,7 +70,7 @@ func walletRevenue(rows []row, wallet string) (int64, bool) {
 				start = v.Amount
 			} else if v.Phase == "Ende" {
 				end = v.Amount
-				cutoff = v.Date
+				cutoff = v
 			}
 		}
 	}
@@ -72,7 +79,7 @@ func walletRevenue(rows []row, wallet string) (int64, bool) {
 	}
 	total := *end - *start
 	for _, r := range rows {
-		if cutoff == "" || r.Data.Date <= cutoff {
+		if withinCount(r.Data, cutoff) {
 			total += cashAdjustment(r, func(id string) bool { return id != "" && id == wallet }, false)
 		}
 	}
@@ -82,7 +89,7 @@ func walletRevenue(rows []row, wallet string) (int64, bool) {
 func pooledRevenue(rows []row) (int64, bool) {
 	wallets := map[string]bool{}
 	openings := map[string]int64{}
-	var cutoff string
+	var cutoff data
 	var start, end *int64
 	for _, r := range rows {
 		v := r.Data
@@ -98,7 +105,7 @@ func pooledRevenue(rows []row) (int64, bool) {
 				start = v.Amount
 			} else if v.Phase == "Ende" {
 				end = v.Amount
-				cutoff = v.Date
+				cutoff = v
 			}
 		case v.Phase == "Anfang":
 			openings[v.Wallet] = *v.Amount
@@ -125,7 +132,7 @@ func pooledRevenue(rows []row) (int64, bool) {
 		}
 	}
 	for _, r := range rows {
-		if r.ID != pooledSettlement && (cutoff == "" || r.Data.Date <= cutoff) {
+		if r.ID != pooledSettlement && (withinCount(r.Data, cutoff)) {
 			total += cashAdjustment(r, func(id string) bool { return wallets[id] }, true)
 		}
 	}
@@ -281,7 +288,7 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 			(!pooled && (v.Reference != "wallet-settlement" || v.Wallet == "" || o.Target != "settlement:"+v.Wallet)) {
 			return false, fail("Geldtaschenbezug ungültig.")
 		}
-		rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event=$1 AND id<>$2 AND (kind='wallet' OR kind='count' OR kind=ANY($3))", d.Event, o.Target, journalKinds)
+		rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM settlement_entries WHERE event=$1 AND id<>$2 AND (kind='wallet' OR kind='count' OR kind=ANY($3))", d.Event, o.Target, journalKinds)
 		if err != nil {
 			return false, err
 		}

@@ -179,3 +179,22 @@ test("R03–R06 shared cash settlement vectors", async () => {
     assert.equal(summary([...entries,r("income",c.unbooked)]).receipts,c.net,c.name);
   }
 });
+
+test("same-day top-ups after the closing count are excluded at both scopes", () => {
+  const movement = (kind, amount, order, phase = "") => ({
+    Kind: kind,
+    Data: { Amount: amount, Wallet: "Nord", PostingOrder: String(order), Date: "2026-07-02", Phase: phase },
+  });
+  const closing = movement("count", 2000, 12, "Ende");
+  const rows = [
+    { ID: "Nord", Kind: "wallet", Data: {} },
+    movement("count", 1000, 10, "Anfang"),
+    movement("supply", 300, 13),
+    closing,
+    movement("supply", 200, 11),
+  ];
+  assert.equal(counted(rows, "Nord"), 800);
+  closing.Data.Wallet = "";
+  closing.Data.Fields = { countScope: "all" };
+  assert.equal(pooledRevenue(rows), 800);
+});
