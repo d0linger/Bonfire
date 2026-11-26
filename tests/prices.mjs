@@ -1,13 +1,10 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { api, auth, admin, basic } from "./local-api.mjs";
+import { api, admin, basic, onlineClient, practiceEvent } from "./local-api.mjs";
 import { pricesAt } from "../web/price-history.js";
-const day = "2034-09-01";
-const event = await api("events", admin, {
-  Name: "Fiktive Preistafel " + randomUUID().slice(0, 8),
-  Starts: day,
-  Ends: day,
-});
+const day = "2702-09-01";
+const lead = await onlineClient();
+const event = await practiceEvent(lead, "Price history exercise", day);
 const person = "k-" + randomUUID().slice(0, 10),
   pw = randomUUID();
 await api("users", admin, {
@@ -16,14 +13,7 @@ await api("users", admin, {
   Role: "Write",
   Event: event.ID,
 });
-const lead = await api("prepare", admin, {
-  Event: event.ID,
-  Name: "Preisfreigabe",
-});
-const desk = await api("prepare", basic(person, pw), {
-  Event: event.ID,
-  Name: "Kassenprofil",
-});
+const desk = await onlineClient(basic(person, pw));
 const item = randomUUID();
 const base = {
   Label: "Übungsportion",
@@ -48,7 +38,7 @@ const rec = (Seq, Base, data) => ({
   Kind: "price",
   Data: data,
 });
-const send = (d, o, status) => api("sync", auth(d), { Ops: [o] }, status);
+const send = (d, o, status) => d("online?event=" + event.ID, { Ops: [o] }, status);
 await send(lead, rec(1, 0, base), 422);
 const resolved = {
   ...base,

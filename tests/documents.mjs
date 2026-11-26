@@ -106,6 +106,13 @@ try {
         "<w:p><w:r><w:t>{{organization.</w:t></w:r><w:r><w:t>name}}</w:t><w:br/><w:t>Second line</w:t><w:tab/><w:t>Value</w:t></w:r></w:p>",
       ),
     );
+    for (const type of ["page", "column"]) {
+      let error;
+      try {
+        await b.importTemplate(doc(`<w:p><w:r><w:t>Before</w:t><w:br w:type="${type}"/><w:t>After</w:t></w:r></w:p>`));
+      } catch (cause) { error = cause; }
+      if (error?.message !== "Unsupported Word break: " + type) throw Error("Expected rejection for " + type);
+    }
     let rejected = false;
     try {
       await b.importTemplate(

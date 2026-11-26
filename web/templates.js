@@ -38,6 +38,10 @@ export async function importTemplate(file) {
   ])
     if (doc.getElementsByTagNameNS("*", tag).length)
       throw Error("Nicht unterstützter Word-Inhalt: " + tag);
+  for (const lineBreak of doc.getElementsByTagNameNS("*", "br")) {
+    const type = lineBreak.getAttributeNS(lineBreak.namespaceURI, "type");
+    if (type && type !== "textWrapping") throw Error("Unsupported Word break: " + type);
+  }
   const body = [...doc.getElementsByTagNameNS("*", "p")]
     .map((p) =>
       [...p.getElementsByTagNameNS("*", "*")]

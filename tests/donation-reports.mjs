@@ -1,26 +1,8 @@
 import assert from "node:assert/strict";
 import { randomInt, randomUUID, createHash } from "node:crypto";
-import { admin } from "./local-api.mjs";
+import { onlineClient } from "./local-api.mjs";
 
-const base = new URL(process.env.BONFIRE_URL);
-assert.ok(["127.0.0.1", "localhost"].includes(base.hostname) && base.port !== "8137");
-const login = await fetch(new URL("/api/login", base), {
-  method: "POST",
-  headers: { Authorization: admin },
-});
-assert.equal(login.status, 200);
-const cookie = login.headers.getSetCookie()[0].split(";")[0];
-
-async function call(route, body, status = 200, headers = {}) {
-  const response = await fetch(new URL("/api/" + route, base), {
-    method: "POST",
-    headers: { Cookie: cookie, "Content-Type": "application/json", ...headers },
-    body: JSON.stringify(body),
-  });
-  const value = await response.text();
-  assert.equal(response.status, status, value.slice(0, 160));
-  return status === 200 ? JSON.parse(value) : null;
-}
+const call = await onlineClient();
 const year = randomInt(4000, 9000);
 const day = year + "-03-17";
 const fiscalYear = await call("years", { Name: "Donation exercise " + year, Starts: day, Ends: day });
