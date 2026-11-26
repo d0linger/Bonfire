@@ -153,7 +153,7 @@ try {
   await page.locator(".filter-box summary").click();
   await page.locator("#filter input").fill(label);
   await page.locator("#filter button").click();
-  await page.getByText("Keine Einträge.", { exact: true }).waitFor();
+  await page.getByText("No entries.", { exact: true }).waitFor();
   await check("Leere Kontakte");
   async function createAndEdit(section, name) {
     const dialog = page.getByRole("dialog");
@@ -165,32 +165,32 @@ try {
       .click();
     assert.ok(await dialog.evaluate((el) => el.matches(":modal")));
     await dialog
-      .getByLabel(section === "Kontakte" ? "Name or company" : "Bezeichnung")
+      .getByLabel(section === "Kontakte" ? "Name or company" : "Description")
       .fill(name);
     if (section === "Kontakte") {
-      await dialog.getByLabel("Straße und Hausnummer").fill("Übungsplatz 3");
-      await dialog.getByLabel("PLZ").fill("1111");
-      await dialog.getByLabel("Ort", { exact: true }).fill("Probeort");
+      await dialog.getByLabel("Street and house number").fill("Übungsplatz 3");
+      await dialog.getByLabel("Postal code").fill("1111");
+      await dialog.getByLabel("Town or city", { exact: true }).fill("Probeort");
     }
     if (section === "Spenden")
       await dialog.getByLabel("Amount in EUR").fill("5,50");
     await dialog
-      .getByRole("button", { name: "Speichern", exact: true })
+      .getByRole("button", { name: "Save", exact: true })
       .click();
     await dialog.waitFor({ state: "hidden" });
     await page
       .getByRole("row")
       .filter({ hasText: name })
-      .getByRole("button", { name: "Bearbeiten" })
+      .getByRole("button", { name: "Edit" })
       .click();
     assert.equal(
       await dialog
-        .getByLabel(section === "Kontakte" ? "Name or company" : "Bezeichnung")
+        .getByLabel(section === "Kontakte" ? "Name or company" : "Description")
         .inputValue(),
       name,
     );
     await dialog
-      .getByLabel(section === "Kontakte" ? "Name or company" : "Bezeichnung")
+      .getByLabel(section === "Kontakte" ? "Name or company" : "Description")
       .fill(name + " bestätigt");
     await dialog.getByLabel("Reason for correction").fill("Fiktive Berichtigung");
     await dialog
@@ -206,10 +206,10 @@ try {
   const archive = page
     .getByRole("row")
     .filter({ hasText: label })
-    .getByRole("button", { name: "Archivieren" });
+    .getByRole("button", { name: "Archive" });
   await archive.click();
   const reason = page.getByRole("dialog");
-  await reason.getByLabel("Begründung").waitFor();
+  await reason.getByLabel("Reason").waitFor();
   assert.ok(await reason.evaluate((d) => d.matches(":modal")));
   await check("Kontakt archivieren", reason);
   await page.keyboard.press("Escape");
@@ -231,12 +231,12 @@ try {
   await page.locator('[data-space="' + event.ID + '"]').click();
   await check("Veranstaltung");
   await page
-    .getByRole("button", { name: "Veranstaltung kopieren", exact: true })
+    .getByRole("button", { name: "Copy event", exact: true })
     .click();
   const copying = page.getByRole("dialog");
   assert.ok((await copying.innerText()).includes(event.Name));
   assert.equal(
-    await copying.getByLabel("Zielgeschäftsjahr").inputValue(),
+    await copying.getByLabel("Destination fiscal year").inputValue(),
     year.ID,
   );
   await page.keyboard.press("Escape");
@@ -296,7 +296,7 @@ try {
           }
         }
         await dialog
-          .getByRole("button", { name: "Speichern", exact: true })
+          .getByRole("button", { name: "Save", exact: true })
           .click();
         await dialog.waitFor({ state: "hidden" });
         await page
@@ -373,10 +373,10 @@ try {
         await trigger.click();
         const editor = page.locator("#entry-dialog");
         if (record === donation)
-          await editor.getByLabel("Empfänger").selectOption(contact.Target);
+          await editor.getByLabel("Recipient").selectOption(contact.Target);
         const file = page.waitForEvent("download");
         await editor
-          .getByRole("button", { name: "Original ausstellen" })
+          .getByRole("button", { name: "Issue original" })
           .click();
         const issued = await file.catch(async (err) => {
           throw Error(
@@ -460,9 +460,9 @@ try {
         await page.keyboard.press("Escape");
       }
       await actions.getByRole("button", { name: "Add wallet" }).click();
-      await dialog.getByLabel("Bezeichnung").fill(wallet);
+      await dialog.getByLabel("Description").fill(wallet);
       await dialog
-        .getByRole("button", { name: "Speichern", exact: true })
+        .getByRole("button", { name: "Save", exact: true })
         .click();
       await dialog.waitFor({ state: "hidden" });
       await actions
@@ -483,7 +483,7 @@ try {
       await check("Stückelung beim Nachlegen", dialog);
       assert.equal(await dialog.locator("[name=To]").count(), 0);
       await dialog
-        .getByRole("button", { name: "Speichern", exact: true })
+        .getByRole("button", { name: "Save", exact: true })
         .click();
       await dialog.waitFor({ state: "hidden" });
       const endpoint = "online?event=" + event.ID;
@@ -515,10 +515,10 @@ try {
         await dialog.getByRole("heading", { name, exact: true }).waitFor();
         assert.equal(await dialog.locator("[name=Phase]").inputValue(), phase);
         assert.equal(
-          await dialog.getByLabel("Vorgang", { exact: true }).count(),
+          await dialog.getByLabel("Transaction", { exact: true }).count(),
           0,
         );
-        await dialog.getByLabel("Bezeichnung").fill(name);
+        await dialog.getByLabel("Description").fill(name);
         await dialog.locator("[name=Wallet]").selectOption({ label: wallet });
         if (phase === "Zwischenstand") {
           await dialog.getByLabel("Counted amount in EUR").fill("30,00");
@@ -532,7 +532,7 @@ try {
           }
         }
         await dialog
-          .getByRole("button", { name: "Speichern", exact: true })
+          .getByRole("button", { name: "Save", exact: true })
           .click();
         await dialog.waitFor({ state: "hidden" });
       }
@@ -555,7 +555,7 @@ try {
       );
       // The 25 EUR delivery preceded the opening count: 34 EUR closing less 4 EUR opening.
       await page
-        .getByText(/Tasche Süd · Weitere Sammelbareinnahme\s+(?:€\s*)?30,00/)
+        .getByText(/Tasche Süd · Additional pooled cash income\s+(?:€\s*)?30,00/)
         .waitFor();
     }
   }
@@ -569,19 +569,19 @@ try {
       ["Count closing balance", "82,75"],
     ]) {
       await page.getByRole("button", { name, exact: true }).click();
-      assert.equal(await dialog.getByLabel("Zählumfang").inputValue(), "all");
+      assert.equal(await dialog.getByLabel("Count scope").inputValue(), "all");
       assert.equal(
-        await dialog.getByLabel("Geldtasche", { exact: true }).isVisible(),
+        await dialog.getByLabel("Wallet", { exact: true }).isVisible(),
         false,
       );
       await dialog.getByLabel("Counted amount in EUR").fill(value);
       await dialog
-        .getByRole("button", { name: "Speichern", exact: true })
+        .getByRole("button", { name: "Save", exact: true })
         .click();
       await dialog.waitFor({ state: "hidden" });
     }
-    await page.getByRole("button", { name: "Gesamtbetrag buchen" }).click();
-    await dialog.getByRole("button", { name: "Gesamtbetrag buchen" }).click();
+    await page.getByRole("button", { name: "Post total" }).click();
+    await dialog.getByRole("button", { name: "Post total" }).click();
     await dialog.waitFor({ state: "hidden" });
     const state = await api("online?event=" + pooledEvent.ID, {});
     assert.equal(
@@ -603,11 +603,11 @@ try {
     await nav(key);
     if (key === "Feuerwehrkonten") {
       await page
-        .getByRole("button", { name: "Konto anlegen", exact: true })
+        .getByRole("button", { name: "Create account", exact: true })
         .click();
       const editor = page.getByRole("dialog");
       await editor
-        .getByLabel("Kontoname")
+        .getByLabel("Account name")
         .fill("Übungskonto " + event.ID.slice(0, 8));
       await editor.locator("button:not([type=button])").click();
       await editor.waitFor({ state: "hidden" });
@@ -616,10 +616,10 @@ try {
         .waitFor();
     }
     if (key === "Dokumente") {
-      await page.getByRole("button", { name: "Vorlagenbibliothek" }).click();
+      await page.getByRole("button", { name: "Template library" }).click();
       const editor = page.getByRole("dialog");
-      await editor.getByLabel("Vorlagenstand").selectOption("standard-5");
-      await editor.getByRole("button", { name: "Vorlage übernehmen" }).click();
+      await editor.getByLabel("Template version").selectOption("standard-5");
+      await editor.getByRole("button", { name: "Use template" }).click();
       await editor.waitFor({ state: "hidden" });
     }
     if (key === "Systemstatus")

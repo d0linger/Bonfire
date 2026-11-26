@@ -40,7 +40,7 @@ try {
   await page.locator("#login [name=pass]").fill(password);
   assert.equal(
     await page
-      .getByText("Offlineprofile und Sicherungen", { exact: true })
+      .getByText("Offline profiles and backups", { exact: true })
       .count(),
     0,
   );
@@ -70,7 +70,7 @@ try {
       .waitFor();
     assert.ok(
       (await page.locator("#workspace-picker").innerText()).includes(
-        "Allgemeines Kassenbuch",
+        "General cashbook",
       ),
     );
     assert.equal(await page.locator("select[name=workspace]").count(), 0);
@@ -118,7 +118,7 @@ try {
       target,
     );
     assert.equal(
-      await dialog.getByLabel("Datum", { exact: true }).inputValue(),
+      await dialog.getByLabel("Date", { exact: true }).inputValue(),
       date,
     );
     await dialog.getByLabel("Amount in EUR").fill(amount);
@@ -132,7 +132,7 @@ try {
     );
   };
   await enterOpening(
-    "Allgemeines Kassenbuch · Geschäftsjahr 2046",
+    "General cashbook · Fiscal year 2046",
     "2046-01-01",
     "175,50",
   );
@@ -146,7 +146,7 @@ try {
   await submit("event");
   const eventName = "Übung Sommerfest";
   await enterOpening(
-    "Veranstaltung · " + eventName + " · Geschäftsjahr 2046",
+    "Event · " + eventName + " · Fiscal year 2046",
     "2046-08-20",
     "0,00",
   );
@@ -165,14 +165,14 @@ try {
   const eventDialog = page.getByRole("dialog");
   assert.match(
     await eventDialog.locator(".booking-target").innerText(),
-    /Veranstaltung · Übung Sommerfest · Geschäftsjahr 2046/,
+    /Event · Übung Sommerfest · Fiscal year 2046/,
   );
   await eventDialog
-    .getByLabel("Bezeichnung", { exact: true })
+    .getByLabel("Description", { exact: true })
     .fill(eventBooking);
   await eventDialog.getByLabel("Amount in EUR").fill("12,34");
   await eventDialog
-    .getByRole("button", { name: "Speichern", exact: true })
+    .getByRole("button", { name: "Save", exact: true })
     .click();
   await page.getByRole("cell", { name: eventBooking, exact: true }).waitFor();
   for (const [type, label, amount] of [
@@ -182,7 +182,7 @@ try {
     await button("Record event transaction").click();
     await eventDialog.locator("select[name=type]").selectOption(type);
     await eventDialog
-      .getByLabel(type === "expense" ? "What was it for?" : "Bezeichnung", {
+      .getByLabel(type === "expense" ? "What was it for?" : "Description", {
         exact: true,
       })
       .fill(label);
@@ -209,7 +209,7 @@ try {
   );
   assert.match(
     await page.locator("#workspace-picker").innerText(),
-    /Allgemeines Kassenbuch · Geschäftsjahr 2046/,
+    /General cashbook · Fiscal year 2046/,
   );
   assert.equal(
     await page
@@ -230,7 +230,7 @@ try {
   await modal.waitFor();
   assert.match(
     await modal.locator(".booking-target").innerText(),
-    /Allgemeines Kassenbuch · Geschäftsjahr 2046/,
+    /General cashbook · Fiscal year 2046/,
   );
   assert.ok(
     await modal.evaluate(
@@ -270,7 +270,7 @@ try {
   await page
     .getByRole("row")
     .filter({ hasText: booking })
-    .getByRole("button", { name: "Bearbeiten" })
+    .getByRole("button", { name: "Edit" })
     .click();
   assert.ok(await editor.getByLabel("Reason for correction").isVisible());
   await details.click();
@@ -278,7 +278,7 @@ try {
     await editor.locator("[name=Reference]").inputValue(),
     "Übungsbeleg 1",
   );
-  await editor.getByRole("button", { name: "Abbrechen", exact: true }).click();
+  await editor.getByRole("button", { name: "Cancel", exact: true }).click();
   await button("Record transaction").click();
   const uncertain = "Wechselgeldbeleg " + randomUUID();
   await page.locator("#record [name=Label]").fill(uncertain);
@@ -314,10 +314,10 @@ try {
   const yearB = await createYear("2047", "2046-11-01", "2047-12-31");
   assert.notEqual(yearA, yearB);
   await opening.click();
-  const priorMode = page.getByRole("radio", { name: "Aus Vorjahr übernehmen" });
+  const priorMode = page.getByRole("radio", { name: "Carry forward from prior year" });
   await priorMode.check();
   await page.getByText(/kein bestätigter Schlussbestand vor/).waitFor();
-  await page.getByRole("radio", { name: "Händisch erfassen" }).check();
+  await page.getByRole("radio", { name: "Enter manually" }).check();
   assert.ok(await page.getByLabel("Amount in EUR").isVisible());
   await page.keyboard.press("Escape");
   const previousSpaces = await (
@@ -409,16 +409,16 @@ try {
     await button(name).click();
     const dialog = page.getByRole("dialog", { name, exact: true });
     if (reason)
-      await dialog.getByLabel("Grund für die Wiederöffnung").fill(reason);
+      await dialog.getByLabel("Reason for reopening").fill(reason);
     await dialog.getByRole("button", { name, exact: true }).click();
     await dialog.waitFor({ state: "hidden" });
   };
-  await closeDialog("Veranstaltung abschließen");
-  await button("Veranstaltung wieder öffnen").waitFor();
+  await closeDialog("Close event");
+  await button("Reopen event").waitFor();
   await go("Overview");
-  await closeDialog("Geschäftsjahr abschließen");
+  await closeDialog("Close fiscal year");
   await page
-    .getByText("Geschäftsjahr abgeschlossen · Nur Lesen", { exact: true })
+    .getByText("Fiscal year closed · Read only", { exact: true })
     .waitFor();
   await go("Events");
   await button(closingFest).waitFor();
@@ -426,13 +426,13 @@ try {
   assert.equal(await button("Record event transaction").count(), 0);
   await button(closingFest).click();
   await page.getByRole("heading", { name: closingFest, exact: true }).waitFor();
-  assert.equal(await button("Veranstaltung wieder öffnen").count(), 0);
+  assert.equal(await button("Reopen event").count(), 0);
   await go("Overview");
-  await closeDialog("Geschäftsjahr wieder öffnen", "Korrektur im Test");
+  await closeDialog("Reopen fiscal year", "Korrektur im Test");
   await go("Events");
   await button(closingFest).click();
-  await closeDialog("Veranstaltung wieder öffnen", "Beleg ergänzen");
-  await button("Veranstaltung abschließen").waitFor();
+  await closeDialog("Reopen event", "Beleg ergänzen");
+  await button("Close event").waitFor();
   await chooseYear(yearA);
   await go("Events");
   const figures = eventRow.locator(".event-figures");
@@ -499,14 +499,14 @@ try {
     .click();
   await writer
     .getByText(
-      "Für diesen Bereich ist kein allgemeines Kassenbuch freigegeben.",
+      "No general cashbook is available for this workspace.",
     )
     .waitFor();
   assert.equal(
     await writer.getByRole("button", { name: "Record transaction" }).count(),
     0,
   );
-  await writer.getByRole("button", { name: "Veranstaltungen öffnen" }).click();
+  await writer.getByRole("button", { name: "Open events" }).click();
   await writer.getByRole("button", { name: eventName, exact: true }).click();
   await writer
     .getByRole("button", { name: "Open event transactions" })
@@ -517,7 +517,7 @@ try {
     .click();
   assert.match(
     await writer.getByRole("dialog").locator(".booking-target").innerText(),
-    /Übung Sommerfest · Geschäftsjahr 2046/,
+    /Übung Sommerfest · Fiscal year 2046/,
   );
   await restricted.close();
   console.log(
