@@ -541,7 +541,7 @@ try {
       assert.equal(topUp.Pieces, null);
       assert.deepEqual(
         [topUp.Account, topUp.To, topUp.Amount],
-        ["Handkassa", wallet, 2500],
+        ["Handkassa", topUp.Wallet, 2500],
       );
       assert.equal(topUp.Wallet, entries.find((r) => r.Kind === "wallet").ID);
       const counts = entries.filter((r) => r.Kind === "count");
