@@ -85,7 +85,7 @@ func (b *backupWorker) pgTool(ctx context.Context, name, dbname string, args ...
 		cmd.Env[len(cmd.Env)-1] = "PGSSLMODE=prefer"
 	}
 	if err := cmd.Run(); err != nil {
-		return errors.New(name + " fehlgeschlagen")
+		return errors.New(name + " failed")
 	}
 	return nil
 }
@@ -114,7 +114,7 @@ func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (stri
 	if err = tx.QueryRow(ctx, "SELECT pg_export_snapshot()").Scan(&snap); err != nil {
 		return "", "", err
 	}
-	dir, err := os.MkdirTemp(backupHome, ".job-")
+	dir, err := os.MkdirTemp(b.storageRoot(), ".job-")
 	if err != nil {
 		return "", "", err
 	}
@@ -152,10 +152,10 @@ func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (stri
 	if target == "s3" {
 		err = b.putS3(ctx, name, tmp)
 	} else {
-		err = os.Rename(tmp, filepath.Join(backupHome, name))
+		err = os.Rename(tmp, filepath.Join(b.storageRoot(), name))
 		if err == nil {
 			var dir *os.File
-			dir, err = os.Open(backupHome)
+			dir, err = os.Open(b.storageRoot())
 			if err == nil {
 				err = errors.Join(dir.Sync(), dir.Close())
 			}
@@ -168,7 +168,7 @@ func dbIdent(name string) string { return pgx.Identifier{name}.Sanitize() }
 
 func (b *backupWorker) stage(ctx context.Context, target, name string) (string, backupManifest, string, error) {
 	var m backupManifest
-	dir, err := os.MkdirTemp(backupHome, ".job-")
+	dir, err := os.MkdirTemp(b.storageRoot(), ".job-")
 	if err != nil {
 		return "", m, "", err
 	}
@@ -233,7 +233,7 @@ func (b *backupWorker) stage(ctx context.Context, target, name string) (string, 
 	}
 	files, err := migrations.ReadDir("migrations")
 	if err != nil || v < 21 || v > len(files) {
-		return "", m, "", errors.New("Schemaversion weicht ab. Passende BONFIRE-Version für die Probe verwenden")
+		return "", m, "", errors.New("Schema version mismatch. Test the restore with a matching BONFIRE version.")
 	}
 	for i := 1; i <= v; i++ {
 		raw, err := migrations.ReadFile(fmt.Sprintf("migrations/%03d.sql", i))
@@ -245,7 +245,7 @@ func (b *backupWorker) stage(ctx context.Context, target, name string) (string, 
 			return "", m, "", err
 		}
 		if digest != migrationHash(raw, false) && digest != migrationHash(raw, true) {
-			return "", m, "", errors.New("Migrationsnachweis stimmt nicht überein")
+			return "", m, "", errors.New("Migration verification mismatch.")
 		}
 	}
 	tx, err := restored.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
@@ -260,7 +260,7 @@ func (b *backupWorker) stage(ctx context.Context, target, name string) (string, 
 		return "", m, "", err
 	}
 	if m.Installation != "" && (m.Installation != check.Installation || m.DataHash != check.DataHash || m.Years != check.Years || m.Workspaces != check.Workspaces || m.Entries != check.Entries || m.Originals != check.Originals) {
-		return "", m, "", errors.New("Prüfsummen oder Fachbestände weichen vom Sicherungsmanifest ab")
+		return "", m, "", errors.New("The checksums or financial records differ from the backup manifest.")
 	}
 	if m.Installation == "" {
 		check.Installation = ""
@@ -326,7 +326,7 @@ func (b *backupWorker) recoverSwap(ctx context.Context, c *pgx.Conn) error {
 	if !locked {
 		return errors.New("another backup job holds the recovery lock")
 	}
-	path := filepath.Join(backupHome, ".swap.json")
+	path := filepath.Join(b.storageRoot(), ".swap.json")
 	data, err := os.ReadFile(path) // #nosec G304 -- fixed backupHome/.swap.json, never a request path.
 	if os.IsNotExist(err) {
 		return nil
@@ -343,7 +343,7 @@ func (b *backupWorker) recoverSwap(ctx context.Context, c *pgx.Conn) error {
 		return err
 	}
 	if oid != j.Original && oid != j.Staged {
-		return errors.New("Datenbankidentität nach Restore unklar")
+		return errors.New("Could not verify the database identity after restore.")
 	}
 	if _, err = c.Exec(ctx, "ALTER DATABASE "+dbIdent(b.db.Database)+" ALLOW_CONNECTIONS true"); err != nil {
 		return err
@@ -380,7 +380,7 @@ func (b *backupWorker) promote(ctx context.Context, c *pgx.Conn, stage, user str
 		return err
 	}
 	if m.Installation == "" || m.Installation != lineage {
-		return errors.New("Andere Installation oder Legacy-Datei: Übernahme gesperrt")
+		return errors.New("This backup belongs to another installation or uses a legacy format. Restore is blocked.")
 	}
 	dest, err := b.connect(ctx, stage)
 	if err != nil {
@@ -397,7 +397,7 @@ func (b *backupWorker) promote(ctx context.Context, c *pgx.Conn, stage, user str
 	if err != nil {
 		return err
 	}
-	if err = saveBackupJSON(filepath.Join(backupHome, ".swap.json"), j); err != nil {
+	if err = saveBackupJSON(filepath.Join(b.storageRoot(), ".swap.json"), j); err != nil {
 		return err
 	}
 	// Crash recovery reopens the original or records the committed swap by OID.

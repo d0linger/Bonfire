@@ -30,7 +30,7 @@ func newS3() (*minio.Client, string, string, error) {
 		return nil, "", "", nil
 	}
 	if ep == "" || bucket == "" || key == "" || secret == "" {
-		return nil, "", "", errors.New("S3-Konfiguration unvollständig")
+		return nil, "", "", errors.New("Incomplete S3 configuration.")
 	}
 	prefix := strings.Trim(os.Getenv("BONFIRE_S3_PREFIX"), "/")
 	if prefix != "" {
@@ -42,7 +42,7 @@ func newS3() (*minio.Client, string, string, error) {
 
 func (b *backupWorker) putS3(ctx context.Context, name, path string) error {
 	if b.s3 == nil {
-		return errors.New("S3 nicht eingerichtet")
+		return errors.New("S3 is not configured.")
 	}
 	_, err := b.s3.FPutObject(ctx, b.bucket, b.prefix+name, path, minio.PutObjectOptions{ContentType: "application/octet-stream"})
 	return err
@@ -52,7 +52,7 @@ func (b *backupWorker) listFiles(ctx context.Context, target string) ([]backupFi
 	files := []backupFile{}
 	if target == "s3" {
 		if b.s3 == nil {
-			return files, errors.New("S3 nicht eingerichtet")
+			return files, errors.New("S3 is not configured.")
 		}
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
@@ -63,7 +63,7 @@ func (b *backupWorker) listFiles(ctx context.Context, target string) ([]backupFi
 			}
 			n++
 			if n > 10000 {
-				return nil, errors.New("Zu viele S3-Objekte im Präfix")
+				return nil, errors.New("Too many S3 objects under the prefix.")
 			}
 			name := strings.TrimPrefix(obj.Key, b.prefix)
 			if backupName.MatchString(name) {
@@ -74,7 +74,7 @@ func (b *backupWorker) listFiles(ctx context.Context, target string) ([]backupFi
 			return nil, ctx.Err()
 		}
 	} else {
-		entries, err := os.ReadDir(backupHome)
+		entries, err := os.ReadDir(b.storageRoot())
 		if err != nil {
 			return nil, err
 		}
@@ -95,11 +95,11 @@ func (b *backupWorker) listFiles(ctx context.Context, target string) ([]backupFi
 
 func (b *backupWorker) openArchive(ctx context.Context, target, name string) (io.ReadCloser, error) {
 	if !backupName.MatchString(name) {
-		return nil, errors.New("Ungültige Sicherungsdatei")
+		return nil, errors.New("Invalid backup file.")
 	}
 	switch target {
 	case "local", "upload":
-		dir := backupHome
+		dir := b.storageRoot()
 		if target == "upload" {
 			dir = filepath.Join(dir, "uploads")
 		}
@@ -123,7 +123,7 @@ func (b *backupWorker) openArchive(ctx context.Context, target, name string) (io
 		return file, nil
 	case "s3":
 		if b.s3 == nil {
-			return nil, errors.New("S3 nicht eingerichtet")
+			return nil, errors.New("S3 is not configured.")
 		}
 		key := b.prefix + name
 		meta, err := b.s3.StatObject(ctx, b.bucket, key, minio.StatObjectOptions{})
@@ -131,11 +131,11 @@ func (b *backupWorker) openArchive(ctx context.Context, target, name string) (io
 			return nil, err
 		}
 		if meta.Size > archiveLimit+(64<<20) {
-			return nil, errors.New("Sicherung überschreitet Größenlimit")
+			return nil, errors.New("The backup exceeds the size limit.")
 		}
 		return b.s3.GetObject(ctx, b.bucket, key, minio.GetObjectOptions{})
 	}
-	return nil, errors.New("Ungültiges Sicherungsziel")
+	return nil, errors.New("Invalid backup destination.")
 }
 
 func (b *backupWorker) prune(ctx context.Context, target string, days int) error {
@@ -177,7 +177,7 @@ func (b *backupWorker) prune(ctx context.Context, target string, days int) error
 		if i == 0 || !f.At.Before(cutoff) {
 			continue
 		}
-		err = os.Remove(filepath.Join(backupHome, f.Name))
+		err = os.Remove(filepath.Join(b.storageRoot(), f.Name))
 		if err != nil {
 			return err
 		}
