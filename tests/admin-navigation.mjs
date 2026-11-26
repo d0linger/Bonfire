@@ -66,7 +66,7 @@ try {
   const group = page.locator("#admin-navigation");
   await group.locator("summary").click();
   const view = page.locator("article .admin-console").first();
-  for (const name of ["Backup", "Benutzer", "Audit-Log", "Systemstatus"]) {
+  for (const name of ["Backup", "Users", "Audit-Log", "Systemstatus"]) {
     await group.getByRole("button", { name, exact: true }).click();
     await view.getByRole("heading", { name, exact: true, level: 1 }).waitFor();
     assert.equal(await page.locator("#workspace-picker select").count(), 0);
@@ -77,12 +77,12 @@ try {
       await view.locator("dialog[open]").waitFor();
       await page.keyboard.press("Escape");
     }
-    if (name === "Benutzer") {
+    if (name === "Users") {
       await view
-        .getByRole("button", { name: "Anmelderichtlinie", exact: true })
+        .getByRole("button", { name: "Sign-in policy", exact: true })
         .click();
       await view
-        .getByRole("heading", { name: "Anmelderichtlinie", exact: true })
+        .getByRole("heading", { name: "Sign-in policy", exact: true })
         .waitFor();
     }
     if (name === "Audit-Log") {

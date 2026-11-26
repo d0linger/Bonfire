@@ -2,24 +2,24 @@ import { esc, icon } from "./workplace.js";
 
 const roles = ["Admin", "Write", "Read"];
 const titles = {
-  create: "Benutzer anlegen",
-  edit: "Zugang bearbeiten",
-  password: "Passwort zurücksetzen",
-  mfa: "Zweiten Faktor zurücksetzen",
-  sessions: "Sitzungen widerrufen",
-  disable: "Zugang sperren",
-  enable: "Zugang aktivieren",
+  create: "Create user",
+  edit: "Edit account",
+  password: "Reset password",
+  mfa: "Reset second factor",
+  sessions: "Revoke sessions",
+  disable: "Disable account",
+  enable: "Enable account",
 };
 const summaries = {
   password:
-    "Bestehende Sitzungen werden beendet. Das neue Startpasswort persönlich übergeben.",
-  mfa: "Authenticator und Recoverycodes werden entfernt. Die Person richtet den zweiten Faktor nach der nächsten Anmeldung neu ein.",
+    "This ends all active sessions. Give the temporary password directly to the account holder.",
+  mfa: "This removes the authenticator and recovery codes. The account holder can set up a new second factor after signing in.",
   sessions:
-    "Alle Sitzungen und ausstehenden Anmeldefreigaben dieser Person werden beendet.",
+    "This ends active sessions and cancels pending sign-in requests.",
   disable:
-    "Der Zugang wird gesperrt und alle Sitzungen werden beendet. Bisherige Buchungen bleiben dieser Person zugeordnet.",
+    "This disables sign-in and ends all sessions. Existing bookings retain their author.",
   enable:
-    "Die Person kann sich mit ihren vorhandenen Zugangsdaten und den zugewiesenen Rechten wieder anmelden.",
+    "This restores sign-in with the existing credentials and assigned permissions.",
 };
 const button = (action, label, primary = false) =>
   '<button type="button" data-account-action="' +
@@ -50,20 +50,20 @@ const field = (text, name, type, value = "", attrs = "") =>
   "/></label>";
 const late = (time) =>
   time
-    ? new Date(time).toLocaleString("de-AT", {
+    ? new Date(time).toLocaleString("en-GB", {
         dateStyle: "short",
         timeStyle: "short",
       })
-    : "Bisher keine Anmeldung erfasst";
+    : "No recorded sign-in";
 const editorActions = (user) =>
   [
-    button("edit", "Zugang bearbeiten"),
-    button("password", "Passwort zurücksetzen"),
-    ...(user.MFA ? [button("mfa", "Zweiten Faktor zurücksetzen")] : []),
-    button("sessions", "Sitzungen widerrufen"),
+    button("edit", "Edit account"),
+    button("password", "Reset password"),
+    ...(user.MFA ? [button("mfa", "Reset second factor")] : []),
+    button("sessions", "Revoke sessions"),
     button(
       user.Active ? "disable" : "enable",
-      user.Active ? "Zugang sperren" : "Zugang aktivieren",
+      user.Active ? "Disable account" : "Enable account",
     ),
   ].join("");
 
@@ -74,7 +74,7 @@ function accessFields(events, allowed) {
     years.get(event.Year).push(event);
   }
   return (
-    '<fieldset class="account-grants"><legend>Arbeitsbereiche</legend><small>Admin verwaltet die gesamte Installation und gibt Abschlüsse frei. Write kann in den ausgewählten Arbeitsbereichen buchen. Read hat dort Lesezugriff.</small>' +
+    '<fieldset class="account-grants"><legend>Workspaces</legend><small>Admins manage the installation and approve closures. Write users can record transactions in their assigned workspaces. Read users can view those workspaces.</small>' +
     [...years]
       .map(
         ([year, spaces]) =>
@@ -98,7 +98,7 @@ function accessFields(events, allowed) {
           "</details>",
       )
       .join("") +
-    (!events.length ? "<p>Noch keine Arbeitsbereiche vorhanden.</p>" : "") +
+    (!events.length ? "<p>No workspaces available.</p>" : "") +
     "</fieldset>"
   );
 }
@@ -107,7 +107,7 @@ function editFields(action, user, events) {
   let html = "";
   if (action === "edit" || action === "create") {
     html +=
-      field("Anzeigename", "Label", "text", user?.Label, "maxlength=160") +
+      field("Display name", "Label", "text", user?.Label, "maxlength=160") +
       field(
         "Email or username",
         "Login",
@@ -115,7 +115,7 @@ function editFields(action, user, events) {
         user?.Login,
         'required maxlength=254 autocomplete="off"',
       ) +
-      '<label>Rolle<select name="Role">' +
+      '<label>Role<select name="Role">' +
       roles
         .map(
           (role) =>
@@ -132,18 +132,18 @@ function editFields(action, user, events) {
   if (action === "create" || action === "password") {
     html +=
       field(
-        "Startpasswort (mindestens 14 Zeichen)",
+        "Temporary password (at least 14 characters)",
         "Password",
         "password",
         "",
         'required minlength=14 maxlength=72 autocomplete="new-password"',
       ) +
-      '<label class="account-check"><input name="MustChange" type="checkbox" checked> Passwortwechsel bei der nächsten Anmeldung verlangen</label>';
+      '<label class="account-check"><input name="MustChange" type="checkbox" checked> Require a password change at next sign-in</label>';
   }
   return (
     html +
     field(
-      "Begründung",
+      "Reason",
       "Reason",
       "text",
       "",
@@ -157,38 +157,38 @@ export async function mountUsers(host, { api }) {
   root.className = "admin-console account-console";
   host.replaceChildren(root);
   root.innerHTML =
-    '<h1>Benutzer</h1><p role="status">Benutzerkonten werden geladen …</p>';
+    '<h1>Users</h1><p role="status">Loading user accounts…</p>';
   let data,
     view = "accounts",
     saving = false;
   function render(message = "") {
     root.innerHTML =
-      '<div class="page-head"><div><h1>Benutzer</h1><p>Persönliche Konten, Rollen und Arbeitsbereiche verwalten.</p></div>' +
-      button("create", icon("Plus") + " Benutzer anlegen", true) +
+      '<div class="page-head"><div><h1>Users</h1><p>Manage user accounts, roles and workspaces.</p></div>' +
+      button("create", icon("Plus") + " Create user", true) +
       "</div>" +
-      '<div class="tabs" aria-label="Benutzerverwaltung"><button type="button" data-account-tab="accounts" ' +
+      '<div class="tabs" aria-label="User management"><button type="button" data-account-tab="accounts" ' +
       (view === "accounts" ? 'aria-current="page"' : "") +
-      '>Benutzerkonten</button><button type="button" data-account-tab="policy" ' +
+      '>User accounts</button><button type="button" data-account-tab="policy" ' +
       (view === "policy" ? 'aria-current="page"' : "") +
-      ">Anmelderichtlinie</button></div>" +
+      ">Sign-in policy</button></div>" +
       '<p class="account-notice" role="status">' +
       esc(message) +
       "</p>";
     if (view === "policy") {
       root.insertAdjacentHTML(
         "beforeend",
-        '<section><h2>Anmelderichtlinie</h2><dl class="account-facts"><dt>Passwort</dt><dd>14 bis 72 Bytes</dd>' +
-          "<dt>Sitzungsdauer</dt><dd>30 Minuten</dd><dt>Zweiter Faktor</dt><dd>Authenticator-Code oder einmaliger Recoverycode, wenn eingerichtet</dd>" +
-          "<dt>Startpasswort</dt><dd>Ein erzwungener Wechsel erfolgt nach erfolgreicher Anmeldung vor dem Zugriff auf die Arbeitsbereiche.</dd></dl></section>",
+        '<section><h2>Sign-in policy</h2><dl class="account-facts"><dt>Password</dt><dd>14 to 72 bytes</dd>' +
+          "<dt>Session duration</dt><dd>30 minutes</dd><dt>Second factor</dt><dd>Authenticator code or single-use recovery code, when enabled</dd>" +
+          "<dt>Temporary password</dt><dd>Users must change their temporary password before opening a workspace.</dd></dl></section>",
       );
       return;
     }
     root.insertAdjacentHTML(
       "beforeend",
-      '<section><div class="account-section"><h2>Benutzerkonten</h2>' +
-        button("refresh", "Aktualisieren") +
+      '<section><div class="account-section"><h2>User accounts</h2>' +
+        button("refresh", "Refresh") +
         '</div><div class="list"><table><thead><tr>' +
-        "<th>Person</th><th>Rolle</th><th>Anmeldeschutz</th><th>Zugang</th></tr></thead><tbody>" +
+        "<th>Person</th><th>Role</th><th>Authentication</th><th>Access</th></tr></thead><tbody>" +
         data.users
           .map(
             (u) =>
@@ -201,9 +201,9 @@ export async function mountUsers(host, { api }) {
               "</button></td><td>" +
               state(u.Role, false) +
               "</td><td>" +
-              (u.MFA ? "TOTP aktiv" : "Passwort") +
+              (u.MFA ? "TOTP enabled" : "Password") +
               "</td><td>" +
-              state(u.Active ? "Aktiv" : "Gesperrt", u.Active) +
+              state(u.Active ? "Active" : "Disabled", u.Active) +
               "</td></tr>",
           )
           .join("") +
@@ -217,23 +217,23 @@ export async function mountUsers(host, { api }) {
     return (
       '<div class="account-summary">' +
       state(user.Role, false) +
-      state(user.Active ? "Aktiv" : "Gesperrt", user.Active) +
+      state(user.Active ? "Active" : "Disabled", user.Active) +
       "</div>" +
-      '<dl class="account-facts"><dt>Anmeldung</dt><dd>' +
+      '<dl class="account-facts"><dt>Sign-in</dt><dd>' +
       esc(user.Login) +
-      "</dd><dt>Arbeitsbereiche</dt><dd>" +
+      "</dd><dt>Workspaces</dt><dd>" +
       esc(
         user.Role === "Admin"
-          ? "Alle Geschäftsjahre und Arbeitsbereiche"
-          : spaces.join(", ") || "Keine Freigabe",
+          ? "All fiscal years and workspaces"
+          : spaces.join(", ") || "No access",
       ) +
-      "</dd><dt>Letzte Anmeldung</dt><dd>" +
+      "</dd><dt>Last sign-in</dt><dd>" +
       esc(late(user.LastLogin)) +
-      "</dd><dt>Aktive Sitzungen</dt><dd>" +
+      "</dd><dt>Active sessions</dt><dd>" +
       user.Sessions +
       "</dd>" +
       (user.MustChange
-        ? "<dt>Passwortwechsel</dt><dd>Bei nächster Anmeldung erforderlich</dd>"
+        ? "<dt>Password change</dt><dd>Required at next sign-in</dd>"
         : "") +
       '</dl><div class="actions">' +
       editorActions(user) +
@@ -257,7 +257,7 @@ export async function mountUsers(host, { api }) {
       const header =
         '<div class="panel-head"><h2 id="account-editor-title">' +
         esc(title) +
-        '</h2><button type="button" class="entry-close" data-account-close aria-label="Schließen">×</button></div>';
+        '</h2><button type="button" class="entry-close" data-account-close aria-label="Close">×</button></div>';
       dialog.innerHTML = overview
         ? header + accountDetails(user)
         : "<form>" +
@@ -265,8 +265,8 @@ export async function mountUsers(host, { api }) {
           (user ? "<p>" + esc(person(user)) + "</p>" : "") +
           (summaries[action] ? "<p>" + summaries[action] + "</p>" : "") +
           editFields(action, user, data.events) +
-          '<p role="alert"></p><div class="actions"><button type="button" class="secondary" data-account-cancel>Abbrechen</button><button>' +
-          (action === "edit" ? "Änderungen speichern" : titles[action]) +
+          '<p role="alert"></p><div class="actions"><button type="button" class="secondary" data-account-cancel>Cancel</button><button>' +
+          (action === "edit" ? "Save changes" : titles[action]) +
           "</button></div></form>";
       dialog.scrollTop = 0;
       if (dialog.open)
@@ -327,11 +327,11 @@ export async function mountUsers(host, { api }) {
         const id =
           user?.ID || (login.includes("@") ? login.toLowerCase() : login);
         view = "accounts";
-        let message = "Änderung gespeichert.";
+        let message = "Changes saved.";
         try {
           data = await api("admin/users");
         } catch (error) {
-          message += " Liste bitte aktualisieren. " + error.message;
+          message += " Refresh the list. " + error.message;
         }
         dialog.close();
         render(message);
@@ -393,22 +393,22 @@ export function mountPasswordChange(host, ticket, onDone) {
   const root = document.createElement("div");
   root.className = "auth-card";
   root.innerHTML =
-    '<div class="auth-body"><h1>Neues Passwort festlegen</h1><p>Das Startpasswort ist nur für die erste Anmeldung gültig.</p><form>' +
+    '<div class="auth-body"><h1>Set a new password</h1><p>The temporary password is valid for the first sign-in only.</p><form>' +
     field(
-      "Neues Passwort",
+      "New password",
       "Password",
       "password",
       "",
       'required minlength=14 maxlength=72 autocomplete="new-password"',
     ) +
     field(
-      "Neues Passwort wiederholen",
+      "Confirm new password",
       "Confirm",
       "password",
       "",
       'required minlength=14 maxlength=72 autocomplete="new-password"',
     ) +
-    '<p role="alert"></p><div class="actions"><button>Passwort speichern</button><button type="button" class="secondary">Zur Anmeldung</button></div></form></div>';
+    '<p role="alert"></p><div class="actions"><button>Save password</button><button type="button" class="secondary">Back to sign-in</button></div></form></div>';
   host.replaceChildren(root);
   root.querySelector("[type=button]").onclick = onDone;
   root.querySelector("form").onsubmit = async (e) => {
@@ -419,7 +419,7 @@ export function mountPasswordChange(host, ticket, onDone) {
       button = f.querySelector("button");
     if (button.disabled) return;
     if (f.elements.Password.value !== f.elements.Confirm.value) {
-      alert.textContent = "Die Passwörter stimmen nicht überein.";
+      alert.textContent = "The passwords do not match.";
       return;
     }
     button.disabled = true;

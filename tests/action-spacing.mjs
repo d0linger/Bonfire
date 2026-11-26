@@ -626,7 +626,7 @@ try {
     if (key === "Audit-Log") await page.locator(".ops-pages").waitFor();
     if (key === "Backup") await page.locator('[data-backup="new"]').waitFor();
     if (key === "Benutzer")
-      await page.getByRole("heading", { name: "Benutzerkonten" }).waitFor();
+      await page.getByRole("heading", { name: "User accounts" }).waitFor();
     await check(key);
     if (key === "Benutzer") {
       await page.locator("[data-account-id]").first().click();
@@ -638,15 +638,15 @@ try {
         ? ["Jetzt sichern", "Wiederherstellen"]
         : key === "Benutzer"
           ? [
-              "Benutzer anlegen",
-              "Zugang bearbeiten",
-              "Passwort zurücksetzen",
-              "Sitzungen widerrufen",
-              "Zugang sperren",
+              "Create user",
+              "Edit account",
+              "Reset password",
+              "Revoke sessions",
+              "Disable account",
             ]
           : [];
     for (const name of dialogs) {
-      if (key === "Benutzer" && name !== "Benutzer anlegen")
+      if (key === "Benutzer" && name !== "Create user")
         await page.locator("[data-account-id]").first().click();
       await page.getByRole("button", { name, exact: true }).click();
       const dialog = page.getByRole("dialog");
