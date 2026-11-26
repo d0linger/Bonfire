@@ -13,5 +13,5 @@ groups:
       - alert: BonfireStaleDevices
         expr: bonfire_devices_stale > 0
         for: 30m
-      - alert: BonfireSyncErrors
-        expr: increase(bonfire_sync_errors_total[15m]) > 5
+      - alert: BonfireOnlineRequestErrors
+        expr: increase(bonfire_online_request_errors_total[15m]) > 5

@@ -43,21 +43,12 @@ Unter **Kontakte & Preise** können Name, Adresse und dokumentierte Abgrenzung i
 
 Bei einer freigegebenen Importzeile sichert der Server die Quellenstelle über alle Veranstaltungen gegen Doppelübernahme. Ein Admin kann die Quelldatei im eigenen Arbeitsbereich prüfen. Ein Kassenprofil erhält die Quellenreferenz. Formeln, Summenzeilen und Folgevorlagen bleiben in der historischen Vorschau Vergleichsdaten.
 
-## Wiederanlauf aus einer Sicherung
+## Recovering an installation
 
-1. Laufende Instanz und offene Geräte erfassen. Bei einem tatsächlichen Wechsel zuerst die bisherige Schreibinstanz vom Netz trennen. Geräten bis zur Prüfung der neuen Zuständigkeit keinen zweiten Schreibserver anbieten.
-2. Eine zweite Installation mit dem geprüften Git-Stand und einem eigenen Compose-Projektnamen, Port und Datenvolume aufsetzen. Den Wiederherstellungsschlüssel getrennt vom verschlüsselten Archiv bereitstellen.
-3. Das Archiv auf dem geschützten Ziel authentisieren und entschlüsseln. Einen bislang unbenutzten Dateinamen in einem verschlüsselten temporären Verzeichnis wählen.
+For a **BONFIRE2** archive from the backup worker, restore the installation's backup-key volume from protected storage first. Use **Administration → Backup → Restore** to select or upload the encrypted archive. Run the restore rehearsal and inspect the integrity results, installation identity and original document hashes. During an approved maintenance window, stop incoming writes, confirm the restore using the administrator password and sign in again. The worker preserves the displaced database and invalidates old sessions. Check the fiscal year, balances, document originals, audit chain and a fresh backup against the recovered database.
 
-   ```powershell
-   node ops/crypt.mjs decrypt X:/Schluessel/bonfire.key Y:/Sicherungen/stand.dump.enc Z:/Wiederanlauf/pruefung.dump
-   ./ops/restore-test.ps1 -Path Z:/Wiederanlauf/pruefung.dump
-   ```
+The legacy host rotation script produces **BONFIRE1** archives. Only for this format, use `ops/verify-restore.ps1 -Path <archive> -KeyFile <legacy-key>` to decrypt and verify in a separate database. The worker uses a different archive format and key. For a manual database switch, stop the app and the backup worker, set the same verified target database for the migration service, the app and the backup worker, and retain their distinct database roles. Apply migrations, recreate the app and worker, verify read access and perform a fresh backup and restore rehearsal before reopening writes. Keep the original database available for rollback.
 
-4. Das Skript gibt den Namen einer neu angelegten Datenbank aus. Aktive Arbeitsdaten werden dabei erhalten. Für einen automatisierten Entwicklungsnachweis führt `verify-restore.ps1` zusätzlich die gespeicherten synthetischen Wiederholungsfälle gegen den Testklon aus. Dazu gehören die passenden lokalen Testfixtures. Ein unabhängig restauriertes Betriebsarchiv mit den zugehörigen ursprünglichen Kontrollsummen, Perioden, Gerätelisten und Ausstellungsregistern prüfen.
-5. Für die technische Umschaltung die geprüfte Zieldatenbank in den Verbindungszeichenfolgen des Migrations- und App-Dienstes einstellen. DB-Admin und Laufzeitrolle getrennt halten. Den Migrationsdienst für die geprüfte Zieldatenbank ausführen. Erst nach Freigabe den bekannten HTTPS-Origin umschalten und Geräte nacheinander abgleichen. Bei Rückstand werden lokal archivierte Geräteoperationen mit derselben ID/Sequenz wiederholt. Fehlt lokale Historie, den Bestand zur Klärung erhalten.
-6. Ergebnis und Verantwortliche protokollieren. Arbeitskopien, Sicherungsdateien und Schlüssel nach der festgelegten lokalen Aufbewahrung behandeln. Offene Geräte, die während der Sicherung getrennt waren, gesondert prüfen.
+## Monitoring
 
-## Überwachung
-
-`/health` prüft die Datenbankverbindung. `/metrics` liefert aggregierte Werte für Datenbankgröße, Konflikte, Geräte, Server-/Syncfehler und den letzten protokollierten Datenbankdump. Der Zeitpunkt des Dumps allein belegt keine erfolgreiche externe Aufbewahrung. Für den verschlüsselten Rotationslauf daher zusätzlich den Exitstatus des Hostjobs und das Vorhandensein des verschlüsselten Archivs überwachen. Reale Alarmempfänger, Uhrzeiten, Aufbewahrungsfrist und Schlüsselhinterlegung legt der Betrieb fest. Der lokale Prometheus kann ohne Nachrichtenübermittlung geprüft werden.
+`/health` checks the database connection. `/metrics` exposes aggregate database size, unresolved conflicts, device state and backup freshness. The online alert uses `bonfire_online_request_errors_total`, which counts server errors (HTTP 5xx) on POST requests to the online workspace. Permission denials, validation errors and ordinary revision conflicts do not increment it. Monitor archive retention and the result of a restore rehearsal alongside the completion timestamp. The host rotation job records the digest only after it produces the encrypted archive.

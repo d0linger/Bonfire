@@ -21,6 +21,8 @@ try {
   if ($address -notmatch '^127\.0\.0\.1:[0-9]+$') { throw 'Lokaler Prüfport fehlt.' }
   $env:BONFIRE_URL = 'http://' + $address
   $env:BONFIRE_S3_TEST = 'isolated'
+  node tests/seed-retry.mjs
+  if ($LASTEXITCODE) { throw "Seed recovery exercise failed." }
   node tests/admin-s3.mjs
   if ($LASTEXITCODE) { throw 'S3-Prüfung fehlgeschlagen.' }
 } finally {

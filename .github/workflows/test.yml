@@ -26,6 +26,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Verify the original documentation logo
+        run: echo "f12b47ae30d1c088420b3407eae7ad912218208440d851c8c848772ec7f46119  docs/logo-original.svg" | sha256sum --check
       - run: make lint
       - run: make test
       - name: Check document pagination and overflow
@@ -40,6 +42,7 @@ jobs:
           COMPOSE_FILE: compose.yaml:tests/compose.coverage.yaml
         run: |
           ./ops/init.ps1
+          if ([IO.File]::GetUnixFileMode((Resolve-Path .env)) -ne [IO.UnixFileMode]'UserRead,UserWrite') { throw 'Generated credentials must have mode 0600.' }
           ./ops/accept-online.ps1
       - name: Prove that broken amount, duplicate and gate checks are detected
         run: python3 ops/test-mutations.py
