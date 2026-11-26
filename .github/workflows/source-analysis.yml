@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [go, javascript-typescript]
+        language: [go, javascript-typescript, python]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -36,6 +36,10 @@ jobs:
       - uses: github/codeql-action/analyze@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
         with:
           category: /language:${{ matrix.language }}
+          output: ${{ runner.temp }}/codeql-results
+      - name: Require a clean code scanning report
+        run: |
+          jq -se 'length > 0 and all(.[]; (.runs | length) > 0 and all(.runs[]; (.results | type == "array" and length == 0)))' "$RUNNER_TEMP"/codeql-results/*.sarif
   gosec:
     name: gosec and SARIF
     runs-on: ubuntu-latest

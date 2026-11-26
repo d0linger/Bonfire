@@ -35,7 +35,7 @@ docker compose up -d --build --wait
 
 Open [localhost:8137](http://localhost:8137). Sign in as `leitung` using the generated `BONFIRE_ADMIN_PASSWORD` in the local `.env` file. The one-shot migration service initializes the database. The HTTP service uses the separate `bonfire_runtime` role. On an existing installation keep the original credentials and volumes.
 
-In **Geschäftsjahre**, create a fiscal year. Select it in the sidebar, open **Kassenbuch**, and enter an opening balance. Choose **Buchung erfassen**, record income or an expense and verify the posted amount. To book against an event instead, open **Veranstaltungen**, select the event, and use **Zahlungen & Kosten**.
+Use **Manage fiscal years** in the sidebar to create a fiscal year. Select it in the sidebar, open **Cashbook**, and enter an opening balance. Open the booking dialog, record income or an expense and verify the posted amount. To book against an event instead, open **Events**, select the event, and use **Payments and costs**.
 
 ## Configuration and access
 
@@ -45,7 +45,7 @@ During a connection failure, keep the form open. If a save was submitted and its
 
 ## Backup, updates and monitoring
 
-Use **Verwaltung → Backup** for schedules, local and S3-compatible destinations, and restore probes. Keep recovery keys separate from archives. Before upgrading, verify a backup in a separate database, retain the previous version and configuration, then rebuild and start with the quick-start command. Never remove data volumes during an upgrade.
+Use **Administration → Backup** for schedules, local and S3-compatible destinations, and restore probes. Keep recovery keys separate from archives. Before upgrading, verify a backup in a separate database, retain the previous version and configuration, then rebuild and start with the quick-start command. Never remove data volumes during an upgrade.
 
 The system status view exposes actual runtime, database and backup information. Use the Compose healthcheck and monitoring configuration for deployment diagnostics. See the [operations guide](docs/BETRIEB.md), [backup and restore procedure](docs/VERWALTUNG-BACKUP.md) and [audit and monitoring guide](docs/VERWALTUNG-AUDIT.md).
 
