@@ -15,11 +15,11 @@ export function fiscalRange(year) {
 export function fiscalPicker(years, selected, hasLegacy) {
   const options = years.map((y) => ({
     id: y.ID,
-    name: y.Name.replace(/^Geschäftsjahr\s+(?=\d{4}$)/i, ""),
-    range: fiscalRange(y) + (y.Closed ? " · Abgeschlossen" : ""),
+    name: y.Name.replace(/^(?:Geschäftsjahr|Fiscal year)\s+(?=\d{4}$)/i, ""),
+    range: fiscalRange(y) + (y.Closed ? " · Closed" : ""),
   }));
   if (hasLegacy)
-    options.push({ id: "unassigned", name: "Ohne Jahreszuordnung", range: "" });
+    options.push({ id: "unassigned", name: "Unassigned", range: "" });
   const current = options.find((y) => y.id === selected);
   const lines = (y) =>
     "<span><strong>" +
@@ -48,6 +48,6 @@ export function fiscalPicker(years, selected, hasLegacy) {
       .join("") +
     '<button type="button" class="fiscal-manage" data-fiscal="">' +
     icon("CalendarDays") +
-    "Geschäftsjahre öffnen</button></div></details>"
+    "Manage fiscal years</button></div></details>"
   );
 }

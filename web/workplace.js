@@ -98,31 +98,31 @@ export const esc = (v) =>
       ],
   );
 export const modules = [
-  ["Übersicht", "Übersicht", "LayoutDashboard"],
-  ["Journal", "Kassenbuch", "BookOpen"],
-  ["Veranstaltungen", "Veranstaltungen", "CalendarDays"],
-  ["Kontakte", "Kontakte", "ContactRound"],
-  ["Spenden", "Spenden", "HeartHandshake"],
-  ["Dokumente", "Dokumente", "Files"],
-  ["Perioden", "Abschluss", "ClipboardCheck"],
-  ["Verwaltung", "Verwaltung", "Settings2"],
+  ["Übersicht", "Overview", "LayoutDashboard"],
+  ["Journal", "Cashbook", "BookOpen"],
+  ["Veranstaltungen", "Events", "CalendarDays"],
+  ["Kontakte", "Contacts", "ContactRound"],
+  ["Spenden", "Donations", "HeartHandshake"],
+  ["Dokumente", "Documents", "Files"],
+  ["Perioden", "Closing", "ClipboardCheck"],
+  ["Verwaltung", "Administration", "Settings2"],
 ];
 export const eventTabs = [
-  ["Veranstaltungen", "Überblick"],
-  ["Geldtaschen", "Geldtaschen"],
-  ["Zahlungen", "Zahlungen & Kosten"],
-  ["Preise", "Preise & Druck"],
-  ["Sponsoring", "Sponsoren & Rechnungen"],
+  ["Veranstaltungen", "Overview"],
+  ["Geldtaschen", "Wallets"],
+  ["Zahlungen", "Payments and costs"],
+  ["Preise", "Prices and printing"],
+  ["Sponsoring", "Sponsors and invoices"],
 ];
 export const onlineEventTabs = [
   ...eventTabs.filter(([page]) => page !== "Sponsoring"),
-  ["Dokumente", "Dokumente"],
-  ["Perioden", "Abschluss"],
+  ["Dokumente", "Documents"],
+  ["Perioden", "Closing"],
 ];
 export const adminTabs = [
-  ["Verwaltung", "Organisation"],
-  ["Gerät & Sync", "Gerät & Sync"],
-  ["Datenaustausch", "Datenaustausch"],
+  ["Verwaltung", "Organization"],
+  ["Gerät & Sync", "Device and sync"],
+  ["Datenaustausch", "Data exchange"],
 ];
 export const consolePages = [
   ["Feuerwehrkonten", "Landmark"],
@@ -178,15 +178,15 @@ export function navigation(
       "</button>",
   );
   return (
-    '<div class="nav-group">Arbeitsplatz</div>' +
+    '<div class="nav-group">Workspace</div>' +
     main.slice(0, -1).join("") +
-    '<div class="nav-tail"><div class="nav-group">Organisation</div>' +
+    '<div class="nav-tail"><div class="nav-group">Organization</div>' +
     (online
       ? '<details id="admin-navigation"' +
         (expanded ? " open" : "") +
         "><summary>" +
         icon("Settings2") +
-        "<span>Verwaltung<small>Betrieb, Sicherung &amp; System</small></span>" +
+        "<span>Administration<small>Operations, backups and system</small></span>" +
         icon("ChevronDown") +
         '</summary><div class="admin-links">' +
         [
@@ -201,7 +201,7 @@ export function navigation(
               (key === page ? ' aria-current="page"' : "") +
               ">" +
               icon(glyph) +
-              ({Verwaltung: "Organization", Benutzer: "Users"}[key] || key) +
+              ({Verwaltung: "Organization", Benutzer: "Users", Feuerwehrkonten: "Fire brigade accounts", "Audit-Log": "Audit log", Systemstatus: "System status"}[key] || key) +
               "</button>",
           )
           .join("") +
@@ -212,26 +212,26 @@ export function navigation(
     "</span><span>" +
     esc(user || "BONFIRE") +
     "<small>" +
-    esc(role || "Lokaler Arbeitsplatz") +
+    esc(role || "Local workspace") +
     "</small></span></div>" +
     (personal
       ? '<button type="button" data-act="accountSecurity"' +
         (page === "Konto und Sicherheit" ? ' aria-current="page"' : "") +
         ">" +
         icon("Settings2") +
-        "Konto und Sicherheit</button>"
+        "Account and security</button>"
       : "") +
     (active
       ? '<button type="button" data-act="lock">' +
         icon("LogOut") +
-        (role && user ? "Arbeitsplatz schließen" : "Gerät sperren") +
+        (role && user ? "Sign out" : "Lock device") +
         "</button>"
       : "") +
     "</div>"
   );
 }
 export const tabs = (list, page) =>
-  '<div class="tabs" aria-label="Bereiche">' +
+  '<div class="tabs" aria-label="Sections">' +
   list
     .map(
       ([p, t]) =>

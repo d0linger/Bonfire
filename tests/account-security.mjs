@@ -57,7 +57,7 @@ try {
   const submit = (name) =>
     dlg.getByRole("button", { name, exact: true }).click();
   const openAccount = async () => {
-    await click("Konto und Sicherheit");
+    await click("Account and security");
     await page.getByRole("heading", { name: "Aktive Sitzungen" }).waitFor();
   };
   const settled = async () => {
@@ -155,7 +155,7 @@ try {
   await submit("Passkey hinzufügen");
   await settled();
   await page.getByText("Virtueller Kassaschlüssel", { exact: true }).waitFor();
-  await click("Arbeitsplatz schließen");
+  await click("Sign out");
   await click("Sign in with a passkey");
   await openAccount();
   const keys = await context.request
@@ -174,7 +174,7 @@ try {
   await submit("Authenticator deaktivieren");
   await settled();
   assert.equal((await current()).mfa, false);
-  await click("Arbeitsplatz schließen");
+  await click("Sign out");
   await click("Sign in with a passkey");
   await page
     .getByText("Anmeldung mit diesem Passkey fehlgeschlagen.", { exact: true })
