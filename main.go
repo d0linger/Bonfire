@@ -444,7 +444,7 @@ func initialize(ctx context.Context, db *pgxpool.Pool) error {
 	if err = applyUpgrade(ctx, tx, 17, "migrations/017.sql"); err != nil {
 		return err
 	}
-	for version := 18; version <= 32; version++ {
+	for version := 18; version <= 33; version++ {
 		if err = applyUpgrade(ctx, tx, version, fmt.Sprintf("migrations/%03d.sql", version)); err != nil {
 			return err
 		}

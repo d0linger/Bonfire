@@ -75,7 +75,7 @@ export function closure(rows, accounts, approved) {
       if (posting.BalanceOrder && actual.BalanceOrder) {
         return BigInt(posting.BalanceOrder) >= BigInt(actual.BalanceOrder);
       }
-      return posting.Date && posting.Date === actual.Date;
+      return Boolean(posting.Date);
     });
     if (stale) ambiguous.add(id);
   }
