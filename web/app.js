@@ -1146,7 +1146,7 @@ function formFields(k, countPhase = "") {
       field("field_town", "Ort") +
       field("Category", "Person / Firma");
   }
-  if (monetary.has(k) && k !== "price" && k !== "cashback") {
+  if (monetary.has(k) && !["price", "cashback", "skim", "return"].includes(k)) {
     const sourceLabel = walletTopUp
       ? "Entnommen aus (Quelle)"
       : "Konto / Quelle";
@@ -1166,7 +1166,7 @@ function formFields(k, countPhase = "") {
   }
   if (
     !walletTopUp &&
-    ["transfer", "payout", "supply", "skim", "return", "cashback"].includes(k)
+    ["transfer", "payout", "skim", "return", "cashback"].includes(k)
   )
     f += s.event.Accounts
       ? refs(
@@ -4586,7 +4586,7 @@ async function submit(f) {
     }
     if (edit?.Data.Contact && !("Contact" in vals))
       d.Contact = edit.Data.Contact;
-    if (kind === "supply" && vals.To === undefined) {
+    if (kind === "supply") {
       const wallet = rows().find(
         (r) => r.Kind === "wallet" && r.ID === d.Wallet,
       );
@@ -4597,8 +4597,9 @@ async function submit(f) {
         d.Account = d.sourceWallet;
       }
       delete d.sourceWallet;
-      d.To = s.event.Accounts ? wallet.ID : wallet.Data.Label;
+      d.To = wallet.ID;
     }
+    if (kind === "skim" || kind === "return") d.Account = d.Wallet;
     delete d.amount;
     delete d.file;
     if (

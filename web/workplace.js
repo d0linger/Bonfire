@@ -201,7 +201,7 @@ export function navigation(
               (key === page ? ' aria-current="page"' : "") +
               ">" +
               icon(glyph) +
-              (key === "Verwaltung" ? "Organisation" : key) +
+              ({Verwaltung: "Organization", Benutzer: "Users"}[key] || key) +
               "</button>",
           )
           .join("") +
