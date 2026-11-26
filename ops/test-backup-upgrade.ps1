@@ -57,6 +57,12 @@ try {
   $target = [guid]::NewGuid().ToString()
   $entry = @{ID=[guid]::NewGuid().ToString();Target=$target;Kind='income';Data=@{Label='Übungseintritt';Date='2049-03-01';Amount=125}}
   $null = Post-Data ('online?event=' + $event.ID) @{Ops=@($entry)}
+  # Some legacy entries have no matching operation in the audit history.
+  $legacyEvent = Post-Data 'events' @{Name='Legacy order fixture';Starts='2049-03-01';Ends='2049-03-01';Year=$year.ID}
+  $legacyID = [guid]::NewGuid().ToString()
+  $fixtureSQL = "INSERT INTO entries(event,id,revision,device,kind,data) SELECT :'legacy'::uuid, :'id', revision, device, kind, data FROM entries WHERE event=:'event'::uuid AND id=:'source';"
+  $fixtureSQL | docker compose -p $project exec -T db psql -X -v ON_ERROR_STOP=1 -U bonfire -d bonfire -v "legacy=$($legacyEvent.ID)" -v "id=$legacyID" -v "event=$($event.ID)" -v "source=$target"
+  if ($LASTEXITCODE) {throw 'Could not prepare legacy posting-order fixture.'}
   function Remove-TestBooking {
     $null = Post-Data 'events/entries' @{Event=$event.ID;Target=$target;Request=[guid]::NewGuid().ToString();Action='remove';Revision=1;Reason='Berichtigt im isolierten Übungsbestand'}
   }
@@ -93,6 +99,9 @@ try {
   $book = Post-Data ('online?event=' + $event.ID) @{}
   $restored = @($book.entries | Where-Object {$_.ID -eq $target})
   if ($restored.Count -ne 1 -or $restored[0].Data.Amount -ne 125) {throw 'Ursprüngliche Finanzbuchung fehlt.'}
+  $orderSQL = "SELECT count(*) FROM settlement_entries WHERE (event=:'event'::uuid AND id=:'source' AND (data->>'PostingOrder')::bigint>0) OR (event=:'legacy'::uuid AND id=:'id' AND NOT (data ? 'PostingOrder'));"
+  $orders = $orderSQL | docker compose -p $project exec -T db psql -X -At -v ON_ERROR_STOP=1 -U bonfire -d bonfire -v "legacy=$($legacyEvent.ID)" -v "id=$legacyID" -v "event=$($event.ID)" -v "source=$target"
+  if ($LASTEXITCODE -or $orders -ne '2') {throw 'Restored legacy entries must distinguish known posting order from unknown order.'}
   Remove-TestBooking
   $null = Post-Data 'events/delete' @{Event=$event.ID}
   $events = Invoke-RestMethod -Uri ($api + 'events') -WebSession $session

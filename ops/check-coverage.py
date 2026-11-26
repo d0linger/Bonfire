@@ -3,7 +3,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-CORE = {"allocationValid", "amountPositions", "cashAdjustment", "checkBalance", "checkCashAmount",
+CORE = {"afterOpening", "allocationValid", "amountPositions", "cashAdjustment", "checkBalance", "checkCashAmount",
         "checkOpenPayments", "pooledRevenue", "validateSettlement", "walletRevenue", "withinCount"}
 
 

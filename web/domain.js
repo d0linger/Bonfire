@@ -208,6 +208,10 @@ function withinCount(movement, closing) {
   return !movement.PostingOrder || !closing.PostingOrder ||
     BigInt(movement.PostingOrder) <= BigInt(closing.PostingOrder);
 }
+function afterOpening(movement, opening) {
+  if (!opening?.Date || movement.Date !== opening.Date) return !opening?.Date || movement.Date > opening.Date;
+  return !movement.PostingOrder || !opening.PostingOrder || BigInt(movement.PostingOrder) > BigInt(opening.PostingOrder);
+}
 export function counted(rows, wallet) {
   const list = rows.filter(
     (r) =>
@@ -215,12 +219,13 @@ export function counted(rows, wallet) {
   );
   const count = (p) =>
     list.find((r) => r.Kind === "count" && r.Data.Phase === p)?.Data.Amount;
+  const opening = list.find(r => r.Kind === "count" && r.Data.Phase === "Anfang")?.Data;
   const cutoff=list.find(r=>r.Kind==="count" && r.Data.Phase==="Ende")?.Data;
   const start = count("Anfang"),
     end = count("Ende");
   if (start == null || end == null) return null;
   return rows.reduce(
-    (n, r) => !withinCount(r.Data, cutoff) ? n : n + cashAdjustment(r, (id) => id === wallet),
+    (n, r) => !afterOpening(r.Data, opening) || !withinCount(r.Data, cutoff) ? n : n + cashAdjustment(r, (id) => id === wallet),
     end - start,
   );
 }
@@ -239,7 +244,8 @@ export function pooledRevenue(rows) {
   const separate = rows.filter((r) => r.Kind === "count" && r.Data.Wallet);
   const closing = poolCount(rows, "Ende")?.Data;
   const end = closing?.Amount;
-  let start = poolCount(rows, "Anfang")?.Data.Amount;
+  const opening = poolCount(rows, "Anfang")?.Data;
+  let start = opening?.Amount;
   if (
     end == null ||
     separate.some((r) => r.Data.Phase === "Ende") ||
@@ -255,10 +261,19 @@ export function pooledRevenue(rows) {
       return null;
     start = openings.reduce((n, r) => n + r.Data.Amount, 0);
   } else if (openings.length) return null;
-  return rows.reduce((n, r) => {
-    if (r.ID === "settlement-total" || !withinCount(r.Data, closing)) return n;
-    return n + cashAdjustment(r, (id) => wallets.has(id), true);
-  }, end - start);
+  const perWallet = new Map(openings.map(r => [r.Data.Wallet, r.Data]));
+  let total = end - start;
+  for (const r of rows) {
+    if (r.ID === "settlement-total" || !withinCount(r.Data, closing) || !afterOpening(r.Data, opening)) continue;
+    let unassigned = true;
+    if (!opening && !r.Data.Wallet && !r.Data.Account && cashAdjustment(r, () => false, true)) {
+      const active = openings.filter(o => afterOpening(r.Data, o.Data)).length;
+      if (active && active < openings.length) return null;
+      unassigned = active === openings.length;
+    }
+    total += cashAdjustment(r, id => wallets.has(id) && afterOpening(r.Data, perWallet.get(id)), unassigned);
+  }
+  return total;
 }
 export async function countID(kind, wallet, phase) {
   const bytes = await crypto.subtle.digest(
