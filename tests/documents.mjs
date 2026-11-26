@@ -58,6 +58,10 @@ try {
       await check(new File([workbook], "test.xlsx")),
     ];
     const contents = b.unzipSync(new Uint8Array(await workbook.arrayBuffer()));
+    const sheet = "xl/worksheets/sheet1.xml";
+    const withExtraColumn = b.strFromU8(contents[sheet]).replace(/<\/row>(?=<\/sheetData>)/, '<c r="AD2"><v>9999</v></c></row>');
+    if (!withExtraColumn.includes("AD2")) throw Error("Invalid workbook fixture");
+    const extraColumn = await check(new File([b.zipSync({ ...contents, [sheet]: b.strToU8(withExtraColumn) })], "outside-column.xlsx"));
     contents["xl/worksheets/sheet1.xml"] = b.strToU8(
       '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="2"><c r="A2" t="inlineStr"><is><t>Übung</t></is></c><c r="B2" t="inlineStr"><is><t>15.07.</t></is></c><c r="C2"><v>3.05</v></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>Gesamtsumme</t></is></c><c r="C3"><f>SUM(C2:C2)</f><v>8.2</v></c></row></sheetData></worksheet>',
     );
@@ -77,7 +81,7 @@ try {
         textCell("B2", "Übungsaufwand") +
         '<c r="C2"><v>0</v></c><c r="D2"><v>19</v></c></row><row r="3">' +
         textCell("B3", "Fehlender Wert") +
-        '<c r="C3"/></row></sheetData></worksheet>',
+        '<c r="C3"/></row><row r="4"><c r="C4"><v>-12.50</v></c></row></sheetData></worksheet>',
     );
     const alternative = await b.historyPreview(
       new File([b.zipSync(variant)], "varianten.xlsx"),
@@ -99,7 +103,7 @@ try {
       );
     const runs = await b.importTemplate(
       doc(
-        "<w:p><w:r><w:t>{{organization.</w:t></w:r><w:r><w:t>name}}</w:t></w:r></w:p>",
+        "<w:p><w:r><w:t>{{organization.</w:t></w:r><w:r><w:t>name}}</w:t><w:br/><w:t>Second line</w:t><w:tab/><w:t>Value</w:t></w:r></w:p>",
       ),
     );
     let rejected = false;
@@ -133,7 +137,7 @@ try {
     );
     const zip = b.unzipSync(new Uint8Array(await evidence.arrayBuffer()));
     return {
-      journal,
+      journal, extraColumn,
       historical: d1.map((r) => [r.cell, r.date, r.amount, r.blocked]),
       allD8: d8.every((r) => r.blocked),
       comparison: [d1[1].calculatedCent, d1[1].differenceCent, d1[1].cached],
@@ -157,6 +161,7 @@ try {
     "Mögliche Dublette",
   ];
   assert.deepEqual(result.journal, [expected, expected]);
+  assert.deepEqual(result.extraColumn, expected);
   assert.deepEqual(result.historical, [
     ["C2", "2025-07-15", 305, false],
     ["C3", "", 820, true],
@@ -166,8 +171,9 @@ try {
   assert.deepEqual(result.variant, [
     ["C2", "expense", 0, false, "Excel-Datum"],
     ["C3", "expense", null, true, "Datum prüfen"],
+    ["C4", "expense", 1250, true, "Datum prüfen"],
   ]);
-  assert.equal(result.runs, "{{organization.name}}");
+  assert.equal(result.runs, "{{organization.name}}\nSecond line\tValue");
   assert.ok(result.rejected && result.report);
   assert.equal(result.manifest.freigegeben, false);
   assert.equal(result.manifest.veranstaltungAbgeschlossen, true);

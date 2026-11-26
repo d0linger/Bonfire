@@ -37,5 +37,7 @@ test("journal CSV escaping preserves spreadsheet-safe labels and real dates", as
   assert.deepEqual(parsed.slice(0, -1).map((r) => r.label), labels);
   assert.ok(parsed.slice(0, -1).every((r) => r.status === "Mögliche Dublette"));
   assert.equal(parsed.at(-1).status, "Klärung");
+  const invalidKind = await preview(new File([csv([{ ...rows[0], Kind: "constructor" }])], "journal.csv"), []);
+  assert.equal(invalidKind[0].status, "Klärung");
   assert.throws(() => mergeText("{{constructor}}", {}));
 });
