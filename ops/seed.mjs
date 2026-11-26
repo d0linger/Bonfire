@@ -1,10 +1,13 @@
-import { testPassword } from "../tests/test-password.mjs";
+import { disposableURL, testPassword } from "../tests/test-password.mjs";
 import { randomUUID } from "node:crypto";
-const base = process.env.BONFIRE_URL || "http://127.0.0.1:8137";
-if (!["localhost", "127.0.0.1", "[::1]"].includes(new URL(base).hostname))
-  throw Error("Übungsdaten nur für lokale Testinstallationen.");
-const pass =
-  testPassword();
+const endpoint = new URL(disposableURL());
+if (endpoint.protocol !== "http:" || endpoint.hostname !== "127.0.0.1") {
+  throw Error("Use the disposable IPv4 loopback HTTP server for synthetic seed data.");
+}
+const testPort = Number(endpoint.port);
+if (!Number.isInteger(testPort) || testPort <= 0 || testPort > 65535) throw Error("Invalid test port.");
+const base = "http://127.0.0.1:" + testPort;
+const pass = testPassword();
 const headers = {
   Authorization: "Basic " + Buffer.from("leitung:" + pass).toString("base64"),
   "Content-Type": "application/json",
@@ -13,6 +16,7 @@ async function api(path, body) {
   const r = await fetch(base + "/api/" + path, {
     method: body ? "POST" : "GET",
     headers,
+    redirect: "error",
     body: body ? JSON.stringify(body) : null,
   });
   if (!r.ok) throw Error(await r.text());
@@ -23,7 +27,7 @@ if ((await api("events")).some((e) => e.Name === name)) {
   console.log("Übungsbereich bereits vorhanden.");
   process.exit(0);
 }
-const response = await fetch(base + "/api/login", { method: "POST", headers });
+const response = await fetch(base + "/api/login", { method: "POST", headers, redirect: "error" });
 if (!response.ok) throw Error("Anmeldung für Übungsdaten fehlgeschlagen.");
 headers.Cookie = response.headers.get("set-cookie").split(";")[0];
 delete headers.Authorization;
