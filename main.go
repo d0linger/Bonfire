@@ -155,7 +155,7 @@ func (a *app) clearPasswordAttempts(r *http.Request, name string) {
 func (a *app) authenticate(ctx context.Context, db authDB, r *http.Request) (string, string, error) {
 	name, pw, ok := r.BasicAuth()
 	name = loginName(name)
-	deny := problem{401, "Anmeldung fehlgeschlagen."}
+	deny := problem{401, "Sign-in failed."}
 	if !ok && r.URL.Path != "/api/login" {
 		if c, err := r.Cookie("bonfire_session"); err == nil {
 			var role string

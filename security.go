@@ -199,7 +199,7 @@ func (a *app) mfa(ctx context.Context, w http.ResponseWriter, r *http.Request) (
 			FROM users WHERE coalesce(login_alias,name)=$1 AND active AND NOT password_change_required FOR UPDATE`,
 			loginName(login)).Scan(&u.ID, &u.Login, &u.Password, &u.OTP, &u.Revision)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, problem{401, "Anmeldung fehlgeschlagen."}
+			return nil, problem{401, "Sign-in failed."}
 		}
 		if err != nil {
 			return nil, err
@@ -208,7 +208,7 @@ func (a *app) mfa(ctx context.Context, w http.ResponseWriter, r *http.Request) (
 		if err = a.verifySelfPassword(ctx, tx, u, password, r.Header.Get("X-Bonfire-OTP")); err != nil {
 			var denied problem
 			if errors.As(err, &denied) && denied.code == 403 {
-				return nil, problem{401, "Anmeldung fehlgeschlagen."}
+				return nil, problem{401, "Sign-in failed."}
 			}
 			return nil, err
 		}
@@ -271,7 +271,7 @@ func verifyCode(ctx context.Context, db factorExecutor, name, secret, code strin
 	if tag.RowsAffected() == 1 {
 		return nil
 	}
-	return problem{401, "Zweiter Faktor ungültig oder bereits verwendet."}
+	return problem{401, "The code is invalid or has already been used."}
 }
 func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
 	tx, err := a.db.Begin(ctx)
