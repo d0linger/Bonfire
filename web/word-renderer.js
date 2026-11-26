@@ -26,6 +26,16 @@ addEventListener(
       await Promise.all(
         [...root.querySelectorAll("img")].map((img) => img.decode()),
       );
+      // docx-preview can measure legacy VML shapes while detached if an image is slow.
+      for (const svg of root.querySelectorAll("section.docx svg")) {
+        const shape = svg.firstElementChild;
+        if (!(shape instanceof SVGGraphicsElement)) continue;
+        svg.removeAttribute("width");
+        svg.removeAttribute("height");
+        const box = shape.getBBox();
+        svg.setAttribute("width", String(Math.ceil(box.x + box.width)));
+        svg.setAttribute("height", String(Math.ceil(box.y + box.height)));
+      }
       const pages = [...root.querySelectorAll("section.docx")];
       if (!pages.length || pages.length > 50)
         throw Error("The Word layout must contain between 1 and 50 pages.");
