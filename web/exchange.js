@@ -17,7 +17,8 @@ const ct = "http://schemas.openxmlformats.org/package/2006/content-types",
   rel = "http://schemas.openxmlformats.org/package/2006/relationships",
   doc = "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
   ss = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
-const columns = [
+const columns = ["Date", "Type", "Description", "Amount_Cents", "Account", "Destination", "Category", "Reference", "FormatVersion"];
+const legacyColumns = [
   "Datum",
   "Art",
   "Bezeichnung",
@@ -149,7 +150,7 @@ function csvRows(text) {
       v = "";
     } else v += c;
   }
-  if (quoted) throw Error("CSV-Anführungszeichen unvollständig.");
+  if (quoted) throw Error("Unclosed quotation marks in the CSV file.");
   if (v || row.length) {
     row.push(v.replace(/\r$/, ""));
     result.push(row);
@@ -159,9 +160,9 @@ function csvRows(text) {
 function xml(file) {
   const text = strFromU8(file);
   if (/<!DOCTYPE|<!ENTITY/i.test(text))
-    throw Error("Nicht zugelassene XML-Deklaration.");
+    throw Error("Unsupported XML declaration.");
   const doc = new DOMParser().parseFromString(text, "application/xml");
-  if (doc.querySelector("parsererror")) throw Error("XML-Datei ungültig.");
+  if (doc.querySelector("parsererror")) throw Error("Invalid XML file.");
   return doc;
 }
 export function officeFiles(buf) {
@@ -174,7 +175,7 @@ export function officeFiles(buf) {
         f.originalSize > 8 << 20 ||
         /vbaProject|activeX|embeddings|externalLinks|\.\.\//i.test(f.name)
       )
-        throw Error("Nicht zugelassener Office-Inhalt oder Größenlimit.");
+        throw Error("Unsupported Office content or file size.");
       return true;
     },
   });
@@ -183,17 +184,17 @@ export function officeFiles(buf) {
       n.endsWith(".rels") &&
       /TargetMode\s*=\s*["']External/i.test(strFromU8(f))
     )
-      throw Error("Externe Dateibeziehung unzulässig.");
+      throw Error("External file relationships are not supported.");
   return files;
 }
 export async function preview(file, existing) {
-  if (file.size > 4 << 20) throw Error("Importvorschau bis 4 MiB.");
+  if (file.size > 4 << 20) throw Error("Choose a file of up to 4 MiB for the import preview.");
   const buf = new Uint8Array(await file.arrayBuffer());
   let records;
   if (file.name.toLowerCase().endsWith(".xlsx")) {
     const files = officeFiles(buf),
       sheet = files["xl/worksheets/sheet1.xml"];
-    if (!sheet) throw Error("Erstes Tabellenblatt fehlt.");
+    if (!sheet) throw Error("The first worksheet is missing.");
     const strings = files["xl/sharedStrings.xml"]
       ? [...xml(files["xl/sharedStrings.xml"]).querySelectorAll("si")].map(
           (si) => si.textContent,
@@ -206,7 +207,7 @@ export async function preview(file, existing) {
         if (!ref) continue;
         const i = ref[1].charCodeAt(0) - 65;
         values[i] = c.querySelector("f")
-          ? "[Formel prüfen]"
+          ? "[Review formula]"
           : c.getAttribute("t") === "s"
             ? strings[Number(c.textContent)]
             : c.textContent;
@@ -223,14 +224,11 @@ export async function preview(file, existing) {
   }
   if (
     !records.length ||
-    columns
+    ![columns, legacyColumns].some(headers => headers
       .slice(0, 4)
-      .some(
-        (v, i) =>
-          records[0][i] !== v && !(i === 3 && records[0][i] === "Betrag_EUR"),
-      )
+      .every((v, i) => records[0][i] === v || (i === 3 && records[0][i] === (headers === columns ? "Amount_EUR" : "Betrag_EUR"))))
   )
-    throw Error("Erwartete Spalten: " + columns.slice(0, 4).join(", "));
+    throw Error("Expected columns: " + columns.slice(0, 4).join(", "));
   const hash = Array.from(
     new Uint8Array(await crypto.subtle.digest("SHA-256", buf)),
     (v) => v.toString(16).padStart(2, "0"),
@@ -241,7 +239,7 @@ export async function preview(file, existing) {
     let Amount = null;
     try {
       Amount =
-        records[0][3] === "Betrag_EUR"
+        ["Amount_EUR", "Betrag_EUR"].includes(records[0][3])
           ? cents(r[3])
           : /^\d{1,12}$/.test(r[3])
             ? Number(r[3])
@@ -263,10 +261,10 @@ export async function preview(file, existing) {
       amount: Amount,
       status:
         Amount == null || !Object.hasOwn(types, r[1]) || !validDay
-          ? "Klärung"
+          ? "Needs review"
           : dup
-            ? "Mögliche Dublette"
-            : "Prüfbar",
+            ? "Possible duplicate"
+            : "Ready for review",
     };
   });
 }
@@ -302,15 +300,15 @@ export async function evidence(s, rows, reports = {}, scope = {}) {
       }
   }
   const requiredReports = [
-    "Pruefbericht.pdf",
-    "Pruefbericht.docx",
-    "Belegjournal.pdf",
-    "Belegjournal.docx",
+    "Review-report.pdf",
+    "Review-report.docx",
+    "Document-register.pdf",
+    "Document-register.docx",
   ];
   const missingReports = requiredReports.filter((name) => !files[name]?.length);
   const missingFiles = rows.flatMap((r) => {
     if (r.Kind === "attachment" && (!r.Data.File || r.Data.uploadPending))
-      return [{ id: r.ID, format: "Belegdatei" }];
+      return [{ id: r.ID, format: "Supporting document" }];
     if (r.Kind === "original")
       return ["PDF", "DOCX"]
         .filter((k) => !r.Data[k])
@@ -363,8 +361,8 @@ export async function evidence(s, rows, reports = {}, scope = {}) {
         veranstaltungAbgeschlossen: s.closed === true,
         freigegeben: approved,
         paketstatus: approved
-          ? "Geprüft und vollständig"
-          : "Vorbereitung / unvollständig",
+          ? "Verified and complete"
+          : "In preparation / incomplete",
         fehlendeDateien: missingFiles,
         fehlendeBerichte: missingReports,
         offeneGeraete: (s.devices || [])

@@ -43,7 +43,7 @@ func yearCarryLines(ctx context.Context, tx pgx.Tx, target string) ([]yearCarryL
 
 func carryYear(ctx context.Context, tx pgx.Tx, d device, source, stamp string, accounts map[string]string) (any, error) {
 	if !d.Online || d.Role != roleAdmin || d.Closed {
-		return nil, problem{403, "Übernahme nur durch einen Admin in einen offenen Arbeitsbereich."}
+		return nil, problem{403, "Only an administrator can carry data forward into an open workspace."}
 	}
 	lines, err := yearCarryLines(ctx, tx, d.Event)
 	if err != nil {
@@ -53,7 +53,7 @@ func carryYear(ctx context.Context, tx pgx.Tx, d device, source, stamp string, a
 		return lines, nil
 	}
 	if !d.Accounts && len(accounts) > 0 {
-		return nil, fail("Die Kontozuordnung hat sich geändert. Arbeitsbereich neu öffnen.")
+		return nil, fail("The account assignment has changed. Reopen the workspace.")
 	}
 	var origin yearCarryLine
 	totals := make(map[string]int64)
@@ -66,13 +66,13 @@ func carryYear(ctx context.Context, tx pgx.Tx, d device, source, stamp string, a
 		if d.Accounts {
 			to = accounts[l.Account]
 			if to == "" {
-				return nil, fail("Für jeden Vorjahresbestand ein Zielkonto wählen.")
+				return nil, fail("Select a destination account for each prior-year balance.")
 			}
 		}
 		totals[to] += l.Amount
 	}
 	if len(totals) == 0 {
-		return nil, fail("Der gewählte Vorjahresabschluss ist nicht mehr verfügbar.")
+		return nil, fail("The selected prior-year closing is no longer available.")
 	}
 	var start string
 	if err = tx.QueryRow(ctx, "SELECT starts::text FROM events WHERE id=$1", d.Event).Scan(&start); err != nil {
@@ -85,7 +85,7 @@ func carryYear(ctx context.Context, tx pgx.Tx, d device, source, stamp string, a
 		return nil, err
 	}
 	if used {
-		return nil, fail("Dieser Vorjahresbestand wurde bereits übernommen.")
+		return nil, fail("This prior-year balance has already been carried forward.")
 	}
 	existing, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event=$1 AND kind='opening'", d.Event)
 	if err != nil {
@@ -98,13 +98,13 @@ func carryYear(ctx context.Context, tx pgx.Tx, d device, source, stamp string, a
 	for _, r := range openings {
 		n, ok := totals[r.Data.Account]
 		if !ok || r.Data.Fields["yearSource"] != source || r.Data.Fields["yearStamp"] != stamp || r.Data.Amount == nil || *r.Data.Amount != n {
-			return nil, fail("Ein Anfangsbestand ist bereits vorhanden. Bestehende Einträge zuerst prüfen.")
+			return nil, fail("An opening balance already exists. Review the existing entries first.")
 		}
 		delete(totals, r.Data.Account)
 	}
 	for account, amount := range totals {
 		v := data{
-			Date: start, Label: "Vorjahresübertrag · " + origin.Year, Amount: &amount, Account: account,
+			Date: start, Label: "Prior-year opening balance · " + origin.Year, Amount: &amount, Account: account,
 			Note:   origin.Name + " · " + origin.End,
 			Fields: map[string]string{"yearSource": source, "yearStamp": stamp, "yearPeriod": origin.Period},
 		}

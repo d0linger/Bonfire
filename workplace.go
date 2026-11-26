@@ -19,7 +19,7 @@ func (a *app) workplace(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		return map[string]string{"user": user, "role": role}, nil
 	}
 	if !idPattern.MatchString(id) {
-		return nil, fail("Arbeitsbereich ungültig.")
+		return nil, fail("Invalid workspace.")
 	}
 	tx, err := a.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -30,7 +30,7 @@ func (a *app) workplace(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	err = tx.QueryRow(ctx, `SELECT id::text,name,starts::text,ends::text,closed,accounts,general_ledger,coalesce(fiscal_year::text,'') FROM events
  WHERE id=$1 AND ($2='Admin' OR EXISTS(SELECT 1 FROM grants_event WHERE event=$1 AND username=$3))`, id, role, user).Scan(&e.ID, &e.Name, &e.Starts, &e.Ends, &e.Closed, &e.Accounts, &e.General, &e.Year)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, problem{403, "Arbeitsbereich nicht zugewiesen."}
+		return nil, problem{403, "You have no access to this workspace."}
 	}
 	if err != nil {
 		return nil, err

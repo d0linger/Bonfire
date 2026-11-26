@@ -73,7 +73,7 @@ test("Börsen einer Bar ergeben nur bei vollständiger Zählung eine Barsumme", 
       /<tr><th scope="row">Bar · Getränke[\s\S]*?<\/tr>/,
     )[0];
   assert.match(barRow(entries), /55,00/);
-  assert.match(barRow(entries), /Offen/);
+  assert.match(barRow(entries), /Pending/);
   assert.doesNotMatch(barRow(entries), /91,00/);
   entries.push({
     Kind: "count",

@@ -31,6 +31,7 @@ import {
 } from "lucide";
 import { closure } from "./context.js";
 import {
+  financialLabel,
   eur,
   summary,
   groups,
@@ -125,6 +126,7 @@ export const adminTabs = [
   ["Datenaustausch", "Data exchange"],
 ];
 export const consolePages = [
+  ["Wallet list", "Wallet"],
   ["Feuerwehrkonten", "Landmark"],
   ["Backup", "Database"],
   ["Benutzer", "Users"],
@@ -133,7 +135,7 @@ export const consolePages = [
 ];
 export const canOpenConsole = (p, role) =>
   consolePages.some(([key]) => key === p) &&
-  (role === "Admin" || (["Write", "Read"].includes(role) && p === "Audit-Log"));
+  (role === "Admin" || (["Write", "Read"].includes(role) && ["Audit-Log", "Wallet list"].includes(p)));
 export const sectionOf = (p) =>
   p === "Geschäftsjahre" ||
   p === "Prüfprotokoll" ||
@@ -147,7 +149,9 @@ export const sectionOf = (p) =>
           ? "Verwaltung"
           : p;
 export const titleOf = (p) =>
-  modules.find(([k]) => k === sectionOf(p))?.[1] || p;
+  ({"Wallet list": "Wallet list", Feuerwehrkonten: "Treasury accounts", Benutzer: "Users", Systemstatus: "System status",
+    "Audit-Log": "Audit log", Geschäftsjahre: "Fiscal years", "Konto und Sicherheit": "Account and security"}[p] ||
+    modules.find(([k]) => k === sectionOf(p))?.[1] || p);
 export const route = (p, t, css = "secondary", ico = "") =>
   '<button type="button" class="' +
   css +
@@ -245,7 +249,7 @@ export const tabs = (list, page) =>
     )
     .join("") +
   "</div>";
-const dateFmt = new Intl.DateTimeFormat("de-AT", {
+const dateFmt = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
   month: "2-digit",
   year: "numeric",
@@ -333,16 +337,16 @@ export function moduleList(page, all) {
   const formats = {
     Kontakte: [
       ["Person or company", "Address"],
-      (r) => [r.Data.Label, r.Data.Address || "Offen"],
+      (r) => [r.Data.Label, r.Data.Address || "Pending"],
     ],
     Preise: [
       ["Item", "Category", "Unit", "Price", "Approval"],
       (r) => [
         r.Data.Label,
-        r.Data.Category || "—",
+        financialLabel(r.Data.Category) || "—",
         r.Data.Unit || "—",
         eur(r.Data.Amount),
-        r.Data.Status || "Entwurf",
+        financialLabel(r.Data.Status || "Entwurf"),
       ],
     ],
     Perioden: [
@@ -405,7 +409,7 @@ export function walletTable(rows, actions = "") {
   function subtotal(label, group, overall = false) {
     function balance(phase) {
       const status = (r) =>
-        phase === "Ende" && r.Data.Status ? " · " + esc(r.Data.Status) : "";
+        phase === "Ende" && r.Data.Status ? " · " + esc(financialLabel(r.Data.Status)) : "";
       const pooled = phase === "Anfang" ? allStart : allEnd;
       if (pooled)
         return overall
@@ -419,13 +423,13 @@ export function walletTable(rows, actions = "") {
             r.Data.Phase === phase,
         ),
       );
-      if (!counts.length || !counts.every(Boolean)) return "Offen";
+      if (!counts.length || !counts.every(Boolean)) return "Pending";
       return (
         eur(counts.reduce((sum, r) => sum + r.Data.Amount, 0)) +
         (counts.length === 1 ? status(counts[0]) : "")
       );
     }
-    let revenue = "Offen";
+    let revenue = "Pending";
     if (allEnd || allStart) {
       if (!overall) revenue = "Combined count only";
       else revenue = eur(pooledRevenue(rows));
@@ -484,7 +488,7 @@ function eventCounts(rows, device, pending, conflicts, online) {
     if (pool)
       return line(
         "Wallet",
-        title + " · alle Geldtaschen gemeinsam",
+        title + " · all wallets combined",
         eur(pool.Data.Amount),
       );
     const selected = wallets.map((w) =>
@@ -493,30 +497,30 @@ function eventCounts(rows, device, pending, conflicts, online) {
     const found = selected.filter((r) => r?.Data.Amount != null);
     return line(
       "Wallet",
-      title + " · " + found.length + " von " + wallets.length + " Taschen",
+      title + " · " + found.length + " from " + wallets.length + " Wallets",
       found.length
         ? eur(found.reduce((sum, r) => sum + r.Data.Amount, 0))
-        : "Offen",
+        : "Pending",
     );
   };
   return (
     '<section class="event-counts">' +
-    head("Zählstand der Geldtaschen") +
+    head("Wallet count status") +
     phase("Anfang", "Opening count") +
     phase("Ende", "Closing count") +
     (online
       ? ""
-      : line("RefreshCw", "Geräte mit offenem Erfassungsende", pending)) +
-    (conflicts ? line("CircleAlert", "Offene Klärfälle", conflicts) : "") +
+      : line("RefreshCw", "Devices still recording", pending)) +
+    (conflicts ? line("CircleAlert", "Unresolved cases", conflicts) : "") +
     '<div class="actions"><button type="button" class="secondary" data-act="' +
     (device ? "sync" : "refreshWorkplace") +
     '">' +
     icon("RefreshCw") +
     (device && !online
-      ? "Jetzt synchronisieren"
+      ? "Synchronize now"
       : "Refresh entries") +
     "</button>" +
-    route("Perioden", "Abschluss prüfen", "secondary", "ClipboardCheck") +
+    route("Perioden", "Review settlement", "secondary", "ClipboardCheck") +
     "</div></section>"
   );
 }
@@ -579,7 +583,7 @@ export function overview(
         ? '<button type="button" class="opening-action" data-act="focusEntry" aria-haspopup="dialog">Opening balance missing</button>'
         : "Opening balance missing";
   const setupAction =
-    role === "Read" ? "Leseprofil vorbereiten" : "Erfassung vorbereiten";
+    role === "Read" ? "Prepare read-only profile" : "Prepare recording";
   const balance = uniqueOpening
     ? eur(
         start +
@@ -587,7 +591,7 @@ export function overview(
           sum(rows.filter((r) => r.Kind === "deposit")) -
           sum(rows.filter((r) => r.Kind === "deposit-return")),
       )
-    : "Offen";
+    : "Pending";
   const reconciliation = closure(rows, e.Accounts, false)["report.closing"];
   const accounts = (uniqueOpening ? reconciliation.account_lines || [] : [])
     .map((account) =>
@@ -669,7 +673,7 @@ export function overview(
     '<div class="columns"><section>' +
     head("Account balances") +
     accounts +
-    line("Landmark", "Opening balance", uniqueOpening ? eur(start) : "Offen") +
+    line("Landmark", "Opening balance", uniqueOpening ? eur(start) : "Pending") +
     line("Wallet", "Unreimbursed expenses", eur(a.outstanding)) +
     '<p class="panel-foot">' +
     esc(
@@ -684,12 +688,12 @@ export function overview(
       "ClipboardCheck",
       "Review settlement",
       e.Closed
-        ? "Abgeschlossen"
+        ? "Closed"
         : online
-          ? "Bestände und Review settlement"
+          ? "Review balances and settlement"
           : pending === 1
-            ? "Ein Gerät mit offenem Erfassungsende"
-            : pending + " Geräte mit offenem Erfassungsende",
+            ? "One device has not finished recording"
+            : pending + " Devices still recording",
     ) +
     (online
       ? task(
@@ -702,21 +706,21 @@ export function overview(
           device ? "Gerät & Sync" : e.Closed ? "Perioden" : "Einrichtung",
           conflicts ? "CircleAlert" : "Laptop",
           conflicts
-            ? "Klärfälle prüfen"
+            ? "Review cases"
             : device
-              ? "Geräteabgleich"
+              ? "Device sync"
               : e.Closed
-                ? "Abschluss ansehen"
+                ? "View closing statement"
                 : role === "Read"
-                  ? "Leseprofil einrichten"
-                  : "Offline-Erfassung einrichten",
+                  ? "Set up read-only profile"
+                  : "Set up offline recording",
           conflicts
-            ? conflicts + " offene Konflikte"
+            ? conflicts + " open conflicts"
             : device
-              ? "Lokal gespeicherte Vorgänge abgleichen"
+              ? "Sync locally saved transactions"
               : role === "Read"
-                ? "Für die Einsicht in die zugewiesenen Arbeitsbereiche"
-                : "Für Buchungen und Belegausgabe auf diesem Gerät",
+                ? "For viewing assigned workspaces"
+                : "For recording transactions and issuing receipts on this device",
         )) +
     "</section></div>" +
     (eventMode

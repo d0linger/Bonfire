@@ -30,8 +30,11 @@ def main(unit, integration, output):
     print(results)
     scores = {line.split()[-2]: float(line.split()[-1].rstrip("%")) for line in results.splitlines()}
     failed = [name for name in sorted(CORE) if scores.get(name, 0) < 90]
-    if scores.get("(statements)", 0) < 67:
-        failed.append("whole application (67% minimum)")
+    total = sum(size for _, size in unit)
+    covered = sum(size for (location, size), hit in unit.items() if hit or integration[location, size])
+    print(f"Application statements covered: {covered}/{total} ({100 * covered / total:.2f}%)")
+    if covered * 100 < total * 80:
+        failed.append("whole application (80% minimum)")
     if failed:
         raise SystemExit("Coverage below minimum: " + ", ".join(failed))
 

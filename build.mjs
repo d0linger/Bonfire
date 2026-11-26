@@ -1,4 +1,4 @@
-import { build } from "esbuild";
+import { build, transform } from "esbuild";
 import sharp from "sharp";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
@@ -83,7 +83,6 @@ for (const size of iconSizes) {
 }
 const staticFiles = [
   "index.html",
-  "theme.js",
   "word-renderer.html",
   "manifest.webmanifest",
 ];
@@ -138,27 +137,23 @@ await build({
   outfile: "dist/app.js",
 });
 await build({
-  entryPoints: ["web/word-renderer.js"],
+  entryPoints: ["web/word-renderer.js", "web/theme.js"],
   bundle: true,
   minify: true,
   target: "es2022",
-  outfile: "dist/word-renderer.js",
+  outdir: "dist",
 });
 const files = [...staticFiles, ...iconSizes.map((n) => "icon-" + n + ".png"),
-  "app.css", "app.js", "word-renderer.js", "lucide-license.txt", "logo-original.svg"].sort();
+  "app.css", "app.js", "theme.js", "word-renderer.js", "lucide-license.txt", "logo-original.svg"].sort();
 const hash = createHash("sha256");
 for (const f of files) hash.update(await readFile("dist/" + f));
 hash.update(await readFile("web/sw.js"));
 hash.update(JSON.stringify(files));
 const version = "bonfire-" + hash.digest("hex").slice(0, 16);
 const sw = await readFile("web/sw.js", "utf8");
-await writeFile(
-  "dist/sw.js",
-  "const CACHE=" +
-    JSON.stringify(version) +
-    ", FILES=" +
-    JSON.stringify(files.map((f) => (f === "index.html" ? "/" : "/" + f))) +
-    ";\n" +
-    sw,
-);
+const shellPaths = files.map((file) => file === "index.html" ? "/" : "/" + file);
+const workerSource = "const CACHE=" + JSON.stringify(version) +
+  ",FILES=" + JSON.stringify(shellPaths) + ";\n" + sw;
+const worker = await transform(workerSource, { minify: true, target: "es2022" });
+await writeFile("dist/sw.js", worker.code);
 console.log("Web-Build", version, "Logo SHA-256", brandHash);

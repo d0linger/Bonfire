@@ -10,7 +10,7 @@ import (
 func configureRuntime(ctx context.Context, pool *pgxpool.Pool) error {
 	password := os.Getenv("BONFIRE_RUNTIME_PASSWORD")
 	if len(password) < 24 {
-		return errors.New("Separates Runtime-Kennwort erforderlich")
+		return errors.New("A separate runtime password is required.")
 	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -28,7 +28,7 @@ func configureRuntime(ctx context.Context, pool *pgxpool.Pool) error {
 		return err
 	}
 	if _, err = tx.Exec(ctx, sql); err != nil {
-		return errors.New("Runtime-Kennwort konnte nicht gesetzt werden")
+		return errors.New("Could not set the runtime password.")
 	}
 	if _, err = tx.Exec(ctx, runtimeGrants); err != nil {
 		return err
@@ -46,6 +46,9 @@ const runtimeGrants = `REVOKE CREATE ON SCHEMA public FROM PUBLIC;
  GRANT INSERT,UPDATE,DELETE ON login_attempt_windows TO bonfire_runtime;
  GRANT INSERT,UPDATE ON fire_accounts,fire_year_counts TO bonfire_runtime;
  GRANT INSERT ON fire_account_links TO bonfire_runtime;
+ GRANT INSERT,UPDATE ON wallet_catalog TO bonfire_runtime;
+ GRANT INSERT ON event_catalog_wallets TO bonfire_runtime;
+ GRANT INSERT ON wallet_batch_receipts TO bonfire_runtime;
  REVOKE INSERT, UPDATE ON event_records FROM bonfire_runtime;
  GRANT UPDATE(deleted_at) ON event_records TO bonfire_runtime;
  GRANT INSERT, DELETE, UPDATE(remaining) ON login_challenges TO bonfire_runtime;

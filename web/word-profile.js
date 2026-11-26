@@ -122,7 +122,7 @@ export async function wordFiles(encoded, context) {
   });
   const frame = document.createElement("iframe");
   frame.className = "word-preview-frame";
-  frame.title = "Lokaler Dokumentexport";
+  frame.title = "Local document export";
   const request = crypto.randomUUID();
   const pdf = await new Promise((ok, no) => {
     const cleanup = () => {
@@ -143,7 +143,7 @@ export async function wordFiles(encoded, context) {
     };
     const timer = setTimeout(() => {
       cleanup();
-      no(Error("Zeitlimit für Word-Layout erreicht."));
+      no(Error("The Word layout took too long to render."));
     }, 60000);
     addEventListener("message", response);
     frame.onload = () =>

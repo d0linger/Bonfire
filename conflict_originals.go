@@ -17,19 +17,19 @@ func conflictOriginals(ctx context.Context, tx pgx.Tx, d device, action, id stri
 		return pgx.CollectRows(rows, pgx.RowToMap)
 	}
 	if !idPattern.MatchString(id) {
-		return nil, fail("Belegvorgang wählen.")
+		return nil, fail("Select a transaction for this document.")
 	}
 	var v data
 	err := tx.QueryRow(ctx, `SELECT data FROM operations WHERE id=$1 AND event=$2 AND kind='original' AND outcome IN ('Konflikt','Geklärt')`, id, d.Event).Scan(&v)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fail("Konfliktfassung unbekannt.")
+		return nil, fail("Unknown conflict revision.")
 	}
 	if err != nil {
 		return nil, err
 	}
 	projectData(&v, "original", d)
 	if v.PDF == "" || v.DOCX == "" {
-		return nil, problem{403, "Belegprofil erforderlich."}
+		return nil, problem{403, "A document profile is required."}
 	}
 	if err = audit(ctx, tx, d.Event, d.User, "Archivierte Konfliktfassung abgerufen", id); err != nil {
 		return nil, err

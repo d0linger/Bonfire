@@ -3,7 +3,7 @@ $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'private-files.ps1')
 $root=(Get-Item -LiteralPath $Directory).FullName
 $key=(Get-Item -LiteralPath $KeyFile).FullName
-if(!(Get-Item -LiteralPath $root).PSIsContainer){throw 'Sicherungsverzeichnis fehlt.'}
+if(!(Get-Item -LiteralPath $root).PSIsContainer){throw 'The backup directory is missing.'}
 $id=[guid]::NewGuid().ToString('N')
 $name='bonfire-'+[DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')+'-'+$id+'.dump.enc'
 $stage=New-PrivateDirectory ([IO.Path]::GetTempPath())
@@ -11,7 +11,7 @@ $tmp=Join-Path $stage 'backup.dump'
 try{
  & ./ops/backup.ps1 -Path $tmp -SkipHistory | Out-Null
  node ./ops/crypt.mjs encrypt $key $tmp (Join-Path $root $name)
- if($LASTEXITCODE){throw 'Verschlüsselung fehlgeschlagen.'}
+ if($LASTEXITCODE){throw 'Backup encryption failed.'}
  Write-BackupHistory (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $root $name)).Hash
 } finally {
  if ([IO.File]::Exists($tmp)) { [IO.File]::Delete($tmp) }

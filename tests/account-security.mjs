@@ -177,14 +177,14 @@ try {
   await click("Sign out");
   await click("Sign in with a passkey");
   await page
-    .getByText("Anmeldung mit diesem Passkey fehlgeschlagen.", { exact: true })
+    .getByText("Sign-in with this passkey failed.", { exact: true })
     .waitFor();
   assert.equal(
     (await context.request.get(api("account/security"))).status(),
     401,
   );
   console.log(
-    "PASS Eigenkonto mit Rolle Write ohne Arbeitsbereich: Passwortwechsel, Einzel- und Sammelwiderruf, QR/TOTP, Recoverycodes und WebAuthn-Anmeldung.",
+    "PASS Write user without a workspace can change password, revoke sessions, manage TOTP and recovery codes, and sign in with WebAuthn.",
   );
 } finally {
   await browser.close();

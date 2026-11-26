@@ -87,15 +87,15 @@ try {
         .waitFor();
     }
     if (name === "Audit log") {
+      await view
+        .locator("button[data-entry]")
+        .first()
+        .waitFor();
       const panel = view.locator(".ops-panel").first();
       assert.equal(await background(panel), "rgb(34, 39, 48)");
       await appearance.click();
       await checkScheme("light");
       assert.equal(await background(panel), "rgb(255, 255, 255)");
-      await view
-        .locator("button[data-entry]")
-        .first()
-        .waitFor();
       for (const width of [1360, 390]) {
         await page.setViewportSize({ width, height: 900 });
         const entry = view.locator("button[data-entry]").first();

@@ -38,7 +38,7 @@ func (a *app) finishPasskeyLogin(ctx context.Context, w http.ResponseWriter, r *
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 128<<10)
 	response, err := protocol.ParseCredentialRequestResponse(r)
-	denied := problem{401, "Anmeldung mit diesem Passkey fehlgeschlagen."}
+	denied := problem{401, "Sign-in with this passkey failed."}
 	if err != nil {
 		return nil, denied
 	}

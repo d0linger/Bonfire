@@ -3,7 +3,7 @@ import { eur, types } from "./domain.js";
 
 export function fireDirectory(catalog, spaces, years) {
   return (
-    '<div class="page-head"><h1>Feuerwehrkonten</h1><button type="button" data-master-edit="new">Konto anlegen</button></div>' +
+    '<div class="page-head"><h1>Treasury accounts</h1><button type="button" data-master-edit="new">Create account</button></div>' +
     catalog.accounts
       .map(
         (a) =>
@@ -11,12 +11,12 @@ export function fireDirectory(catalog, spaces, years) {
           esc(a.Name) +
           '</h2><div class="actions"><button data-master-edit="' +
           esc(a.ID) +
-          '">Bearbeiten</button>' +
+          '">Edit</button>' +
           (a.Active
             ? '<button data-master-link="' +
               esc(a.ID) +
-              '">Im Arbeitsbereich verwenden</button>'
-            : "Inaktiv") +
+              '">Use in workspace</button>'
+            : "Inactive") +
           "</div></div>" +
           catalog.locals
             .filter((l) => l.Master === a.ID)
@@ -45,14 +45,14 @@ export function balanceTable(items, closed) {
   return (
     '<div class="list"><table><thead><tr>' +
     [
-      "Konto",
-      "Anfang",
-      "Eingänge",
-      "Ausgänge",
-      "Interne Bewegungen",
-      "Soll",
-      "Ist",
-      "Differenz",
+      "Account",
+      "Opening",
+      "Inflows",
+      "Outflows",
+      "Internal transfers",
+      "Expected",
+      "Actual",
+      "Difference",
       "",
     ]
       .map((t) => "<th>" + t + "</th>")
@@ -79,16 +79,16 @@ export function balanceTable(items, closed) {
             .join("") +
           '<td><div class="entry-actions"><button data-balance-lines="' +
           esc(b.ID) +
-          '">Bewegungen</button>' +
+          '">Transactions</button>' +
           (b.Shared && !closed
             ? '<button data-year-count="' +
               esc(b.ID) +
-              '">Bestände erfassen</button>'
+              '">Record balances</button>'
             : "") +
           "</div></td></tr>",
       )
       .join("") +
-    "</tbody><tfoot><tr><th>Gesamt</th>" +
+    "</tbody><tfoot><tr><th>Total</th>" +
     [
       "Opening",
       "Incoming",
@@ -124,7 +124,7 @@ export function balanceTable(items, closed) {
 }
 export function balanceLines(b) {
   return (
-    '<div class="list"><table><thead><tr><th>Datum</th><th>Arbeitsbereich</th><th>Vorgang</th><th>Bezeichnung</th><th>Betrag</th></tr></thead><tbody>' +
+    '<div class="list"><table><thead><tr><th>Date</th><th>Workspace</th><th>Transaction</th><th>Description</th><th>Amount</th></tr></thead><tbody>' +
     (b.Lines || [])
       .map(
         (l) =>

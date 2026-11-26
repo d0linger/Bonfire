@@ -113,4 +113,4 @@ await assert.rejects(guestSheets({
 const form = await PDFDocument.create();
 form.addPage([420, 298]);
 await assert.rejects(fillBackground(Buffer.from(await form.save()).toString("base64"),
-  ["1,50", "1", "Synthetic fire brigade", "Łucja Sample"]), /field Name und Anschrift des Spenders/);
+  ["1,50", "1", "Synthetic fire brigade", "Łucja Sample"]), /field Donor name and address/);

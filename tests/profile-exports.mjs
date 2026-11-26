@@ -2,9 +2,28 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
-import { PDFDocument } from "pdf-lib";
+import { PDFArray, PDFDocument, decodePDFRawStream } from "pdf-lib";
 import { unzipSync, strFromU8 } from "fflate";
 import { admin } from "./local-api.mjs";
+
+// Assert text inside each generated format, including rows that used to expose
+// persisted German status and category values from otherwise English profiles.
+const requiredText = [
+  ["Quantity", "Outstanding amount"], ["Quantity", "Cash received on"],
+  ["Anonymous", "Collection"], ["Price", "Juice"], ["Price", "Bread"],
+  ["Drink", "Food", "Unit"], ["Yours sincerely"], ["Denomination", "Opening"],
+  ["Receipts", "Shared costs"], ["Difference", "Pending"], ["Payment method", "Cash"],
+];
+
+function pdfContent(document) {
+  return document.getPages().flatMap(page => {
+    const contents = page.node.Contents();
+    const streams = contents instanceof PDFArray
+      ? contents.asArray().map(ref => document.context.lookup(ref))
+      : [contents];
+    return streams.map(stream => Buffer.from(decodePDFRawStream(stream).decode()).toString("latin1"));
+  }).join("\n");
+}
 
 const url = new URL(process.env.BONFIRE_URL);
 assert.equal(url.hostname, "127.0.0.1");
@@ -53,7 +72,7 @@ try {
       await form.locator('[name="organization"]').fill("Übungsfeuerwehr");
       await form.locator('[name="format"]').selectOption(format);
       const download = page.waitForEvent("download",{timeout:15000});
-      await form.getByRole("button",{name:"Dokument erzeugen"}).click();
+      await form.getByRole("button",{name:"Generate document"}).click();
       const file = await download.catch(async err => {throw new Error("T"+(i+1)+" "+format+": "+await page.locator("#notice").innerText(),{cause:err});});
       const bytes = await readFile(await file.path());
       await page.waitForFunction(() => !document.querySelector('article[aria-busy="true"]'));
@@ -65,9 +84,12 @@ try {
           assert.equal(Math.round(sheet.getHeight()*25.4/72),height);
         }
         assert.ok(pdf.getPageCount() > 0);
+        const contents = pdfContent(pdf);
+        for (const label of requiredText[i]) assert.ok(contents.includes(label), "Missing PDF label: " + label);
       } else {
         const xml = strFromU8(unzipSync(bytes)["word/document.xml"]);
         assert.match(xml, /<w:body>/);
+        for (const label of requiredText[i]) assert.ok(xml.includes(label), "Missing Word label: " + label);
         if (i === 0) assert.match(xml,/Übungsbanner/);
         if (i === 1) assert.match(xml,/40,00/);
       }
@@ -78,7 +100,7 @@ try {
   const after = await post(path,{});
   assert.equal(after.last,before.last);
   assert.equal(after.nextNumber,before.nextNumber);
-  console.log("PASS 11 Profile als PDF und DOCX, Seitenformate, Teilzahlungsbetrag und unverändertes Journal.");
+  console.log("PASS English text in all 11 PDF and DOCX profiles, page formats, partial payment amounts, and journal integrity.");
 } finally {
   await browser.close();
 }

@@ -64,7 +64,7 @@ func route(fn endpoint) http.HandlerFunc {
 			failedRequests.Add(1)
 			var p problem
 			if !errors.As(err, &p) {
-				p = problem{500, "Datenbankvorgang fehlgeschlagen."}
+				p = problem{500, "The database operation failed."}
 				log.Printf("request handler failed (%T)", err)
 			}
 			if r.Method == http.MethodPost && r.URL.Path == "/api/online" && p.code >= 500 {
@@ -83,7 +83,7 @@ func read(r *http.Request, v any) error {
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
 	if d.Decode(v) != nil || d.Decode(new(any)) != io.EOF {
-		return fail("Ungültige Eingabe.")
+		return fail("Invalid input.")
 	}
 	return nil
 }
@@ -208,7 +208,7 @@ func (a *app) events(ctx context.Context, w http.ResponseWriter, r *http.Request
 	}
 	if r.Method == "POST" {
 		if role != roleAdmin {
-			return nil, problem{403, "Nur für Admins."}
+			return nil, problem{403, "Administrator access required."}
 		}
 		var e event
 		if err = read(r, &e); err != nil {
@@ -216,13 +216,13 @@ func (a *app) events(ctx context.Context, w http.ResponseWriter, r *http.Request
 		}
 		e.Name = strings.TrimSpace(e.Name)
 		if !validEventDetails(e.Name, e.Starts, e.Ends) {
-			return nil, fail("Name und Zeitraum prüfen.")
+			return nil, fail("Check the name and date range.")
 		}
 		return a.createEvent(ctx, name, e)
 	}
 	year := r.URL.Query().Get("year")
 	if year != "" && !idPattern.MatchString(year) {
-		return nil, fail("Geschäftsjahr ungültig.")
+		return nil, fail("Invalid fiscal year.")
 	}
 	overview := r.URL.Query().Get("overview") == "1"
 	rows, err := a.db.Query(ctx, `SELECT e.id::text,name,starts::text,ends::text,closed,accounts,general_ledger,coalesce(fiscal_year::text,''),
@@ -268,10 +268,10 @@ func (a *app) prepare(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		capacity = *in.DigitalCount
 	}
 	if capacity < 0 || capacity > 1000 {
-		return nil, fail("Zwischen 0 und 1000 Digitalnummern wählen.")
+		return nil, fail("Select between 0 and 1000 digital numbers.")
 	}
 	if len(in.Name) < 1 || len(in.Name) > 100 {
-		return nil, fail("Gerätename fehlt.")
+		return nil, fail("Enter a device name.")
 	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
@@ -284,10 +284,10 @@ func (a *app) prepare(ctx context.Context, w http.ResponseWriter, r *http.Reques
 	var e event
 	err = tx.QueryRow(ctx, "SELECT id::text,name,starts::text,ends::text,closed,accounts,general_ledger,coalesce(fiscal_year::text,'') FROM events WHERE id=$1 AND ($2='Admin' OR EXISTS(SELECT 1 FROM grants_event WHERE event=$1 AND username=$3)) FOR UPDATE", in.Event, role, name).Scan(&e.ID, &e.Name, &e.Starts, &e.Ends, &e.Closed, &e.Accounts, &e.General, &e.Year)
 	if err != nil || e.Closed {
-		return nil, problem{403, "Veranstaltung gesperrt oder nicht zugewiesen."}
+		return nil, problem{403, "The event is locked or has not been assigned to you."}
 	}
 	if in.Donor && role != roleAdmin {
-		return nil, problem{403, "Meldedatenprofil nur für ausdrücklich berechtigte Admins."}
+		return nil, problem{403, "Only explicitly authorized administrators can use the reporting profile."}
 	}
 	id, token := uuid(), secret()
 	var block int64
@@ -322,25 +322,25 @@ func lock(ctx context.Context, tx pgx.Tx, r *http.Request) (device, error) {
 		return lockOnline(ctx, tx, r)
 	}
 	if !offlineEnabled() {
-		return d, problem{403, "Offline-Erfassung ist deaktiviert."}
+		return d, problem{403, "Offline entry is disabled."}
 	}
 	var digest []byte
 	id, token, ok := strings.Cut(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), ".")
 	if !ok {
-		return d, problem{401, "Gerätefreigabe erforderlich."}
+		return d, problem{401, "Device authorization is required."}
 	}
 	// Lock event before any reads of operations, balances or other device seals.
 	err := tx.QueryRow(ctx, "SELECT e.id::text FROM events e JOIN devices d ON d.event=e.id WHERE d.id=$1 FOR UPDATE OF e", id).Scan(&d.Event)
 	if err != nil {
-		return d, problem{403, "Gerät unbekannt."}
+		return d, problem{403, "Unknown device."}
 	}
 	err = tx.QueryRow(ctx, "SELECT d.id::text,d.username,u.role,d.block,d.last_seq,d.sealed,e.closed,e.accounts,d.secret,d.donor_access,d.incident_state,d.digital_count FROM devices d JOIN users u ON u.name=d.username JOIN events e ON e.id=d.event WHERE d.id=$1 AND NOT d.online_actor AND u.active AND NOT u.password_change_required AND d.expires>now() AND (u.role='Admin' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.username=u.name AND g.event=e.id))", id).Scan(&d.ID, &d.User, &d.Role, &d.Block, &d.Last, &d.Sealed, &d.Closed, &d.Accounts, &digest, &d.Donor, &d.IncidentState, &d.DigitalCount)
 	if err != nil || subtle.ConstantTimeCompare(digest, hash(token)) != 1 {
-		return d, problem{403, "Gerätefreigabe abgelaufen oder entzogen."}
+		return d, problem{403, "The device authorization expired or was revoked."}
 	}
 	d.Donor = d.Donor && d.Role == roleAdmin
 	if d.IncidentState == "missing" || d.IncidentState == "incomplete" || (d.IncidentState == "returning" && r.URL.Path != "/api/sync") {
-		return d, problem{403, "Gerätevorfall offen. Rückkehr durch einen Admin bestätigen lassen."}
+		return d, problem{403, "An incident is open for this device. Ask an administrator to confirm its return."}
 	}
 	_, err = tx.Exec(ctx, "SELECT set_config('bonfire.device',$1,true)", d.ID)
 	return d, err
@@ -374,7 +374,7 @@ func initialize(ctx context.Context, db *pgxpool.Pool) error {
 		}
 		pw := os.Getenv("BONFIRE_ADMIN_PASSWORD")
 		if len(pw) < 14 || len(pw) > 72 {
-			return errors.New("Startpasswort muss 14 bis 72 Bytes umfassen")
+			return errors.New("The initial password must be between 14 and 72 bytes long.")
 		}
 		digest, err := bcrypt.GenerateFromPassword([]byte(pw), 12)
 		if err != nil {
@@ -384,7 +384,7 @@ func initialize(ctx context.Context, db *pgxpool.Pool) error {
 			return err
 		}
 	} else if err != nil || (saved != sum && saved != migrationHash(sql, true)) {
-		return errors.New("Migrationsstand nicht verifiziert")
+		return errors.New("The migration state could not be verified.")
 	}
 	upgrade, _ := migrations.ReadFile("migrations/002.sql")
 	checksum := migrationHash(upgrade, false)
@@ -397,7 +397,7 @@ func initialize(ctx context.Context, db *pgxpool.Pool) error {
 			return err
 		}
 	} else if err != nil || (saved != checksum && saved != migrationHash(upgrade, true)) {
-		return errors.New("Migration 2 stimmt nicht überein")
+		return errors.New("Migration 2 does not match.")
 	}
 	if err = applyUpgrade(ctx, tx, 3, "migrations/003.sql"); err != nil {
 		return err
@@ -444,7 +444,7 @@ func initialize(ctx context.Context, db *pgxpool.Pool) error {
 	if err = applyUpgrade(ctx, tx, 17, "migrations/017.sql"); err != nil {
 		return err
 	}
-	for version := 18; version <= 33; version++ {
+	for version := 18; version <= 35; version++ {
 		if err = applyUpgrade(ctx, tx, version, fmt.Sprintf("migrations/%03d.sql", version)); err != nil {
 			return err
 		}
@@ -461,7 +461,7 @@ func main() {
 	ctx := context.Background()
 	db, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
-		log.Fatal("Datenbankkonfiguration ungültig")
+		log.Fatal("Invalid database configuration.")
 	}
 	defer db.Close()
 	if len(os.Args) > 1 && os.Args[1] == "migrate" {
@@ -504,6 +504,9 @@ func main() {
 	mux.HandleFunc("POST /api/years/edit", route(a.editYear))
 	mux.HandleFunc("GET /api/template-library", route(a.templateLibrary))
 	mux.HandleFunc("GET /api/fire-accounts", route(a.fireAccounts))
+	mux.HandleFunc("GET /api/wallet-catalog", route(a.walletCatalog))
+	mux.HandleFunc("POST /api/wallet-catalog", route(a.walletCatalog))
+	mux.HandleFunc("POST /api/events/wallet-batch", route(a.walletBatch))
 	mux.HandleFunc("POST /api/fire-accounts", route(a.fireAccounts))
 	mux.HandleFunc("GET /api/year-balances", route(a.yearBalances))
 	mux.HandleFunc("POST /api/years/assign", route(a.assignYear))

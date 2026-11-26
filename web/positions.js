@@ -10,7 +10,7 @@ export function positions(input) {
         .map((v) => v.trim());
       const matched = /^(\d{1,5})(?:[,.](\d{1,3}))?$/.exec(quantity);
       if (extra.length || !matched || !description)
-        throw Error("Position als Menge | Leistung | Einzelpreis eingeben.");
+        throw Error("Enter each line as quantity | description | unit price.");
       const QuantityMilli =
         Number(matched[1]) * 1000 + Number((matched[2] || "").padEnd(3, "0"));
       const UnitCents = cents(price);
@@ -19,7 +19,7 @@ export function positions(input) {
         QuantityMilli > 10000000 ||
         UnitCents > 999999999
       )
-        throw Error("Positionsgrenze überschritten.");
+        throw Error("Too many line items.");
       return { Description: description, QuantityMilli, UnitCents };
     });
 }

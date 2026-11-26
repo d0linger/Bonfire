@@ -1,7 +1,7 @@
 {
   "T8": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "Zusätzliche Modusvalidierung des flachen Exportkontexts; allgemeine required_variables bleiben anzuwenden.",
+    "description": "Validates mode-specific fields in the flat export context. General required variables still apply.",
     "type": "object",
     "required": [
       "render_mode",
@@ -87,7 +87,7 @@
   },
   "T9": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "Zusätzliche Modusvalidierung des flachen Exportkontexts; allgemeine required_variables bleiben anzuwenden.",
+    "description": "Validates mode-specific fields in the flat export context. General required variables still apply.",
     "type": "object",
     "required": [
       "render_mode"
@@ -139,7 +139,7 @@
   },
   "T10": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "Zusätzliche Validierung fehlender Ist-Werte im Exportkontext. Arithmetik, vollständige Bestandsmenge, Rechte und Gerätegrenzen bleiben zusätzlich nach Hauptkonzept zu prüfen.",
+    "description": "Validates missing observed balances in the export context. Arithmetic, completeness, permissions and device boundaries are checked separately.",
     "type": "object",
     "required": [
       "report.closing",

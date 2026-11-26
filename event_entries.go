@@ -26,15 +26,15 @@ func (a *app) eventInventory(ctx context.Context, w http.ResponseWriter, r *http
 		return nil, err
 	}
 	if role != roleAdmin {
-		return nil, problem{403, "Adminrecht erforderlich."}
+		return nil, problem{403, "Administrator access required."}
 	}
 	id := r.URL.Query().Get("event")
 	if !idPattern.MatchString(id) {
-		return nil, fail("Arbeitsbereich auswählen.")
+		return nil, fail("Select a workspace.")
 	}
 	rows, err := a.db.Query(ctx, `SELECT j.id,j.kind,j.data->>'Label',j.data->>'Date',j.revision,(j.data->>'Amount')::bigint,
 		coalesce(j.data->>'Wallet',''),coalesce(j.data->>'Bar',''),coalesce(j.data->>'Account',''),coalesce(j.data->>'To',''),
-		j.kind=ANY($2), j.kind=ANY($3)
+		j.kind=ANY($2) AND NOT EXISTS(SELECT FROM event_catalog_wallets w WHERE w.event=j.event AND w.local_id=j.id), j.kind=ANY($3)
 		FROM entries j JOIN events e ON e.id=j.event WHERE j.event=$1 ORDER BY j.data->>'Date',j.data->>'Label',j.id`, id, portableKinds, removableKinds)
 	if err != nil {
 		return nil, err
@@ -55,31 +55,32 @@ func entryChangeAllowed(ctx context.Context, tx pgx.Tx, source device, current r
 	v := current.Data
 	if !slices.Contains(removableKinds, current.Kind) || moving && !slices.Contains(portableKinds, current.Kind) ||
 		strings.HasPrefix(current.ID, "import:") || current.ID == "settlement:"+v.Wallet || current.ID == pooledSettlement || v.Fields["previous"] != "" {
-		return problem{409, "Dieser Vorgang ist an einen Fachablauf gebunden. Belege, Überträge und Sammelabrechnungen bleiben nachvollziehbar."}
+		return problem{409, "This entry belongs to a dedicated workflow. Use that workflow to preserve the history of documents, transfers and settlements."}
 	}
 	if current.Kind == "price" && v.Status == "Freigegeben" {
-		return problem{409, "Ein freigegebener Artikelpreis bleibt mit seinem Preisstand verbunden."}
+		return problem{409, "An approved item price remains linked to its price version."}
 	}
 	frozen, err := protectedPeriod(ctx, tx, source, op{Target: current.ID, Data: v})
 	if err != nil {
 		return err
 	}
 	if frozen {
-		return problem{409, "Der Eintrag gehört zu einer abgeschlossenen Periode."}
+		return problem{409, "This entry belongs to a closed period."}
 	}
 	var blocker string
 	err = tx.QueryRow(ctx, `SELECT CASE
-		WHEN EXISTS(SELECT FROM operations WHERE event=$1 AND outcome='Konflikt') THEN 'Zuerst offene Konflikte der Veranstaltung klären.'
-		WHEN EXISTS(SELECT FROM devices WHERE event=$1 AND NOT online_actor AND NOT sealed) THEN 'Zuerst die Erfassung aller vorbereiteten Geräte abschließen.'
+		WHEN EXISTS(SELECT FROM operations WHERE event=$1 AND outcome='Konflikt') THEN 'Resolve open conflicts for this event first.'
+		WHEN EXISTS(SELECT FROM devices WHERE event=$1 AND NOT online_actor AND NOT sealed) THEN 'Complete entry on all prepared devices first.'
 		WHEN EXISTS(SELECT FROM originals WHERE event=$1 AND (subject=$2 OR snapshot->>'subject'=$2))
 		  OR EXISTS(SELECT FROM entries WHERE event=$1 AND id<>$2 AND ($2 IN (data->>'Bar',data->>'Wallet',data->>'Account',data->>'To',data->>'Reference',data->'Fields'->>'sale') OR data->'Allocations' ? $2))
-		  THEN 'Andere Einträge oder Originalbelege verweisen auf diesen Vorgang. Zuerst die verknüpften Einträge prüfen.'
-		WHEN EXISTS(SELECT FROM fire_account_links WHERE event=$1 AND local_id=$2) THEN 'Dieses Konto ist einem Feuerwehrkonto zugeordnet.'
-        WHEN $3<>'' AND EXISTS(SELECT FROM entries WHERE event=$1 AND id='settlement:' || $3) THEN 'Die Geldtasche ist bereits abgerechnet.'
-		WHEN ($3<>'' OR $4='count') AND EXISTS(SELECT FROM entries WHERE event=$1 AND id='settlement-total') THEN 'Die Geldtaschen sind gemeinsam abgerechnet.'
-		WHEN $4='period' AND EXISTS(SELECT FROM period_closures WHERE period_id=$2) THEN 'Für diese Periode besteht ein Abschlussnachweis.'
-		WHEN $4='donation' AND EXISTS(SELECT FROM donation_reports WHERE event=$1 AND period=$5) THEN 'Für diesen Meldezeitraum besteht bereits ein Spendenprüflauf.'
-		ELSE '' END`, source.Event, current.ID, v.Wallet, current.Kind, donationPeriod(v)).Scan(&blocker)
+		  THEN 'Other entries or original documents reference this entry. Review the linked records first.'
+		WHEN EXISTS(SELECT FROM fire_account_links WHERE event=$1 AND local_id=$2) THEN 'This account is linked to a fire brigade account.'
+		WHEN $6 AND EXISTS(SELECT FROM event_catalog_wallets WHERE event=$1 AND local_id=$2) THEN 'Add this physical wallet from the catalogue in the destination event.'
+        WHEN $3<>'' AND EXISTS(SELECT FROM entries WHERE event=$1 AND id='settlement:' || $3) THEN 'This wallet has already been settled.'
+		WHEN ($3<>'' OR $4='count') AND EXISTS(SELECT FROM entries WHERE event=$1 AND id='settlement-total') THEN 'The wallets have been settled together.'
+		WHEN $4='period' AND EXISTS(SELECT FROM period_closures WHERE period_id=$2) THEN 'A closing record already exists for this period.'
+		WHEN $4='donation' AND EXISTS(SELECT FROM donation_reports WHERE event=$1 AND period=$5) THEN 'A donation review already exists for this reporting period.'
+		ELSE '' END`, source.Event, current.ID, v.Wallet, current.Kind, donationPeriod(v), moving).Scan(&blocker)
 	if err != nil {
 		return err
 	}
@@ -102,7 +103,7 @@ func (a *app) changeEventEntry(ctx context.Context, w http.ResponseWriter, r *ht
 		return nil, err
 	}
 	if role != roleAdmin {
-		return nil, problem{403, "Adminrecht erforderlich."}
+		return nil, problem{403, "Administrator access required."}
 	}
 	var q eventEntryChange
 	if err = read(r, &q); err != nil {
@@ -113,7 +114,7 @@ func (a *app) changeEventEntry(ctx context.Context, w http.ResponseWriter, r *ht
 	if !idPattern.MatchString(q.Event) || !idPattern.MatchString(q.Request) || !key.MatchString(q.Target) || q.Revision < 1 ||
 		len(q.Reason) < 3 || len(q.Reason) > 500 || (!moving && q.Action != "remove") ||
 		(moving && (!idPattern.MatchString(q.Destination) || q.Destination == q.Event)) || (!moving && q.Destination != "") {
-		return nil, fail("Vorgang, Ziel und eine Begründung (3–500 Zeichen) angeben.")
+		return nil, fail("Select the transaction and destination and enter a reason (3–500 characters).")
 	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
@@ -137,14 +138,14 @@ func (a *app) changeEventEntry(ctx context.Context, w http.ResponseWriter, r *ht
 		return nil, err
 	}
 	if len(spaces) != len(ids) {
-		return nil, problem{409, "Ein gewählter Arbeitsbereich ist nicht mehr verfügbar."}
+		return nil, problem{409, "A selected workspace is no longer available."}
 	}
 	source, err := lockOnlineEvent(ctx, tx, r, q.Event)
 	if err != nil {
 		return nil, err
 	}
 	if source.Role != roleAdmin {
-		return nil, problem{403, "Adminrecht erforderlich."}
+		return nil, problem{403, "Administrator access required."}
 	}
 	raw, err := json.Marshal(q)
 	if err != nil {
@@ -155,7 +156,7 @@ func (a *app) changeEventEntry(ctx context.Context, w http.ResponseWriter, r *ht
 	err = tx.QueryRow(ctx, "SELECT digest FROM operations WHERE id=$1 AND event=$2 AND device=$3", q.Request, q.Event, source.ID).Scan(&prior)
 	if err == nil {
 		if !bytes.Equal(prior, digest) {
-			return nil, problem{409, "Die Anforderung wurde bereits anders verarbeitet."}
+			return nil, problem{409, "This request was already processed with different details."}
 		}
 		return true, nil
 	}
@@ -165,16 +166,16 @@ func (a *app) changeEventEntry(ctx context.Context, w http.ResponseWriter, r *ht
 	year := spaces[0].Year
 	for _, e := range spaces {
 		if e.Closed || e.ID == q.Event && e.General {
-			return nil, problem{409, "Nur Einträge einer offenen Veranstaltung können bereinigt werden."}
+			return nil, problem{409, "Entries can only be removed from open events."}
 		}
 		if moving && (year == "" || e.Year != year) {
-			return nil, problem{409, "Das Ziel muss im selben Geschäftsjahr liegen."}
+			return nil, problem{409, "The destination must be in the same fiscal year."}
 		}
 	}
 	var current row
 	err = tx.QueryRow(ctx, "SELECT id,kind,device::text,revision,data FROM entries WHERE event=$1 AND id=$2", q.Event, q.Target).Scan(&current.ID, &current.Kind, &current.Device, &current.Revision, &current.Data)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && current.Revision != q.Revision {
-		return nil, problem{409, "Eintrag inzwischen geändert oder entfernt. Liste neu öffnen."}
+		return nil, problem{409, "This entry has changed or been removed. Reopen the list."}
 	}
 	if err != nil {
 		return nil, err
@@ -193,12 +194,12 @@ func (a *app) changeEventEntry(ctx context.Context, w http.ResponseWriter, r *ht
 			return nil, err
 		}
 		if dest.Role != roleAdmin {
-			return nil, problem{403, "Adminrecht erforderlich."}
+			return nil, problem{403, "Administrator access required."}
 		}
 		replacement := op{ID: uuid(), Target: uuid(), Kind: current.Kind, Data: current.Data}
 		if current.Data.Bar != "" && q.Bar == "" || current.Data.Wallet != "" && q.Wallet == "" ||
 			current.Data.Account != "" && q.Account == "" || current.Data.To != "" && q.To == "" {
-			return nil, fail("Die Zuordnungen der Quelle müssen im Ziel neu gewählt werden.")
+			return nil, fail("Select new assignments for this entry in the destination workspace.")
 		}
 		replacement.Data.Bar = q.Bar
 		replacement.Data.Wallet = q.Wallet
@@ -215,7 +216,7 @@ func (a *app) changeEventEntry(ctx context.Context, w http.ResponseWriter, r *ht
 				return nil, err
 			}
 			if !found {
-				return nil, fail("Zielkonto oder Geldtasche im Zielarbeitsbereich auswählen.")
+				return nil, fail("Select an account or wallet in the destination workspace.")
 			}
 		}
 		if q.Wallet != "" {
@@ -224,7 +225,7 @@ func (a *app) changeEventEntry(ctx context.Context, w http.ResponseWriter, r *ht
 				return nil, err
 			}
 			if settled {
-				return nil, problem{409, "Die Geldtasche im Ziel ist bereits abgerechnet."}
+				return nil, problem{409, "The destination wallet has already been settled."}
 			}
 		}
 		if replacement.Kind == "donation" {
@@ -233,11 +234,11 @@ func (a *app) changeEventEntry(ctx context.Context, w http.ResponseWriter, r *ht
 				return nil, err
 			}
 			if reported {
-				return nil, problem{409, "Im Ziel besteht für diesen Zeitraum ein Spendenprüflauf."}
+				return nil, problem{409, "A donation review already exists for this period in the destination workspace."}
 			}
 		}
 		if replacement.Data.Fields["sale"] != "" || strings.HasPrefix(replacement.Data.Reference, "source:") {
-			return nil, problem{409, "Der Vorgang hat einen veranstaltungsgebundenen Quellenbezug."}
+			return nil, problem{409, "This entry references a source tied to its event."}
 		}
 		if err = validate(op{ID: replacement.ID, Target: replacement.Target, Kind: replacement.Kind, Seq: dest.Last + 1, Data: replacement.Data}, dest.Accounts); err != nil {
 			return nil, err

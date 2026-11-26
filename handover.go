@@ -18,7 +18,7 @@ type deviceInfo struct {
 func validHandover(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error) {
 	v := o.Data
 	if v.Wallet == "" {
-		return false, fail("Geldtasche fehlt.")
+		return false, fail("A wallet is required.")
 	}
 	var current data
 	err := tx.QueryRow(ctx, "SELECT data FROM entries WHERE event=$1 AND id=$2 AND kind='handover'", d.Event, "handover:"+v.Wallet).Scan(&current)
@@ -26,7 +26,7 @@ func validHandover(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 		return false, err
 	}
 	if o.Target != "handover:"+v.Wallet {
-		return false, fail("Übergabe benötigt die stabile Geldtaschenkennung.")
+		return false, fail("Use the wallet's stable ID for the handover.")
 	}
 	switch v.Status {
 	case "Angeboten":
@@ -36,6 +36,6 @@ func validHandover(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 	case "Bestätigt":
 		return current.Status == "Angeboten" && current.To == d.ID && v.To == d.ID, nil
 	default:
-		return false, fail("Übergabestatus ungültig.")
+		return false, fail("Invalid handover status.")
 	}
 }

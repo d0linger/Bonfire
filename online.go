@@ -24,24 +24,24 @@ func lockOnlineEvent(ctx context.Context, tx pgx.Tx, r *http.Request, eventID st
 	var d device
 	cookie, err := r.Cookie("bonfire_session")
 	if err != nil || cookie.Value == "" {
-		return d, problem{401, "Bitte erneut anmelden."}
+		return d, problem{401, "Sign in again."}
 	}
 	err = tx.QueryRow(ctx, `SELECT u.name,u.role FROM sessions s JOIN users u ON u.name=s.username
  WHERE s.token=$1 AND s.expires>now() AND u.active AND NOT u.password_change_required`, hash(cookie.Value)).Scan(&d.User, &d.Role)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return d, problem{401, "Bitte erneut anmelden."}
+		return d, problem{401, "Sign in again."}
 	}
 	if err != nil {
 		return d, err
 	}
 	d.Event = eventID
 	if !idPattern.MatchString(d.Event) {
-		return d, fail("Arbeitsbereich auswählen.")
+		return d, fail("Select a workspace.")
 	}
 	err = tx.QueryRow(ctx, `SELECT e.closed,e.accounts FROM events e WHERE e.id=$1
  AND ($2='Admin' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.event=e.id AND g.username=$3)) FOR UPDATE`, d.Event, d.Role, d.User).Scan(&d.Closed, &d.Accounts)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return d, problem{403, "Arbeitsbereich nicht zugewiesen."}
+		return d, problem{403, "You have no access to this workspace."}
 	}
 	if err != nil {
 		return d, err
@@ -49,7 +49,7 @@ func lockOnlineEvent(ctx context.Context, tx pgx.Tx, r *http.Request, eventID st
 	d.Online = true
 	d.Donor = r.Header.Get("X-Bonfire-Donor") == "true"
 	if d.Donor && d.Role != roleAdmin {
-		return d, problem{403, "Meldedaten erfordern Adminrecht."}
+		return d, problem{403, "Administrator access is required for reporting data."}
 	}
 	err = tx.QueryRow(ctx, `SELECT id::text,block,last_seq,digital_count FROM devices
  WHERE event=$1 AND username=$2 AND online_actor`, d.Event, d.User).Scan(&d.ID, &d.Block, &d.Last, &d.DigitalCount)

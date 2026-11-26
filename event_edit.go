@@ -27,7 +27,7 @@ func (a *app) editEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	next := in.Updated
 	next.Name = strings.TrimSpace(next.Name)
 	if !idPattern.MatchString(in.Event) || !validEventDetails(next.Name, next.Starts, next.Ends) {
-		return nil, fail("Veranstaltung, Name und Zeitraum prüfen.")
+		return nil, fail("Check the event, name and dates.")
 	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
@@ -46,13 +46,13 @@ func (a *app) editEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	err = tx.QueryRow(ctx, "SELECT name,starts::text,ends::text,general_ledger,closed FROM events WHERE id=$1 FOR UPDATE", in.Event).
 		Scan(&current.Name, &current.Starts, &current.Ends, &general, &closed)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, problem{404, "Veranstaltung nicht gefunden."}
+		return nil, problem{404, "Event not found."}
 	}
 	if err != nil {
 		return nil, err
 	}
 	if general || closed {
-		return nil, problem{409, "Nur offene Veranstaltungen können bearbeitet werden."}
+		return nil, problem{409, "Only open events can be edited."}
 	}
 	if err = checkYearSetup(ctx, tx, in.Event); err != nil {
 		return nil, err
@@ -61,7 +61,7 @@ func (a *app) editEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		return true, tx.Commit(ctx)
 	}
 	if current != in.Previous {
-		return nil, problem{409, "Die Veranstaltung wurde inzwischen geändert. Die Veranstaltungsliste erneut öffnen und die Angaben prüfen."}
+		return nil, problem{409, "This event has changed. Reopen the event list and check the details."}
 	}
 	tag, err := tx.Exec(ctx, `UPDATE events e SET name=$2,starts=$3,ends=$4 WHERE e.id=$1
 		AND (e.fiscal_year IS NULL OR EXISTS(SELECT FROM fiscal_years y WHERE y.id=e.fiscal_year AND y.starts<=$3 AND y.ends>=$4))`,
@@ -70,7 +70,7 @@ func (a *app) editEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		return nil, err
 	}
 	if tag.RowsAffected() == 0 {
-		return nil, fail("Der Zeitraum muss vollständig im Geschäftsjahr der Veranstaltung liegen.")
+		return nil, fail("The period must fall entirely within the event's fiscal year.")
 	}
 	if err = checkYearSetup(ctx, tx, in.Event); err != nil {
 		return nil, err
