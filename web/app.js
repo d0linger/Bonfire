@@ -2748,30 +2748,30 @@ const defaultDay = (scope) =>
     : scope.Starts;
 function yearFields(y = {}) {
   return (
-    field("Name", "Bezeichnung", "text", true, y.Name) +
-    field("Starts", "Von", "date", true, y.Starts) +
-    field("Ends", "Bis", "date", true, y.Ends)
+    field("Name", "Name", "text", true, y.Name) +
+    field("Starts", "Start date", "date", true, y.Starts) +
+    field("Ends", "End date", "date", true, y.Ends)
   );
 }
 function yearForm() {
   return popupForm(
     "fiscal-year",
-    "Geschäftsjahr anlegen",
+    "Create fiscal year",
     yearFields(),
-    "Geschäftsjahr speichern",
+    "Save fiscal year",
   );
 }
 function yearSetup() {
   const old = allSpaces.filter((e) => !e.Year);
   return (
     pageHead(
-      "Geschäftsjahre",
-      "Wähle das Geschäftsjahr für eure Kassenführung.",
+      "Fiscal years",
+      "Choose the fiscal year for your cashbook.",
       onlineUser.role === "Admin" ? yearForm() : "",
     ) +
     (years.length
       ? panel(
-          "Geschäftsjahr öffnen",
+          "Open fiscal year",
           years
             .map(
               (y) =>
@@ -2787,9 +2787,9 @@ function yearSetup() {
                 (onlineUser.role === "Admin" && !y.Closed
                   ? '<button type="button" class="secondary" data-year-edit="' +
                     esc(y.ID) +
-                    '" aria-haspopup="dialog" aria-label="Geschäftsjahr ' +
+                    '" aria-haspopup="dialog" aria-label="Edit fiscal year ' +
                     esc(y.Name) +
-                    ' bearbeiten">Bearbeiten</button>'
+                    '">Edit</button>'
                   : "") +
                 "</div>",
             )
@@ -2797,27 +2797,27 @@ function yearSetup() {
         )
       : "") +
     (onlineUser.role !== "Admin" && !years.length
-      ? "<p>Dir wurde noch kein Arbeitsbereich in einem Geschäftsjahr zugewiesen.</p>"
+      ? "<p>You have no assigned workspaces in a fiscal year yet.</p>"
       : "") +
     (old.length
       ? panel(
-          "Bisherige Arbeitsbereiche",
-          '<button type="button" class="secondary" data-year="unassigned">Ohne Jahreszuordnung öffnen</button>' +
+          "Existing workspaces",
+          '<button type="button" class="secondary" data-year="unassigned">Open unassigned workspaces</button>' +
             (onlineUser.role === "Admin" && years.length
               ? popupForm(
                   "assign-year",
-                  "Geschäftsjahr zuordnen",
+                  "Assign fiscal year",
                   select(
                     "Event",
-                    "Arbeitsbereich",
+                    "Workspace",
                     old.map((e) => [e.ID, e.Name]),
                   ) +
                     select(
                       "Year",
-                      "Geschäftsjahr",
+                      "Fiscal year",
                       years.map((y) => [y.ID, y.Name]),
                     ),
-                  "Geschäftsjahr zuordnen",
+                  "Assign fiscal year",
                 )
               : ""),
         )
@@ -2826,9 +2826,9 @@ function yearSetup() {
 }
 function eventFields(name, starts, ends) {
   return (
-    field("Name", "Veranstaltungsname", "text", true, name) +
-    field("Starts", "Beginn", "date", true, starts) +
-    field("Ends", "Ende", "date", true, ends)
+    field("Name", "Event name", "text", true, name) +
+    field("Starts", "Start date", "date", true, starts) +
+    field("Ends", "End date", "date", true, ends)
   );
 }
 function eventForm() {
@@ -2836,20 +2836,20 @@ function eventForm() {
     day = defaultDay(year);
   return popupForm(
     "event",
-    "Veranstaltung anlegen",
+    "Create event",
     eventFields("", day, day) +
-      select("Accounts", "Kontozuordnung", [
-        ["", "Aus"],
-        ["ja", "Ein"],
+      select("Accounts", "Account assignment", [
+        ["", "Off"],
+        ["ja", "On"],
       ]),
-    "Veranstaltung speichern",
+    "Save event",
   );
 }
 async function openEventCleanup(trigger, workspace, message = "") {
   const inventory = (id) =>
     api("events/entries?event=" + encodeURIComponent(id));
   const items = await inventory(workspace.ID);
-  const cancel = button("cancel", "Abbrechen", true);
+  const cancel = button("cancel", "Cancel", true);
   const targets = events.filter(
     (e) =>
       workspace.Year &&
@@ -2869,20 +2869,20 @@ async function openEventCleanup(trigger, workspace, message = "") {
       .join(" · "),
   ]);
   const fields = items.length
-    ? select("Target", "Eintrag", choices) +
-      select("Destination", "Aktion oder Ziel", [
-        ["", "Bitte wählen"],
-        ["remove", "Eintrag entfernen / Buchung stornieren"],
-        ...targets.map((e) => [e.ID, "Umbuchen nach " + e.Name]),
+    ? select("Target", "Entry", choices) +
+      select("Destination", "Action or destination", [
+        ["", "Choose an option"],
+        ["remove", "Remove entry or reverse booking"],
+        ...targets.map((e) => [e.ID, "Move to " + e.Name]),
       ]) +
       '<div class="form cleanup-mapping" hidden></div>' +
-      field("Reason", "Begründung", "text", true)
+      field("Reason", "Reason", "text", true)
     : "";
   const description = items.length
     ? items.length +
-      (items.length === 1 ? " Eintrag ist" : " Einträge sind") +
-      " noch zugeordnet. Wähle einen Eintrag zum Umbuchen oder Entfernen."
-    : "Diese Veranstaltung enthält keine Einträge. Möchtest du sie aus dem Geschäftsjahr löschen?";
+      (items.length === 1 ? " entry is" : " entries are") +
+      " still assigned. Select an entry to move or remove."
+    : "This event is empty. Delete it from the fiscal year?";
   openEditor(
     trigger,
     workspace.Name,
@@ -2893,7 +2893,7 @@ async function openEventCleanup(trigger, workspace, message = "") {
       form(
         "event-cleanup",
         fields,
-        items.length ? "Aktion auswählen" : "Veranstaltung löschen",
+        items.length ? "Choose an action" : "Delete event",
         cancel,
       ),
   );
@@ -2924,17 +2924,17 @@ async function openEventCleanup(trigger, workspace, message = "") {
       const target = targets.find((e) => e.ID === destination);
       submitButton.disabled = true;
       submitButton.textContent = removing
-        ? "Eintrag entfernen"
+        ? "Remove entry"
         : target
-          ? "Jetzt umbuchen"
-          : "Aktion auswählen";
+          ? "Move entry"
+          : "Choose an action";
       mapping.replaceChildren();
       mapping.hidden = true;
       const alert = entryDialog.querySelector(".entry-error");
       alert.textContent = "";
       if (!item.Removable && !item.Movable) {
         alert.textContent =
-          "Dieser Eintrag ist Teil eines geschützten Fachablaufs.";
+          "This entry belongs to a protected transaction.";
         return;
       }
       if (!destination) return;
@@ -2950,17 +2950,17 @@ async function openEventCleanup(trigger, workspace, message = "") {
           "transfer",
         ].includes(item.Kind);
         const required = [
-          ["Bar", "Bar im Ziel", ["bar"], item.Bar],
-          ["Wallet", "Geldtasche im Ziel", ["wallet"], item.Wallet],
+          ["Bar", "Destination bar", ["bar"], item.Bar],
+          ["Wallet", "Destination wallet", ["wallet"], item.Wallet],
           [
             "Account",
-            "Konto im Ziel",
+            "Destination account",
             ["wallet", "account"],
             item.Account || (target.Accounts && moneyAccount),
           ],
           [
             "To",
-            "Gegenkonto im Ziel",
+            "Destination counterparty account",
             ["wallet", "account"],
             item.Kind === "transfer",
           ],
@@ -2972,7 +2972,7 @@ async function openEventCleanup(trigger, workspace, message = "") {
             mapping.innerHTML = required
               .map(([key, title, kinds]) =>
                 select(key, title, [
-                  ["", "Bitte wählen"],
+                  ["", "Choose an option"],
                   ...rows
                     .filter((r) => kinds.includes(r.Kind))
                     .map((r) => [r.ID, r.Label]),
@@ -3100,9 +3100,9 @@ function eventAdminButtons(event) {
   return onlineUser?.role === "Admin" && !event.Closed && !event.General
     ? '<button type="button" class="secondary" aria-haspopup="dialog" data-event-edit="' +
         esc(event.ID) +
-        '">Bearbeiten</button><button type="button" class="secondary" aria-haspopup="dialog" data-event-cleanup="' +
+        '">Edit</button><button type="button" class="secondary" aria-haspopup="dialog" data-event-cleanup="' +
         esc(event.ID) +
-        '">Veranstaltung löschen …</button>'
+        '">Delete event …</button>'
     : "";
 }
 function eventListRow(e) {
@@ -3121,21 +3121,21 @@ function eventListRow(e) {
     '</span></div><span class="event-status' +
     (e.Closed ? " is-closed" : "") +
     '">' +
-    (e.Closed ? "Abgeschlossen" : "Buchung offen") +
+    (e.Closed ? "Closed" : "Open for bookings") +
     '</span><div class="event-figures"><dl>' +
-    "<div><dt>Einnahmen</dt><dd>" +
+    "<div><dt>Income</dt><dd>" +
     eur(e.ReceiptsCents) +
     "</dd></div>" +
-    "<div><dt>Ausgaben</dt><dd>" +
+    "<div><dt>Expenses</dt><dd>" +
     eur(e.PaidCents) +
     "</dd></div>" +
-    '<div><dt>Ergebnis</dt><dd class="' +
+    '<div><dt>Net result</dt><dd class="' +
     resultClass +
     '">' +
     eur(result) +
     "</dd></div></dl>" +
     (e.OutstandingCents
-      ? "<small>Offene Privatauslagen: " + eur(e.OutstandingCents) + "</small>"
+      ? "<small>Unreimbursed expenses: " + eur(e.OutstandingCents) + "</small>"
       : "") +
     '</div><div class="event-actions">' +
     (book
@@ -3153,15 +3153,15 @@ async function showEventsOfYear() {
   const year = selectedYear;
   article.innerHTML =
     pageHead(
-      "Veranstaltungen",
+      "Events",
       fiscalYear()
-        ? "Geschäftsjahr " + fiscalYear().Name
-        : "Bisherige Arbeitsbereiche",
+        ? "Fiscal year " + fiscalYear().Name
+        : "Existing workspaces",
       fiscalYear() && !fiscalYear().Closed && onlineUser.role === "Admin"
         ? eventForm()
         : "",
     ) +
-    '<div class="event-list-host" aria-busy="true">Veranstaltungen werden geladen …</div>';
+    '<div class="event-list-host" aria-busy="true">Loading events…</div>';
   const host = article.querySelector(".event-list-host");
   try {
     const spaces = await api(
@@ -3175,10 +3175,10 @@ async function showEventsOfYear() {
       .concat(spaces);
     const list = spaces.filter((e) => !e.General);
     host.innerHTML = list.length
-      ? '<ul class="event-list" aria-label="Veranstaltungen im Geschäftsjahr">' +
+      ? '<ul class="event-list" aria-label="Events in this fiscal year">' +
         list.map(eventListRow).join("") +
         "</ul>"
-      : "<p>Für dieses Geschäftsjahr gibt es noch keine Veranstaltung.</p>";
+      : "<p>There are no events in this fiscal year yet.</p>";
   } catch (err) {
     if (host.isConnected) host.textContent = err.message;
   } finally {
@@ -5401,16 +5401,16 @@ document.addEventListener("click", (e) => {
       const y = years.find((item) => item.ID === b.dataset.yearEdit);
       if (!y || y.Closed) {
         show();
-        throw Error("Dieses Geschäftsjahr kann nicht mehr bearbeitet werden.");
+        throw Error("This fiscal year can no longer be edited.");
       }
       openEditor(
         b,
-        "Geschäftsjahr bearbeiten",
+        "Edit fiscal year",
         form(
           "year-edit",
           yearFields(y),
-          "Änderungen speichern",
-          button("cancel", "Abbrechen", true),
+          "Save changes",
+          button("cancel", "Cancel", true),
         ),
       );
       entryDialog.querySelector("form").dataset.year = y.ID;
@@ -5426,12 +5426,12 @@ document.addEventListener("click", (e) => {
     if (!e) return;
     openEditor(
       b,
-      "Veranstaltung bearbeiten",
+      "Edit event",
       form(
         "event-edit",
         eventFields(e.Name, e.Starts, e.Ends),
-        "Änderungen speichern",
-        button("cancel", "Abbrechen", true),
+        "Save changes",
+        button("cancel", "Cancel", true),
       ),
     );
     const editor = entryDialog.querySelector("form");
