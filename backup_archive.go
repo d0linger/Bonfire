@@ -191,6 +191,8 @@ func unsealBackup(src io.Reader, dst io.Writer, key []byte) (backupManifest, err
 	}
 }
 
+var errBackupStatePublished = errors.New("backup state renamed but directory sync failed")
+
 func saveBackupJSON(path string, v any) error {
 	f, err := os.CreateTemp(backupHome, ".state-")
 	if err != nil {
@@ -212,8 +214,11 @@ func saveBackupJSON(path string, v any) error {
 	}
 	dir, err := os.Open(backupHome)
 	if err != nil {
-		return err
+		return errors.Join(errBackupStatePublished, err)
 	}
 	defer dir.Close()
-	return dir.Sync()
+	if err = dir.Sync(); err != nil {
+		return errors.Join(errBackupStatePublished, err)
+	}
+	return nil
 }
