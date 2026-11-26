@@ -254,6 +254,7 @@ func TestTransactionalRecovery(t *testing.T) {
 	f.checkPaymentRules(year.ID, date)
 	f.checkDocumentsAndImport(year.ID, date)
 	f.checkWalletCatalog(year.ID, date)
+	f.checkWalletBatches(year.ID, date)
 	f.checkMigrationIntegrity()
 	f.checkBackupDB()
 	f.checkSelfService()

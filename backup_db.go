@@ -48,6 +48,9 @@ func stateManifest(ctx context.Context, tx pgx.Tx, schema int) (backupManifest, 
 	if schema >= 34 {
 		tables = append(tables, "wallet_catalog", "event_catalog_wallets")
 	}
+	if schema >= 35 {
+		tables = append(tables, "wallet_batch_receipts")
+	}
 	for _, table := range append(tables, "originals") {
 		rows, err := tx.Query(ctx, "SELECT sha256(convert_to(to_jsonb(r)::text,'UTF8')) FROM "+pgx.Identifier{table}.Sanitize()+" r ORDER BY 1")
 		if err != nil {
