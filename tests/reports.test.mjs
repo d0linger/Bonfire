@@ -142,12 +142,12 @@ test("Barergebnis ohne Gemeinkostenumlage und tatsächliche Gesamtkosten", () =>
   assert.equal(summary(after).result, 56500);
 });
 test("Abschlussvertrag unterscheidet fehlendes Ist, bestätigte Null und Periodenfreigabe", () => {
-  const rows = [row("opening", { Amount: 0, Date: "2026-06-01" })];
+  const rows = [row("opening", { Amount: 0, Date: "2026-06-01", BalanceOrder: "1" })];
   const unknown = closure(rows, false, false)["report.closing"];
   assert.equal(unknown.actual_closing_cents, null);
   assert.equal(unknown.difference_cents, null);
   const confirmed = closure(
-    [...rows, row("actual", { Amount: 0, Date: "2026-06-30" })],
+    [...rows, row("actual", { Amount: 0, Date: "2026-06-30", BalanceOrder: "2" })],
     false,
     true,
   );
@@ -185,7 +185,7 @@ test("equal and opposite postings require a new same-day observation", () => {
   assert.equal(closure(values,false,true)["report.review"].status,"preparation");
   values[1].Data.BalanceOrder="5";
   assert.equal(closure(values,false,true)["report.review"].status,"approved");
-  values[2].Data.Date = values[1].Data.Date;
+  values[2].Data.Date = "2026-06-10";
   delete values[2].Data.BalanceOrder;
   assert.equal(closure(values,false,true)["report.review"].status,"preparation");
 });
