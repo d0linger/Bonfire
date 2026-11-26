@@ -2,27 +2,27 @@ import { esc } from "./workplace.js";
 
 const stamp = (time) =>
   time
-    ? new Date(time).toLocaleString("de-AT", {
+    ? new Date(time).toLocaleString("en-GB", {
         dateStyle: "short",
         timeStyle: "short",
       })
-    : "Noch kein Lauf";
+    : "No runs yet";
 const size = (bytes) =>
   bytes >= 1048576
-    ? (bytes / 1048576).toLocaleString("de-AT", { maximumFractionDigits: 1 }) +
+    ? (bytes / 1048576).toLocaleString("en-GB", { maximumFractionDigits: 1 }) +
       " MB"
     : Math.ceil(bytes / 1024) + " kB";
 const names = {
-  local: "Lokales Volume",
-  s3: "S3-Speicher",
-  probe: "Restore-Probe",
-  upload: "Hochgeladene Datei",
+  local: "Local volume",
+  s3: "S3 storage",
+  probe: "Restore test",
+  upload: "Uploaded file",
 };
 const actions = {
-  backup: "Sicherung",
-  probe: "Restore-Probe",
-  promote: "Übernahme",
-  test: "S3-Verbindungstest",
+  backup: "Backup",
+  probe: "Restore test",
+  promote: "Restore",
+  test: "S3 connection test",
 };
 const button = (act, label, primary = false) =>
   '<button type="button" data-backup="' +
@@ -47,16 +47,16 @@ function heading(text, side = "") {
 }
 function stateText(h) {
   return h?.outcome === "failed"
-    ? "Fehlgeschlagen"
+    ? "Failed"
     : h?.outcome === "running"
-      ? "Läuft"
+      ? "Running"
       : h?.due
-        ? "Fällig"
+        ? "Due"
         : h?.lastSuccess
-          ? "Erfolgreich"
+          ? "Successful"
           : h?.enabled
-            ? "Eingeplant"
-            : "Manuell";
+            ? "Scheduled"
+            : "Manual";
 }
 
 export async function mountBackup(host, { api }) {
@@ -88,9 +88,9 @@ export async function mountBackup(host, { api }) {
     return (
       '<div class="bk-stats">' +
       [
-        ["local", "Letztes lokales Backup"],
-        ["s3", "Letzte S3-Sicherung"],
-        ["probe", "Letzte Restore-Probe"],
+        ["local", "Last local backup"],
+        ["s3", "Last S3 backup"],
+        ["probe", "Last restore test"],
       ]
         .map(
           ([k, label]) =>
@@ -99,7 +99,7 @@ export async function mountBackup(host, { api }) {
             "</small><strong>" +
             esc(
               k === "s3" && !state.s3Configured
-                ? "Nicht eingerichtet"
+                ? "Not configured"
                 : stamp(state[k]?.lastSuccess),
             ) +
             "</strong><span>" +
@@ -118,15 +118,15 @@ export async function mountBackup(host, { api }) {
         names[k],
         badge(
           k === "s3" && !state.s3Configured
-            ? "Nicht eingerichtet"
+            ? "Not configured"
             : stateText(state[k]),
           state[k]?.outcome === "failed",
         ),
       ) +
-      "<dl><dt>Zeitplan</dt><dd>" +
-      esc(cfg.cron || "Manuell") +
-      "</dd><dt>Aufbewahrung</dt><dd>" +
-      esc(cfg.days ? cfg.days + " Tage" : "Unbegrenzt") +
+      "<dl><dt>Schedule</dt><dd>" +
+      esc(cfg.cron || "Manual") +
+      "</dd><dt>Retention</dt><dd>" +
+      esc(cfg.days ? cfg.days + " days" : "Unlimited") +
       "</dd></dl></section>"
     );
   }
@@ -136,10 +136,10 @@ export async function mountBackup(host, { api }) {
       targetPanel("local") +
       targetPanel("s3") +
       "</div><section>" +
-      heading("Sicherungsdateien") +
+      heading("Backup files") +
       (state.s3Error ? note(state.s3Error) : "") +
       (state.files.length
-        ? '<div class="list"><table><thead><tr><th>Datei</th><th>Ziel</th><th>Größe</th><th>Ausführen</th></tr></thead><tbody>' +
+        ? '<div class="list"><table><thead><tr><th>File</th><th>Destination</th><th>Size</th><th>Actions</th></tr></thead><tbody>' +
           state.files
             .map(
               (f, i) =>
@@ -157,19 +157,19 @@ export async function mountBackup(host, { api }) {
                 encodeURIComponent(f.name) +
                 '" download>Download</a><button type="button" data-bk-file="' +
                 i +
-                '" class="secondary">Restore prüfen</button></div></td></tr>',
+                '" class="secondary">Test restore</button></div></td></tr>',
             )
             .join("") +
           "</tbody></table></div>"
-        : note("Noch keine Sicherungsdatei vorhanden.")) +
+        : note("No backup files yet.")) +
       "</section>"
     );
   }
   function schedules() {
     return (
-      "<p>Zeitzone " +
+      "<p>Time zone " +
       esc(state.timezone) +
-      ". Ein leeres Zeitplanfeld aktiviert den manuellen Betrieb.</p>" +
+      ". Leave the schedule empty to run backups manually.</p>" +
       ["local", "s3", "probe"]
         .map((k) => {
           const cfg = state.schedules[k] || {},
@@ -179,39 +179,39 @@ export async function mountBackup(host, { api }) {
             heading(names[k]) +
             (disabled
               ? note(
-                  "S3-Endpunkt, Bucket und Zugangsdaten im Deployment hinterlegen.",
+                  "Configure the S3 endpoint, bucket and credentials in your deployment.",
                 )
               : "") +
             '<form data-bk-form="schedule"><input type="hidden" name="target" value="' +
             k +
             '"><fieldset ' +
             (disabled ? "disabled" : "") +
-            '><label>Zeitplan (Cron)<input name="cron" value="' +
+            '><label>Schedule (Cron)<input name="cron" value="' +
             esc(cfg.cron || "") +
             '" placeholder="0 2 * * *"></label>' +
             (k === "probe"
-              ? note("Geprüft wird die neueste lokale Sicherung.")
-              : '<label>Aufbewahrung in Tagen (0 = unbegrenzt)<input type="number" name="days" min="0" max="3650" required value="' +
+              ? note("The test restores the newest local backup.")
+              : '<label>Retention in days (0 = unlimited)<input type="number" name="days" min="0" max="3650" required value="' +
                 (cfg.days ?? 30) +
                 '"></label>') +
-            "<button>Zeitplan speichern</button></fieldset></form>" +
+            "<button>Save schedule</button></fieldset></form>" +
             note(
-              "Nächster Lauf: " +
-                (state[k]?.next ? stamp(state[k].next) : "Keiner geplant"),
+              "Next run: " +
+                (state[k]?.next ? stamp(state[k].next) : "None scheduled"),
             ) +
             "</section>"
           );
         })
         .join("") +
-      (state.s3Configured ? button("test", "S3-Verbindung testen") : "")
+      (state.s3Configured ? button("test", "Test S3 connection") : "")
     );
   }
   function history() {
     return (
       "<section>" +
-      heading("Auftragsverlauf") +
+      heading("Job history") +
       (state.recent?.length
-        ? '<div class="list"><table><thead><tr><th>Zeitpunkt</th><th>Auftrag</th><th>Ergebnis</th><th>Ausgeführt von</th></tr></thead><tbody>' +
+        ? '<div class="list"><table><thead><tr><th>Time</th><th>Job</th><th>Result</th><th>Run by</th></tr></thead><tbody>' +
           state.recent
             .map(
               (j) =>
@@ -237,21 +237,21 @@ export async function mountBackup(host, { api }) {
             )
             .join("") +
           "</tbody></table></div>"
-        : note("Noch keine Aufträge ausgeführt.")) +
+        : note("No jobs have run yet.")) +
       "</section>"
     );
   }
   function render() {
     host.innerHTML =
-      '<div class="page-head"><div><h1>Backup</h1><p>Sicherungen und Wiederherstellung für die gesamte Installation.</p></div><div class="bk-actions">' +
-      button("restore", "Wiederherstellen") +
-      button("new", "Jetzt sichern", true) +
+      '<div class="page-head"><div><h1>Backup</h1><p>Back up and restore the entire installation.</p></div><div class="bk-actions">' +
+      button("restore", "Restore") +
+      button("new", "Back up now", true) +
       '</div></div><div class="tabs">' +
-      tabButton("files", "Sicherungen") +
-      tabButton("schedule", "Zeitpläne & Ziele") +
-      tabButton("jobs", "Restore-Proben & Verlauf") +
+      tabButton("files", "Backups") +
+      tabButton("schedule", "Schedules and destinations") +
+      tabButton("jobs", "Restore tests and history") +
       '</div><p role="status" aria-live="polite">' +
-      esc(notice || (state.active ? "Auftrag wird ausgeführt …" : "")) +
+      esc(notice || (state.active ? "Job in progress…" : "")) +
       "</p>" +
       stats() +
       (tab === "files"
@@ -259,7 +259,7 @@ export async function mountBackup(host, { api }) {
         : tab === "schedule"
           ? schedules()
           : history()) +
-      button("refresh", "Aktualisieren");
+      button("refresh", "Refresh");
   }
   async function refresh() {
     clearTimeout(timer);
@@ -280,7 +280,7 @@ export async function mountBackup(host, { api }) {
       '<div class="bk-heading"><h2>' +
       title +
       "</h2>" +
-      button("cancel", "Schließen") +
+      button("cancel", "Close") +
       "</div>" +
       body +
       '<p role="alert"></p>';
@@ -308,29 +308,29 @@ export async function mountBackup(host, { api }) {
       )
       .join("");
     open(
-      "Wiederherstellung prüfen",
-      "<p>Die Probe stellt die gesamte Sicherung in einer getrennten Datenbank wieder her.</p>" +
+      "Test a restore",
+      "<p>The test restores the entire archive into a separate database.</p>" +
         (options
-          ? '<form data-bk-form="probe"><label>Sicherungsdatei<select name="file">' +
+          ? '<form data-bk-form="probe"><label>Backup file<select name="file">' +
             options +
-            "</select></label><button>Restore-Probe starten</button></form>"
+            "</select></label><button>Start restore test</button></form>"
           : "") +
-        '<form data-bk-form="upload"><label>Verschlüsselte Datei vom Computer<input type="file" required name="archive" accept=".enc"></label><button class="secondary">Datei zur Prüfung laden</button></form>' +
+        '<form data-bk-form="upload"><label>Encrypted archive from this computer<input type="file" required name="archive" accept=".enc"></label><button class="secondary">Upload for verification</button></form>' +
         (receipt
-          ? "<h3>Bestandene Probe</h3><p>" +
+          ? "<h3>Successful restore test</h3><p>" +
             esc(names[receipt.Target] + " · " + receipt.Name) +
             "</p><p>" +
             esc(stamp(receipt.At)) +
             " · " +
             receipt.Manifest.Years +
-            " Geschäftsjahre · " +
+            " fiscal years · " +
             receipt.Manifest.Entries +
-            " Einträge · " +
+            " entries · " +
             receipt.Manifest.Originals +
-            " Originale</p>" +
+            " originals</p>" +
             (receipt.Manifest.Installation &&
             Date.now() - Date.parse(receipt.At) < 3600000
-              ? button("confirm", "Übernahme vorbereiten")
+              ? button("confirm", "Prepare restore")
               : "")
           : ""),
     );
@@ -338,7 +338,7 @@ export async function mountBackup(host, { api }) {
   async function post(body) {
     await api("admin/backup", body);
     dialog?.close();
-    notice = "Auftrag angenommen.";
+    notice = "Job accepted.";
     await refresh();
   }
   host.onclick = async (e) => {
@@ -371,22 +371,22 @@ export async function mountBackup(host, { api }) {
           return;
         case "new":
           open(
-            "Sicherung erstellen",
-            '<p>Alle Geschäftsjahre, Belege und Einstellungen werden verschlüsselt gesichert.</p><form data-bk-form="backup"><label>Ziel<select name="target"><option value="local">Lokales Volume</option>' +
+            "Create backup",
+            '<p>The encrypted backup includes all fiscal years, receipts and settings.</p><form data-bk-form="backup"><label>Destination<select name="target"><option value="local">Local volume</option>' +
               (state.s3Configured
-                ? '<option value="s3">S3-Speicher</option>'
+                ? '<option value="s3">S3 storage</option>'
                 : "") +
-              "</select></label><button>Jetzt sichern</button></form>",
+              "</select></label><button>Back up now</button></form>",
           );
           return;
         case "confirm":
           open(
-            "Aktiven Datenstand ersetzen",
-            "<p><b>Ziel: diese BONFIRE-Installation.</b> Alle Änderungen nach dem gewählten Sicherungsstand werden im aktiven Kassenbuch ersetzt. Die bisherige Datenbank bleibt als Rückfallkopie erhalten. Alle Sitzungen enden.</p><p>" +
+            "Replace the active database",
+            "<p><b>Restore to this BONFIRE installation.</b> Restoring replaces changes made after this backup. The previous database is retained for recovery. Everyone will be signed out.</p><p>" +
               esc(state.receipt.Name) +
               " · " +
               esc(stamp(state.receipt.Manifest.Created)) +
-              '</p><form data-bk-form="promote"><label>Aktuelles Passwort<input name="password" type="password" autocomplete="current-password" required></label><label>TOTP oder Recoverycode (bei MFA)<input name="otp" autocomplete="one-time-code"></label><label>Zur Bestätigung WIEDERHERSTELLEN eingeben<input name="confirmation" autocomplete="off" required pattern="WIEDERHERSTELLEN"></label><button>Wiederherstellung ausführen</button></form>',
+              '</p><form data-bk-form="promote"><label>Current password<input name="password" type="password" autocomplete="current-password" required></label><label>Authenticator or recovery code (if enabled)<input name="otp" autocomplete="one-time-code"></label><label>Type RESTORE to confirm<input name="confirmation" autocomplete="off" required pattern="RESTORE"></label><button>Restore database</button></form>',
           );
           return;
       }
@@ -411,7 +411,7 @@ export async function mountBackup(host, { api }) {
             cron: v.cron.trim(),
             days: Number(v.days || 0),
           });
-          notice = "Zeitplan gespeichert.";
+          notice = "Schedule saved.";
           await refresh();
           break;
         case "backup":
@@ -454,7 +454,7 @@ export async function mountBackup(host, { api }) {
     }
   };
   host.innerHTML =
-    "<h1>Backup</h1><p>Aktueller Sicherungsstand wird geladen …</p>";
+    "<h1>Backup</h1><p>Loading backup status…</p>";
   try {
     await refresh();
   } catch (err) {
@@ -462,6 +462,6 @@ export async function mountBackup(host, { api }) {
       '<h1>Backup</h1><p role="status">' +
       esc(err.message) +
       "</p>" +
-      button("refresh", "Erneut laden");
+      button("refresh", "Retry");
   }
 }

@@ -3,7 +3,7 @@ import { esc } from "./workplace.js";
 import { supportsPasskeys, usePasskey } from "./personal-passkeys.js";
 
 const date = (value) =>
-  new Date(value).toLocaleString("de-AT", {
+  new Date(value).toLocaleString("en-GB", {
     dateStyle: "short",
     timeStyle: "short",
   });
@@ -16,9 +16,9 @@ const button = (action, label, id = "") =>
   label +
   "</button>";
 const password =
-  '<label>Aktuelles Passwort<input type="password" name="password" autocomplete="current-password" required></label>';
+  '<label>Current password<input type="password" name="password" autocomplete="current-password" required></label>';
 const otp =
-  '<label>Authenticator- oder Recoverycode<input name="code" autocomplete="one-time-code" required></label>';
+  '<label>Authenticator or recovery code<input name="code" autocomplete="one-time-code" required></label>';
 function drawQR(canvas, uri) {
   const qr = qrcode(0, "M");
   qr.addData(uri);
@@ -36,16 +36,16 @@ function drawQR(canvas, uri) {
         ctx.fillRect((col + 4) * size, (row + 4) * size, size, size);
 }
 const titles = {
-  password: "Passwort ändern",
-  "mfa-begin": "Authenticator einrichten",
-  "mfa-confirm": "Authenticator bestätigen",
-  "mfa-disable": "Authenticator deaktivieren",
-  recovery: "Recoverycodes erneuern",
-  codes: "Recoverycodes sichern",
-  register: "Passkey hinzufügen",
-  remove: "Passkey entfernen",
-  revoke: "Sitzung beenden",
-  "revoke-others": "Andere Sitzungen beenden",
+  password: "Change password",
+  "mfa-begin": "Set up authenticator",
+  "mfa-confirm": "Confirm authenticator",
+  "mfa-disable": "Disable authenticator",
+  recovery: "Replace recovery codes",
+  codes: "Save recovery codes",
+  register: "Add passkey",
+  remove: "Remove passkey",
+  revoke: "Sign out session",
+  "revoke-others": "Sign out other sessions",
 };
 export async function mountAccountSecurity(host, { api }) {
   const mutate = (action, values) =>
@@ -53,7 +53,7 @@ export async function mountAccountSecurity(host, { api }) {
   let account, keys;
   async function refresh(message = "") {
     host.innerHTML =
-      "<h1>Konto und Sicherheit</h1><p role='status'>Kontodaten werden geladen …</p>";
+      "<h1>Account and security</h1><p role='status'>Loading account details…</p>";
     [account, keys] = await Promise.all([
       api("account/security"),
       api("account/passkeys"),
@@ -71,12 +71,12 @@ export async function mountAccountSecurity(host, { api }) {
         origin &&
         ["http:", "https:"].includes(origin.protocol) &&
         origin.origin !== location.origin
-          ? '<p>Passkeys sind an die Anmeldeadresse gebunden. <a href="' +
+          ? '<p>Passkeys are linked to your sign-in address. <a href="' +
             esc(origin.origin) +
-            '">BONFIRE unter ' +
+            '">Open BONFIRE at ' +
             esc(origin.origin) +
-            " öffnen</a></p>"
-          : "<p>Passkeys sind unter dieser Adresse oder in diesem Browser nicht verfügbar.</p>";
+            "</a></p>"
+          : "<p>Passkeys are unavailable at this address or in this browser.</p>";
     }
     const row = (label, meta, action) =>
       "<li><div><strong>" +
@@ -87,19 +87,19 @@ export async function mountAccountSecurity(host, { api }) {
       action +
       "</li>";
     host.innerHTML =
-      "<header><h1>Konto und Sicherheit</h1><p>" +
+      "<header><h1>Account and security</h1><p>" +
       esc(account.login) +
       '</p></header><p role="status" class="security-message">' +
       esc(message) +
       "</p>" +
-      '<section class="panel"><h2>Passwort</h2>' +
+      '<section class="panel"><h2>Password</h2>' +
       button("password", titles.password) +
       "</section>" +
-      '<section class="panel"><h2>Zwei-Faktor-Anmeldung</h2><p>' +
+      '<section class="panel"><h2>Two-factor authentication</h2><p>' +
       (account.mfa
-        ? "Authenticator aktiv · Verfügbare Recoverycodes: " +
+        ? "Authenticator enabled · Remaining recovery codes: " +
           esc(account.recoveryRemaining)
-        : "Kein Authenticator eingerichtet.") +
+        : "No authenticator configured.") +
       '</p><div class="actions">' +
       (account.mfa
         ? button("recovery", titles.recovery) +
@@ -113,32 +113,32 @@ export async function mountAccountSecurity(host, { api }) {
             .map((k) =>
               row(
                 k.name,
-                "Erstellt " +
+                "Created " +
                   date(k.created) +
                   " · " +
                   (k.lastUsed
-                    ? "Zuletzt verwendet " + date(k.lastUsed)
-                    : "Bisher unbenutzt"),
-                button("remove", "Entfernen", k.id),
+                    ? "Last used " + date(k.lastUsed)
+                    : "Never used"),
+                button("remove", "Remove", k.id),
               ),
             )
             .join("") +
           "</ul>"
-        : "<p>Kein Passkey registriert.</p>") +
+        : "<p>No passkeys registered.</p>") +
       (available ? button("register", titles.register) : setupHint) +
       "</section>" +
-      '<section class="panel"><h2>Aktive Sitzungen</h2><ul>' +
+      '<section class="panel"><h2>Active sessions</h2><ul>' +
       account.sessions
         .map((s) =>
           row(
             s.agent,
-            "Angemeldet " +
+            "Signed in " +
               date(s.created) +
-              " · Gültig bis " +
+              " · Expires " +
               date(s.expires),
             s.current
-              ? "<strong>Diese Sitzung</strong>"
-              : button("revoke", "Beenden", s.id),
+              ? "<strong>Current session</strong>"
+              : button("revoke", "End session", s.id),
           ),
         )
         .join("") +
@@ -174,7 +174,7 @@ export async function mountAccountSecurity(host, { api }) {
       () => {
         dialog.remove();
         if (dataChanged)
-          refresh("Kontoeinstellungen aktualisiert.")
+          refresh("Account settings updated.")
             .then(() => {
               (
                 host.querySelector(
@@ -189,7 +189,7 @@ export async function mountAccountSecurity(host, { api }) {
       },
       { once: true },
     );
-    function render(fields, submitLabel, dismiss = "Abbrechen") {
+    function render(fields, submitLabel, dismiss = "Cancel") {
       dialog.innerHTML =
         '<form><h2 id="personal-title">' +
         titles[action] +
@@ -210,24 +210,24 @@ export async function mountAccountSecurity(host, { api }) {
     const details = {
       password:
         proof +
-        '<label>Neues Passwort (14–72 Bytes)<input type="password" name="newPassword" required  autocomplete="new-password"></label><label>Neues Passwort wiederholen<input type="password" name="repeat" required autocomplete="new-password"></label>',
+        '<label>New password (14–72 bytes)<input type="password" name="newPassword" required  autocomplete="new-password"></label><label>Repeat new password<input type="password" name="repeat" required autocomplete="new-password"></label>',
       "mfa-begin": password,
       "mfa-disable":
-        "<p>Die Anmeldung mit Passwort ist danach ohne Authenticator möglich.</p>" +
+        "<p>You will be able to sign in with your password alone.</p>" +
         proof,
       recovery:
-        "<p>Bisherige Recoverycodes verlieren ihre Gültigkeit.</p>" + proof,
+        "<p>Your previous recovery codes will stop working.</p>" + proof,
       register:
-        '<label>Passkey-Name<input name="name" required maxlength="80" placeholder="z. B. Diensthandy"></label>' +
+        '<label>Passkey name<input name="name" required maxlength="80" placeholder="e.g. Work phone"></label>' +
         proof,
       remove:
-        "<p>Passkey „" +
+        "<p>Remove passkey “" +
         esc(keys.items?.find((k) => k.id === id)?.name || "") +
-        "“ aus deinem Konto entfernen?</p>" +
+        "” from your account?</p>" +
         proof,
-      revoke: "<p>Die ausgewählte Sitzung wird abgemeldet.</p>",
+      revoke: "<p>The selected session will be signed out.</p>",
       "revoke-others":
-        "<p>Alle anderen Browser müssen sich erneut anmelden.</p>",
+        "<p>All other browsers will need to sign in again.</p>",
     };
     render(details[action], titles[action]);
     dialog.showModal();
@@ -256,7 +256,7 @@ export async function mountAccountSecurity(host, { api }) {
           });
         } else {
           if (action === "password" && values.newPassword !== values.repeat)
-            throw Error("Die neuen Passwörter stimmen nicht überein.");
+            throw Error("The new passwords do not match.");
           delete values.repeat;
           if (action === "revoke") values.sessionID = id;
           result = await mutate(action, values);
@@ -264,10 +264,10 @@ export async function mountAccountSecurity(host, { api }) {
         if (action === "mfa-begin") {
           action = "mfa-confirm";
           render(
-            '<p>QR-Code mit der Authenticator-App scannen oder den Schlüssel eingeben.</p><canvas aria-label="QR-Code für Authenticator"></canvas><code>' +
+            '<p>Scan the QR code with your authenticator app or enter the setup key.</p><canvas aria-label="Authenticator QR code"></canvas><code>' +
               esc(result.secret) +
-              '</code><label>Sechsstelliger Code<input name="code" required inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code"></label>',
-            "Aktivieren",
+              '</code><label>Six-digit code<input name="code" required inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code"></label>',
+            "Enable",
           );
           drawQR(dialog.querySelector("canvas"), result.uri);
           return;
@@ -276,13 +276,13 @@ export async function mountAccountSecurity(host, { api }) {
         if (result?.codes) {
           action = "codes";
           render(
-            '<p>Diese Einmalcodes jetzt sicher verwahren. Jeder Code ersetzt einmal den Authenticator bei der Anmeldung.</p><ul class="recovery-codes">' +
+            '<p>Store these recovery codes in a safe place. Each code can be used once to sign in.</p><ul class="recovery-codes">' +
               result.codes
                 .map((c) => "<li><code>" + esc(c) + "</code></li>")
                 .join("") +
               "</ul>",
             "",
-            "Gesichert und schließen",
+            "Saved, close",
           );
         } else dialog.close();
       } catch (err) {

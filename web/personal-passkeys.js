@@ -21,7 +21,7 @@ function toBase64url(buffer) {
 }
 export async function usePasskey(api, registration) {
   if (!supportsPasskeys())
-    throw Error("Dieser Browser unterstützt hier keine Passkeys.");
+    throw Error("This browser does not support passkeys here.");
   const path = registration ? "account/passkeys/register/" : "passkey/login/";
   const { publicKey } = await api(path + "begin", registration || {});
   publicKey.challenge = fromBase64url(publicKey.challenge);
@@ -38,10 +38,10 @@ export async function usePasskey(api, registration) {
       : await navigator.credentials.get({ publicKey });
   } catch (err) {
     if (err.name === "NotAllowedError")
-      throw Error("Passkey-Anfrage abgebrochen oder abgelaufen.");
+      throw Error("The passkey request was cancelled or expired.");
     throw err;
   }
-  if (!credential) throw Error("Der Browser hat keinen Passkey zurückgegeben.");
+  if (!credential) throw Error("The browser did not return a passkey.");
   const response = {};
   for (const key of [
     "clientDataJSON",
