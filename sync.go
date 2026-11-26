@@ -816,10 +816,11 @@ func checkBalance(entries []row, accounts bool) error {
 		if !ok || *v.Amount != n || k == "" || accounts && !configured[k] {
 			return fail("Bestandsdifferenz oder fehlende Zuordnung.")
 		}
+		if v.BalanceOrder <= 0 {
+			return fail("Reconfirm the observed balance before closing.")
+		}
 		for _, posting := range postings[k] {
-			knownOrder := posting.BalanceOrder > 0 && v.BalanceOrder > 0
-			if posting.Date > v.Date || knownOrder && posting.BalanceOrder >= v.BalanceOrder ||
-				!knownOrder && posting.Date != "" {
+			if posting.Date > v.Date || posting.BalanceOrder <= 0 || posting.BalanceOrder >= v.BalanceOrder {
 				return fail("Confirm the observed balance again after the final posting.")
 			}
 		}
