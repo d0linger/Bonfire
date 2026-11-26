@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { writeFile, mkdir } from "node:fs/promises";
 import { unzipSync, strFromU8 } from "fflate";
+import { guestSheets } from "../web/guest-sheets.js";
+import { fillBackground } from "../web/lfk.js";
+import { PDFDocument } from "pdf-lib";
 import { renderTables } from "../web/layouts.js";
 const snapshot = {
   index: 10,
@@ -94,3 +97,20 @@ await assert.rejects(
 console.log(
   "PASS mehrseitiges Journal, wiederholte Tabellenköpfe, benutzerdefinierter Rand, Fußzeile und explizite Überlaufprüfung",
 );
+
+
+const guestSheet = {
+  width: 210, height: 297, font: "helvetica", title: "Guest prices", event: "Synthetic fair",
+  tables: { blocks: [{ headers: ["Food"], rows: [["Soup", "Bowl", "4,50"]] }], after: ["Please return bowls"] },
+};
+const copies = await guestSheets(guestSheet);
+const guestXML = strFromU8(unzipSync(new Uint8Array(await copies.docx.arrayBuffer()))["word/document.xml"]);
+assert.equal(guestXML.split("Please return bowls").length - 1, 2);
+assert.equal((await PDFDocument.load(await copies.pdf.arrayBuffer())).getPageCount(), 1);
+await assert.rejects(guestSheets({
+  ...guestSheet, tables: { ...guestSheet.tables, blocks: [{ headers: ["Category ".repeat(50)], rows: [["Soup", "", "4,50"]] }] },
+}), /category heading/);
+const form = await PDFDocument.create();
+form.addPage([420, 298]);
+await assert.rejects(fillBackground(Buffer.from(await form.save()).toString("base64"),
+  ["1,50", "1", "Synthetic fire brigade", "Łucja Sample"]), /field Name und Anschrift des Spenders/);

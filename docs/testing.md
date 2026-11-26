@@ -2,6 +2,8 @@
 
 Run tests with synthetic fixtures, PostgreSQL, Docker Compose, PowerShell 7, Node.js 22 and the Go version from go.mod. On Linux, Make provides the entry points below. On Windows, run the corresponding commands from the Makefile directly.
 
+The Compose acceptance commands create a disposable database and set `BONFIRE_DISPOSABLE_TEST=1` for their child processes. To run individual authenticated tests, set that flag and point `BONFIRE_URL` at the disposable stack's random loopback port. Port 8137 is reserved for the working installation.
+
 | Command | Scope |
 | --- | --- |
 | make lint | Go formatting, go vet and ESLint's recommended rules for browser code, Node scripts and tests. |

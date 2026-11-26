@@ -1,18 +1,13 @@
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
 import { jsPDF } from "jspdf";
-import { api, auth, admin } from "./local-api.mjs";
-import { countID, visible } from "../web/domain.js";
-const day = "2035-05-02",
-  event = await api("events", admin, {
-    Name: "Fiktiver Dateitest " + randomUUID(),
-    Starts: day,
-    Ends: day,
-  });
-const prep = (Name) => api("prepare", admin, { Name, Event: event.ID });
-const uploader = await prep("Fotoaufnahme"),
-  peer = await prep("Prüfarbeitsplatz");
-const send = (d, body, status) => api("sync", auth(d), body, status);
+import { onlineClient, practiceEvent } from "./local-api.mjs";
+import { countID } from "../web/domain.js";
+const day = "2701-05-02";
+const uploader = await onlineClient();
+const peer = await onlineClient();
+const event = await practiceEvent(uploader, "Receipt file exercise", day);
+const send = (client, data, status) => client("online?event=" + event.ID, data, status);
 const doc = new jsPDF();
 doc.text("Reine Testrechnung", 10, 15);
 const bytes = Buffer.from(doc.output("arraybuffer")),
@@ -41,17 +36,10 @@ const body = rec(
   },
   await countID("file", meta.Target, "1"),
 );
-const local = visible({
-  device: uploader.device,
-  entries: [],
-  ops: [payment, meta, body],
-});
-assert.equal(local.length, 2);
-assert.equal(local.find((x) => x.ID === meta.Target).Data.File, body.Data.File);
 await send(uploader, { Ops: [payment, meta] });
 let out = await send(peer, {});
 assert.equal(out.entries.find((r) => r.ID === meta.Target).Data.File, "");
-await send(uploader, { Action: "Ende", Last: 2 }, 422);
+await send(uploader, { Action: "Abschluss" }, 422);
 const altered = Buffer.from(bytes);
 altered[altered.length - 1] ^= 1;
 await send(uploader, { Ops: [{ ...body, Data: { ...body.Data, File: altered.toString("base64") } }] }, 422);
@@ -97,7 +85,6 @@ assert.equal(
   out.entries.find((r) => r.ID === meta.Target).Data.File,
   body.Data.File,
 );
-assert.equal((await send(uploader, { Action: "Ende", Last: 3 })).sealed, true);
-console.log(
-  "PASS Belegmetadaten ohne Bytes, lesbare Offlinekopie, Hash-/Größenfehler, Wiederaufnahme und einmalige finanzielle Wirkung",
-);
+assert.equal(createHash("sha256").update(Buffer.from(
+  out.entries.find((r) => r.ID === meta.Target).Data.File, "base64")).digest("hex"), digest);
+console.log("PASS online attachment integrity, interrupted upload, retry and single financial posting");

@@ -2,11 +2,12 @@
 $ErrorActionPreference = 'Stop'
 $project = 'bonfire-online-' + [guid]::NewGuid().ToString('N')
 $original = @{}
-foreach ($key in 'COMPOSE_PROJECT_NAME','BONFIRE_ADMIN_PASSWORD','BONFIRE_URL','BONFIRE_PORT','BONFIRE_PASSKEY_ORIGIN','BONFIRE_OFFLINE_ENABLED','BONFIRE_YEAR_FIXTURE_ID','BONFIRE_BACKUP_RESTORE_TEST') {
+foreach ($key in 'BONFIRE_DISPOSABLE_TEST','COMPOSE_PROJECT_NAME','BONFIRE_ADMIN_PASSWORD','BONFIRE_URL','BONFIRE_PORT','BONFIRE_PASSKEY_ORIGIN','BONFIRE_OFFLINE_ENABLED','BONFIRE_YEAR_FIXTURE_ID','BONFIRE_BACKUP_RESTORE_TEST') {
   $original[$key] = [Environment]::GetEnvironmentVariable($key,'Process')
 }
 Push-Location (Join-Path $PSScriptRoot '..')
 try {
+  $env:BONFIRE_DISPOSABLE_TEST = '1'
   $env:COMPOSE_PROJECT_NAME = $project
   $env:BONFIRE_ADMIN_PASSWORD = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24))
   $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
@@ -19,7 +20,7 @@ try {
   $env:BONFIRE_URL = 'http://' + (docker compose port app 8080).Trim()
   $env:BONFIRE_YEAR_FIXTURE_ID = (docker compose exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U bonfire -d bonfire -c "INSERT INTO events(id,name,starts,ends) VALUES(gen_random_uuid(),'Fiktiver Altbestand','2026-03-01','2026-03-02') RETURNING id").Trim()
   if ($LASTEXITCODE -or !$env:BONFIRE_YEAR_FIXTURE_ID) { throw 'Fiktiver Altbestand konnte nicht vorbereitet werden.' }
-  foreach ($suite in 'years','online-api','duplicate-reference','donation-reports','year-workplace','event-cleanup','login','admin-navigation','admin-users','account-security','admin-audit','action-spacing','documents','word-layout','profile-exports') {
+  foreach ($suite in 'years','online-api','duplicate-reference','attachments','prices','donation-reports','year-workplace','event-cleanup','login','admin-navigation','admin-users','account-security','admin-audit','action-spacing','documents','word-layout','profile-exports') {
     node "tests/$suite.mjs"
     if ($LASTEXITCODE) { throw "Fehler in tests/$suite.mjs" }
   }

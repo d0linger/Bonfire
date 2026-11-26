@@ -44,6 +44,7 @@ if (process.argv.includes("--replay")) {
   for (const op of [acked, pending]) {
     const matching = sent.entries.filter((r) => r.ID === op.Target);
     assert.equal(matching.length, 1);
+    assert.equal(matching[0].Kind, op.Kind);
     assert.equal(matching[0].Data.Amount, op.Data.Amount);
     assert.equal(matching[0].Data.Label, op.Data.Label);
   }

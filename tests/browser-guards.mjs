@@ -5,8 +5,9 @@ import { createServer } from "node:https";
 import { request } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { admin } from "./local-api.mjs";
+import { admin, onlineClient, practiceEvent } from "./local-api.mjs";
 
+await practiceEvent(await onlineClient(), "Audit navigation fixture", "2746-05-02");
 const url = new URL(process.env.BONFIRE_URL);
 assert.equal(url.hostname, "127.0.0.1");
 assert.ok(url.port && url.port !== "8137", "Use a disposable test stack");
@@ -76,7 +77,6 @@ try {
     const administration = page.locator("#admin-navigation");
     if ((await administration.getAttribute("open")) === null) await administration.locator("summary").click();
     await administration.locator('[data-page="Audit-Log"]').click();
-    // The login above creates the audit event this test expands.
     await page.locator("button[data-entry]").first().waitFor();
     await page.locator("button[data-entry]").first().click();
     await page.locator(".ops-detail:not([hidden])").waitFor();
