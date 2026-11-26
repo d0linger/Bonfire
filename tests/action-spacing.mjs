@@ -159,13 +159,13 @@ try {
     const dialog = page.getByRole("dialog");
     await page
       .getByRole("button", {
-        name: section === "Spenden" ? "Spende erfassen" : "Kontakt anlegen",
+        name: section === "Spenden" ? "Record donation" : "Add contact",
         exact: true,
       })
       .click();
     assert.ok(await dialog.evaluate((el) => el.matches(":modal")));
     await dialog
-      .getByLabel(section === "Kontakte" ? "Name / Firma" : "Bezeichnung")
+      .getByLabel(section === "Kontakte" ? "Name or company" : "Bezeichnung")
       .fill(name);
     if (section === "Kontakte") {
       await dialog.getByLabel("Straße und Hausnummer").fill("Übungsplatz 3");
@@ -173,7 +173,7 @@ try {
       await dialog.getByLabel("Ort", { exact: true }).fill("Probeort");
     }
     if (section === "Spenden")
-      await dialog.getByLabel("Betrag in EUR").fill("5,50");
+      await dialog.getByLabel("Amount in EUR").fill("5,50");
     await dialog
       .getByRole("button", { name: "Speichern", exact: true })
       .click();
@@ -185,16 +185,16 @@ try {
       .click();
     assert.equal(
       await dialog
-        .getByLabel(section === "Kontakte" ? "Name / Firma" : "Bezeichnung")
+        .getByLabel(section === "Kontakte" ? "Name or company" : "Bezeichnung")
         .inputValue(),
       name,
     );
     await dialog
-      .getByLabel(section === "Kontakte" ? "Name / Firma" : "Bezeichnung")
+      .getByLabel(section === "Kontakte" ? "Name or company" : "Bezeichnung")
       .fill(name + " bestätigt");
-    await dialog.getByLabel("Änderungsgrund").fill("Fiktive Berichtigung");
+    await dialog.getByLabel("Reason for correction").fill("Fiktive Berichtigung");
     await dialog
-      .getByRole("button", { name: "Berichtigung speichern" })
+      .getByRole("button", { name: "Save correction" })
       .click();
     await dialog.waitFor({ state: "hidden" });
     await page
@@ -269,7 +269,7 @@ try {
         ["payment", "Zahlung Bannerrechnung"],
       ]) {
         await page
-          .getByRole("button", { name: "Veranstaltungsbuchung erfassen" })
+          .getByRole("button", { name: "Record event transaction" })
           .click();
         await dialog.locator("[name=type]").selectOption(type);
         await dialog.locator("[name=Label]").fill(title);
@@ -360,7 +360,7 @@ try {
       });
       await api(endpoint, { Ops: [org, invoice, receipt, donation] });
       await page
-        .getByRole("button", { name: "Serverstand aktualisieren", exact: true })
+        .getByRole("button", { name: "Refresh entries", exact: true })
         .click();
       for (const [record, profile, received] of [
         [invoice, "invoice_transfer_a4", null],
@@ -430,52 +430,52 @@ try {
     }
     if (key === "Geldtaschen") {
       const actions = page.getByRole("region", {
-        name: "Geldtaschen verwalten",
+        name: "Manage wallets",
       });
       assert.deepEqual(await actions.getByRole("button").allTextContents(), [
-        "Geldtasche anlegen",
-        "Anfangsbestand zählen",
-        "Wechselgeld nachlegen",
-        "Endbestand zählen",
+        "Add wallet",
+        "Count opening balance",
+        "Add change",
+        "Count closing balance",
       ]);
-      await actions.getByText("Weitere Vorgänge", { exact: true }).click();
+      await actions.getByText("More actions", { exact: true }).click();
       await check("Weitere Geldtaschenvorgänge", actions);
       assert.deepEqual(await actions.getByRole("heading").allTextContents(), [
-        "Vor dem Fest",
-        "Während des Fests",
-        "Am Festende",
+        "Before the event",
+        "During the event",
+        "At event close",
       ]);
       const dialog = page.getByRole("dialog");
       const wallet = "Tasche Süd";
       for (const name of [
-        "Verfügbares Wechselgeld erfassen",
-        "Wechselgeld je Tasche planen",
+        "Record available change",
+        "Plan change per wallet",
       ]) {
         await actions.getByRole("button", { name }).click();
-        await dialog.getByRole("heading", { name: "Stückelung" }).waitFor();
+        await dialog.getByRole("heading", { name: "Denominations" }).waitFor();
         assert.equal(
           await dialog.locator("[name=Wallet]").count(),
-          name.includes("planen") ? 1 : 0,
+          name === "Plan change per wallet" ? 1 : 0,
         );
         await page.keyboard.press("Escape");
       }
-      await actions.getByRole("button", { name: "Geldtasche anlegen" }).click();
+      await actions.getByRole("button", { name: "Add wallet" }).click();
       await dialog.getByLabel("Bezeichnung").fill(wallet);
       await dialog
         .getByRole("button", { name: "Speichern", exact: true })
         .click();
       await dialog.waitFor({ state: "hidden" });
       await actions
-        .getByRole("button", { name: "Wechselgeld nachlegen" })
+        .getByRole("button", { name: "Add change" })
         .click();
       await dialog.locator("[name=Wallet]").selectOption({ label: wallet });
       await dialog.locator("[name=Account]").fill("Handkassa");
-      const mode = dialog.getByLabel("Betrag erfassen");
+      const mode = dialog.getByLabel("Enter amount");
       const quick = (cent, step) =>
         dialog.locator(
           '[data-denomination="' + cent + '"][data-step="' + step + '"]',
         );
-      await dialog.getByLabel("Betrag in EUR").fill("99,00");
+      await dialog.getByLabel("Amount in EUR").fill("99,00");
       await mode.selectOption("pieces");
       await quick(1000, 2).click();
       await quick(100, 5).click();
@@ -498,18 +498,18 @@ try {
       assert.equal(await mode.inputValue(), "pieces");
       assert.equal(await dialog.locator("[name=coin1000]").inputValue(), "2");
       await mode.selectOption("amount");
-      await dialog.getByLabel("Betrag in EUR").fill("25,00");
+      await dialog.getByLabel("Amount in EUR").fill("25,00");
       await dialog
-        .getByLabel("Änderungsgrund")
+        .getByLabel("Reason for correction")
         .fill("Als Gesamtbetrag geprüft");
       await dialog
-        .getByRole("button", { name: "Berichtigung speichern" })
+        .getByRole("button", { name: "Save correction" })
         .click();
       await dialog.waitFor({ state: "hidden" });
       for (const [name, phase] of [
-        ["Anfangsbestand zählen", "Anfang"],
-        ["Zwischenstand zählen", "Zwischenstand"],
-        ["Endbestand zählen", "Ende"],
+        ["Count opening balance", "Anfang"],
+        ["Record interim count", "Zwischenstand"],
+        ["Count closing balance", "Ende"],
       ]) {
         await actions.getByRole("button", { name, exact: true }).click();
         await dialog.getByRole("heading", { name, exact: true }).waitFor();
@@ -521,9 +521,9 @@ try {
         await dialog.getByLabel("Bezeichnung").fill(name);
         await dialog.locator("[name=Wallet]").selectOption({ label: wallet });
         if (phase === "Zwischenstand") {
-          await dialog.getByLabel("Gezählter Betrag in EUR").fill("30,00");
+          await dialog.getByLabel("Counted amount in EUR").fill("30,00");
         } else {
-          await dialog.getByLabel("Betrag erfassen").selectOption("pieces");
+          await dialog.getByLabel("Enter amount").selectOption("pieces");
           if (phase === "Anfang") {
             await quick(200, 1).click();
             await quick(200, 1).click();
@@ -564,8 +564,8 @@ try {
   {
     const dialog = page.getByRole("dialog");
     for (const [name, value] of [
-      ["Anfangsbestand zählen", "20,50"],
-      ["Endbestand zählen", "82,75"],
+      ["Count opening balance", "20,50"],
+      ["Count closing balance", "82,75"],
     ]) {
       await page.getByRole("button", { name, exact: true }).click();
       assert.equal(await dialog.getByLabel("Zählumfang").inputValue(), "all");
@@ -573,7 +573,7 @@ try {
         await dialog.getByLabel("Geldtasche", { exact: true }).isVisible(),
         false,
       );
-      await dialog.getByLabel("Gezählter Betrag in EUR").fill(value);
+      await dialog.getByLabel("Counted amount in EUR").fill(value);
       await dialog
         .getByRole("button", { name: "Speichern", exact: true })
         .click();

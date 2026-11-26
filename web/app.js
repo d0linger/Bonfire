@@ -513,7 +513,7 @@ function refs(name, title, kinds, alwaysSearch = false) {
     return dropdown;
   return (
     label(
-      "Kontakt suchen",
+      "Search contacts",
       '<input type="search" data-contact-filter autocomplete="off">',
     ) + dropdown
   );
@@ -824,7 +824,7 @@ function devicePage() {
             button("recover", "Verschlüsselte Sicherung laden", true) +
             "</div>",
         )
-      : button("sync", "Serverstand aktualisieren", true)) +
+      : button("sync", "Refresh entries", true)) +
     conflicts +
     panel(
       "Prüfprotokoll",
@@ -935,19 +935,19 @@ function formFields(k, countPhase = "") {
     field(
       "Label",
       k === "expense"
-        ? "Wofür?"
+        ? "What was it for?"
         : k === "contact"
-          ? "Name / Firma"
+          ? "Name or company"
           : "Bezeichnung",
       "text",
       true,
       walletTopUp
-        ? "Wechselgeld nachgelegt"
+        ? "Change top-up"
         : k === "count"
           ? {
-              Anfang: "Anfangszählung",
-              Ende: "Endzählung",
-              Zwischenstand: "Zwischenzählung",
+              Anfang: "Opening count",
+              Ende: "Closing count",
+              Zwischenstand: "Interim count",
             }[countPhase]
           : "",
     ) +
@@ -960,7 +960,7 @@ function formFields(k, countPhase = "") {
     );
   if (monetary.has(k) && k !== "supply")
     f += label(
-      "Betrag in EUR",
+      "Amount in EUR",
       '<input name="amount" inputmode="decimal" required placeholder="0,00">',
     );
   if (k === "period") f += field("To", "Periodenende", "date", true);
@@ -974,7 +974,7 @@ function formFields(k, countPhase = "") {
       ),
     ].sort();
     f += label(
-      "Rechnungssteller",
+      "Invoice issuer",
       '<input name="field_issuer" list="expense-issuers" maxlength="200"><datalist id="expense-issuers">' +
         issuers.map((v) => option(v, v)).join("") +
         "</datalist>",
@@ -1297,16 +1297,16 @@ function formFields(k, countPhase = "") {
       );
     if (k === "count" || k === "supply")
       f +=
-        select("field_countMode", "Betrag erfassen", [
+        select("field_countMode", "Enter amount", [
           ["amount", "Gesamtbetrag eingeben"],
           ["pieces", "Münzen und Scheine zählen"],
         ]) +
         label(
-          k === "supply" ? "Betrag in EUR" : "Gezählter Betrag in EUR",
+          k === "supply" ? "Amount in EUR" : "Counted amount in EUR",
           '<input name="amount" inputmode="decimal" placeholder="0,00">',
         );
     f +=
-      '</div><div class="count-pieces"><h3>Stückelung</h3><div class="pieces">' +
+      '</div><div class="count-pieces"><h3>Denominations</h3><div class="pieces">' +
       denom
         .map(
           (c) =>
@@ -1347,7 +1347,7 @@ function formFields(k, countPhase = "") {
       esc(eur(0)) +
       '</output></p></div><div class="form">';
   }
-  if (edit) f += field("Note", "Änderungsgrund", "text", true);
+  if (edit) f += field("Note", "Reason for correction", "text", true);
   else extra += field("Note", "Notiz / Textbaustein");
   if (extra)
     f +=
@@ -1690,11 +1690,11 @@ function records() {
     "<section>" +
     panelHeading(
       "Einträge",
-      !offlineEnabled ? button("sync", "Serverstand aktualisieren", true) : "",
+      !offlineEnabled ? button("sync", "Refresh entries", true) : "",
     ) +
     '<details class="filter-box"' +
     (filter || Object.values(journalFilters).some(Boolean) ? " open" : "") +
-    "><summary>Einträge filtern</summary>" +
+    "><summary>Filter entries</summary>" +
     form(
       "filter",
       field(
@@ -1717,7 +1717,7 @@ function recordForm(countPhase = "") {
     "record",
     formFields(kind, countPhase),
     edit
-      ? "Berichtigung speichern"
+      ? "Save correction"
       : offlineEnabled
         ? "Lokal speichern"
         : "Speichern",
@@ -1727,36 +1727,36 @@ function recordForm(countPhase = "") {
 function entryLabel(page) {
   return (
     {
-      Übersicht: "Anfangsbestand erfassen",
-      Veranstaltungen: "Anfangsbestand erfassen",
-      Journal: "Buchung erfassen",
+      Übersicht: "Enter opening balance",
+      Veranstaltungen: "Enter opening balance",
+      Journal: "Record transaction",
       Zahlungen: offlineEnabled
-        ? "Eintrag erfassen"
-        : "Veranstaltungsbuchung erfassen",
-      Kontakte: "Kontakt anlegen",
-      Spenden: "Spende erfassen",
-      Preise: "Preis anlegen",
-    }[page] || "Eintrag erfassen"
+        ? "Add entry"
+        : "Record event transaction",
+      Kontakte: "Add contact",
+      Spenden: "Record donation",
+      Preise: "Add price",
+    }[page] || "Add entry"
   );
 }
 const walletStages = [
   [
-    "Vor dem Fest",
+    "Before the event",
     [
-      ["bar", "Bar anlegen"],
-      ["shift", "Schicht anlegen"],
-      ["reserve", "Verfügbares Wechselgeld erfassen"],
-      ["plan", "Wechselgeld je Tasche planen"],
+      ["bar", "Add bar"],
+      ["shift", "Add shift"],
+      ["reserve", "Record available change"],
+      ["plan", "Plan change per wallet"],
     ],
   ],
   [
-    "Während des Fests",
+    "During the event",
     [
-      ["skim", "Bargeld abschöpfen"],
-      ["count:Zwischenstand", "Zwischenstand zählen"],
+      ["skim", "Collect cash"],
+      ["count:Zwischenstand", "Record interim count"],
     ],
   ],
-  ["Am Festende", [["return", "Restgeld zurückgeben"]]],
+  ["At event close", [["return", "Return remaining cash"]]],
 ];
 function walletButton(action, title) {
   return (
@@ -1769,14 +1769,14 @@ function walletButton(action, title) {
 }
 function walletActions() {
   return (
-    '<section class="wallet-menu" aria-label="Geldtaschen verwalten"><div class="actions">' +
-    walletButton("wallet", "Geldtasche anlegen") +
-    walletButton("count:Anfang", "Anfangsbestand zählen") +
-    walletButton("supply", "Wechselgeld nachlegen") +
-    walletButton("count:Ende", "Endbestand zählen") +
+    '<section class="wallet-menu" aria-label="Manage wallets"><div class="actions">' +
+    walletButton("wallet", "Add wallet") +
+    walletButton("count:Anfang", "Count opening balance") +
+    walletButton("supply", "Add change") +
+    walletButton("count:Ende", "Count closing balance") +
     '</div><details class="wallet-more"' +
     (article.querySelector(".wallet-more[open]") ? " open" : "") +
-    '><summary>Weitere Vorgänge</summary><div class="wallet-actions">' +
+    '><summary>More actions</summary><div class="wallet-actions">' +
     walletStages
       .map(
         ([stage, actions]) =>
@@ -1796,10 +1796,10 @@ function bookingTypeSelector(kinds) {
   const basic = ["income", "expense", "donation"];
   const sponsorship = ["sponsorship", "payment"];
   const sections = [
-    ["Einnahmen und Ausgaben", basic],
-    ["Sponsoring und Rechnungen", sponsorship],
+    ["Income and expenses", basic],
+    ["Sponsorship and invoices", sponsorship],
     [
-      "Weitere Vorgänge",
+      "More actions",
       kinds.filter((k) => !basic.includes(k) && !sponsorship.includes(k)),
     ],
   ];
@@ -1814,7 +1814,7 @@ function bookingTypeSelector(kinds) {
               option(
                 k,
                 k === "sponsorship"
-                  ? "Sponsoringforderung / Rechnung"
+                  ? "Sponsorship receivable / invoice"
                   : types[k],
               ),
             )
@@ -3143,7 +3143,7 @@ function eventListRow(e) {
         esc(e.ID) +
         '" aria-haspopup="dialog">' +
         icon("Plus") +
-        "Veranstaltungsbuchung erfassen</button>"
+        "Record event transaction</button>"
       : "") +
     eventAdminButtons(e) +
     "</div></li>"
@@ -3991,7 +3991,7 @@ async function action(fn) {
       )
         alert.insertAdjacentHTML(
           "beforeend",
-          button("sync", "Serverstand aktualisieren", true),
+          button("sync", "Refresh entries", true),
         );
       alert.scrollIntoView({ block: "nearest" });
     } else notice.textContent = message;
@@ -5602,7 +5602,7 @@ document.addEventListener("click", (e) => {
                 ? refs("Account", "Buchungskonto", ["account"])
                 : "") +
                 (previous
-                  ? field("reason", "Änderungsgrund", "text", true)
+                  ? field("reason", "Reason for correction", "text", true)
                   : ""),
               previous ? "Berichtigung buchen" : "Gesamtbetrag buchen",
               button("cancel", "Abbrechen", true),

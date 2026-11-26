@@ -108,11 +108,11 @@ try {
   assert.match(await yearRow.innerText(), /01\.01\.2046.*31\.10\.2046/);
   await yearRow.getByRole("button", { name: "2046", exact: true }).click();
   await page.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
-  const opening = button("Anfangsbestand fehlt");
+  const opening = button("Opening balance missing");
   const enterOpening = async (target, date, amount) => {
     await opening.click();
     const dialog = page.getByRole("dialog", {
-      name: "Anfangsbestand erfassen",
+      name: "Enter opening balance",
     });
     assert.equal(
       await dialog.locator(".booking-target strong").textContent(),
@@ -122,7 +122,7 @@ try {
       await dialog.getByLabel("Datum", { exact: true }).inputValue(),
       date,
     );
-    await dialog.getByLabel("Betrag in EUR").fill(amount);
+    await dialog.getByLabel("Amount in EUR").fill(amount);
     await submit("record");
     await page
       .getByText("Mit erfasstem Anfangsbestand", { exact: true })
@@ -160,7 +160,7 @@ try {
     .waitFor();
   await eventRow.getByText("Buchung offen", { exact: true }).waitFor();
   await eventRow
-    .getByRole("button", { name: "Veranstaltungsbuchung erfassen" })
+    .getByRole("button", { name: "Record event transaction" })
     .click();
   const eventBooking = "Festkassa " + randomUUID();
   const eventDialog = page.getByRole("dialog");
@@ -171,7 +171,7 @@ try {
   await eventDialog
     .getByLabel("Bezeichnung", { exact: true })
     .fill(eventBooking);
-  await eventDialog.getByLabel("Betrag in EUR").fill("12,34");
+  await eventDialog.getByLabel("Amount in EUR").fill("12,34");
   await eventDialog
     .getByRole("button", { name: "Speichern", exact: true })
     .click();
@@ -180,18 +180,18 @@ try {
     ["expense", "Geschirr", "3,34"],
     ["outlay", "Privat bezahlte Getränke", "10,00"],
   ]) {
-    await button("Veranstaltungsbuchung erfassen").click();
+    await button("Record event transaction").click();
     await eventDialog.locator("select[name=type]").selectOption(type);
     await eventDialog
-      .getByLabel(type === "expense" ? "Wofür?" : "Bezeichnung", {
+      .getByLabel(type === "expense" ? "What was it for?" : "Bezeichnung", {
         exact: true,
       })
       .fill(label);
     if (type === "expense")
       await eventDialog
-        .getByLabel("Rechnungssteller")
+        .getByLabel("Invoice issuer")
         .fill("Fiktiver Übungsmarkt");
-    await eventDialog.getByLabel("Betrag in EUR").fill(amount);
+    await eventDialog.getByLabel("Amount in EUR").fill(amount);
     await submit("record");
     await page
       .getByRole("cell", {
@@ -226,8 +226,8 @@ try {
     await page.getByRole("cell", { name: eventBooking, exact: true }).count(),
     0,
   );
-  await button("Buchung erfassen").click();
-  const modal = page.getByRole("dialog", { name: "Buchung erfassen" });
+  await button("Record transaction").click();
+  const modal = page.getByRole("dialog", { name: "Record transaction" });
   await modal.waitFor();
   assert.match(
     await modal.locator(".booking-target").innerText(),
@@ -240,11 +240,11 @@ try {
   );
   await page.keyboard.press("Escape");
   assert.ok(
-    await button("Buchung erfassen").evaluate(
+    await button("Record transaction").evaluate(
       (b) => b === document.activeElement,
     ),
   );
-  await button("Buchung erfassen").click();
+  await button("Record transaction").click();
   const booking = "Eintritt " + randomUUID();
   await modal.locator("select[name=type]").selectOption("income");
   const editor = page.locator("#record");
@@ -273,14 +273,14 @@ try {
     .filter({ hasText: booking })
     .getByRole("button", { name: "Bearbeiten" })
     .click();
-  assert.ok(await editor.getByLabel("Änderungsgrund").isVisible());
+  assert.ok(await editor.getByLabel("Reason for correction").isVisible());
   await details.click();
   assert.equal(
     await editor.locator("[name=Reference]").inputValue(),
     "Übungsbeleg 1",
   );
   await editor.getByRole("button", { name: "Abbrechen", exact: true }).click();
-  await button("Buchung erfassen").click();
+  await button("Record transaction").click();
   const uncertain = "Wechselgeldbeleg " + randomUUID();
   await page.locator("#record [name=Label]").fill(uncertain);
   await page.locator("#record [name=amount]").fill("3,00");
@@ -304,7 +304,7 @@ try {
     .getByText(/zuerst den Serverstand/)
     .waitFor();
   await modal
-    .getByRole("button", { name: "Serverstand aktualisieren" })
+    .getByRole("button", { name: "Refresh entries" })
     .click();
   await page.getByRole("cell", { name: uncertain, exact: true }).waitFor();
   assert.equal(
@@ -319,7 +319,7 @@ try {
   await priorMode.check();
   await page.getByText(/kein bestätigter Schlussbestand vor/).waitFor();
   await page.getByRole("radio", { name: "Händisch erfassen" }).check();
-  assert.ok(await page.getByLabel("Betrag in EUR").isVisible());
+  assert.ok(await page.getByLabel("Amount in EUR").isVisible());
   await page.keyboard.press("Escape");
   const previousSpaces = await (
     await page.request.get(url + "/api/events?year=" + yearA)
@@ -424,7 +424,7 @@ try {
   await go("Events");
   await button(closingFest).waitFor();
   assert.equal(await button("Veranstaltung anlegen").count(), 0);
-  assert.equal(await button("Veranstaltungsbuchung erfassen").count(), 0);
+  assert.equal(await button("Record event transaction").count(), 0);
   await button(closingFest).click();
   assert.equal(await button("Veranstaltung wieder öffnen").count(), 0);
   await go("Overview");
@@ -503,7 +503,7 @@ try {
     )
     .waitFor();
   assert.equal(
-    await writer.getByRole("button", { name: "Buchung erfassen" }).count(),
+    await writer.getByRole("button", { name: "Record transaction" }).count(),
     0,
   );
   await writer.getByRole("button", { name: "Veranstaltungen öffnen" }).click();
@@ -513,7 +513,7 @@ try {
     .click();
   await writer.getByRole("cell", { name: eventBooking, exact: true }).waitFor();
   await writer
-    .getByRole("button", { name: "Veranstaltungsbuchung erfassen" })
+    .getByRole("button", { name: "Record event transaction" })
     .click();
   assert.match(
     await writer.getByRole("dialog").locator(".booking-target").innerText(),
