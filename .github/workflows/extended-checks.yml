@@ -24,7 +24,11 @@ jobs:
           cache: npm
       - run: npm ci && npx playwright install --with-deps chromium
       - run: go test -race -count=5 ./...
-      - run: go test -fuzz=FuzzCashPieces -fuzztime=2m
+      - name: Fuzz denominations, posting dates and online request decoding
+        run: |
+          for target in FuzzCashPieces FuzzPostingDate FuzzOnlineRequest; do
+            go test -run='^$' -fuzz="^$target$" -fuzztime=45s
+          done
       - run: git worktree add --detach "$RUNNER_TEMP/bonfire-schema21" c6ab58bc5851f1500ab0be667bb0418842d237f0
       - shell: pwsh
         run: |
