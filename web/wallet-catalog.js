@@ -55,6 +55,22 @@ export function suggestedFloat(form) {
   return { FloatCents: amount ? cents(amount) : null, Pieces: null };
 }
 
+export function openingFloatHint(fields) {
+  if (!fields || !/^\d+$/.test(fields.suggestedFloatCents)) return "";
+  let breakdown = [];
+  if (fields.suggestedPieces) {
+    try {
+      const pieces = JSON.parse(fields.suggestedPieces);
+      breakdown = floatDenominations.filter((coin) => Number.isSafeInteger(pieces?.[coin]) && pieces[coin] > 0)
+        .map((coin) => pieces[coin] + " × " + eur(coin));
+    } catch {
+      // Older event records can have a free-text suggestion.
+    }
+  }
+  return "Suggested opening float: " + eur(Number(fields.suggestedFloatCents)) +
+    (breakdown.length ? " (" + breakdown.join(", ") + ")" : "") + ". Enter the amount you actually counted.";
+}
+
 export function updateFloatInput(form) {
   const input = form.elements.float;
   if (form.querySelector(".pieces input:invalid")) return;

@@ -1,6 +1,6 @@
 import { fiscalPicker } from "./fiscal-picker.js";
 import { fireDirectory, balanceTable, balanceLines } from "./fire-accounts.js";
-import { floatFields, suggestedFloat, updateFloatInput, walletDirectory, walletPicker } from "./wallet-catalog.js";
+import { floatFields, openingFloatHint, suggestedFloat, updateFloatInput, walletDirectory, walletPicker } from "./wallet-catalog.js";
 import { mountAccountSecurity } from "./account-security.js";
 import { supportsPasskeys, usePasskey } from "./personal-passkeys.js";
 import { canOpenConsole } from "./workplace.js";
@@ -5221,9 +5221,8 @@ function updateCountOptions(form) {
   const hint = form.querySelector(".catalog-hint");
   if (hint) {
     const fields = rows().find((r) => r.Kind === "wallet" && r.ID === e.Wallet.value)?.Data.Fields;
-    hint.hidden = pooled || !fields?.suggestedFloatCents;
-    hint.textContent = hint.hidden ? "" : "Suggested opening float: " + eur(Number(fields.suggestedFloatCents)) +
-      ". Enter the amount you actually counted.";
+    hint.textContent = pooled ? "" : openingFloatHint(fields);
+    hint.hidden = !hint.textContent;
   }
   e.amount.closest("label").hidden = e.amount.disabled = !manual;
   e.amount.required = manual;
