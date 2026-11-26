@@ -262,7 +262,7 @@ export async function preview(file, existing) {
       kind: r[1],
       amount: Amount,
       status:
-        Amount == null || !types[r[1]] || !validDay
+        Amount == null || !Object.hasOwn(types, r[1]) || !validDay
           ? "Klärung"
           : dup
             ? "Mögliche Dublette"
