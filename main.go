@@ -1,7 +1,6 @@
 package main
 
 import (
-	"container/list"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -35,7 +34,7 @@ type app struct {
 	db                *pgxpool.Pool
 	mu                sync.Mutex
 	attempts          map[string]int
-	passwordAttempts  passwordWindows
+	loginLimits       *pgxpool.Pool
 	verificationSlots chan struct{}
 	reset             time.Time
 }
@@ -118,94 +117,15 @@ func loginSource(r *http.Request) string {
 	return host
 }
 
-// Each namespace evicts its least recently used identity independently. A new
-// identity never inherits another identity's failures when a window is full.
-const loginWindowCapacity = 4096
-
-type attemptCounter struct {
-	key   string
-	count int
-}
-type passwordWindows struct {
-	pairs, sources, accounts attemptWindow
+func loginIdentities(source, name string) (pair, host, account []byte) {
+	return hash("pair|" + source + "|" + name), hash("source|" + source), hash("account|" + name)
 }
 
-type attemptWindow struct {
-	recent  list.List
-	entries map[string]*list.Element
-}
-
-func (w *attemptWindow) count(key string) int {
-	if e := w.entries[key]; e != nil {
-		w.recent.MoveToFront(e)
-		return e.Value.(*attemptCounter).count
-	}
-	return 0
-}
-func (w *attemptWindow) add(key string, delta int) {
-	if e := w.entries[key]; e != nil {
-		item := e.Value.(*attemptCounter)
-		item.count += delta
-		if item.count <= 0 {
-			delete(w.entries, key)
-			w.recent.Remove(e)
-		} else {
-			w.recent.MoveToFront(e)
-		}
-		return
-	}
-	if delta <= 0 {
-		return
-	}
-	if w.entries == nil {
-		w.entries = make(map[string]*list.Element)
-	}
-	if len(w.entries) == loginWindowCapacity {
-		oldest := w.recent.Back()
-		delete(w.entries, oldest.Value.(*attemptCounter).key)
-		w.recent.Remove(oldest)
-	}
-	w.entries[key] = w.recent.PushFront(&attemptCounter{key: key, count: delta})
-}
 func (a *app) resetAttemptWindow() {
 	if time.Now().After(a.reset) {
 		clear(a.attempts)
-		a.passwordAttempts = passwordWindows{}
 		a.reset = time.Now().Add(time.Minute)
 	}
-}
-
-// A distributed burst tightens the per-source allowance on this account.
-// A fresh source can still authenticate while the account is under pressure.
-func (a *app) reservePasswordAttempt(r *http.Request, name string) bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.resetAttemptWindow()
-	source := loginSource(r)
-	pair := source + "|" + name
-	pairs, sources, accounts := &a.passwordAttempts.pairs, &a.passwordAttempts.sources, &a.passwordAttempts.accounts
-	limit := 12
-	if accounts.count(name) >= 36 {
-		limit = 2
-	}
-	if pairs.count(pair) >= limit || sources.count(source) >= 60 {
-		return false
-	}
-	pairs.add(pair, 1)
-	sources.add(source, 1)
-	accounts.add(name, 1)
-	return true
-}
-
-func (a *app) clearPasswordAttempts(r *http.Request, name string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	source := loginSource(r)
-	pair := source + "|" + name
-	n := a.passwordAttempts.pairs.count(pair)
-	a.passwordAttempts.pairs.add(pair, -n)
-	a.passwordAttempts.sources.add(source, -1)
-	a.passwordAttempts.accounts.add(name, -1)
 }
 
 func (a *app) authenticate(ctx context.Context, db authDB, r *http.Request) (string, string, error) {
@@ -233,9 +153,6 @@ func (a *app) authenticate(ctx context.Context, db authDB, r *http.Request) (str
 	default:
 		return "", "", problem{429, "Sign-in is busy. Try again shortly."}
 	}
-	if !a.reservePasswordAttempt(r, name) {
-		return "", "", problem{429, "Too many sign-in attempts. Try again shortly."}
-	}
 	var digest, role, account string
 	query := "SELECT password,role,name FROM users WHERE coalesce(login_alias,name)=$1 AND active AND (NOT password_change_required OR $2)"
 	if _, transactional := db.(pgx.Tx); transactional {
@@ -245,13 +162,29 @@ func (a *app) authenticate(ctx context.Context, db authDB, r *http.Request) (str
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", "", err
 	}
+	// Unknown names share a single bucket for each source instead of allocating a
+	// separate counter for every invented name. Authentication always fails for them.
+	limiterName := account
+	if errors.Is(err, pgx.ErrNoRows) {
+		limiterName = "<unknown>"
+	}
+	pair, source, accountKey := loginIdentities(loginSource(r), limiterName)
+	var slot *time.Time
+	if limitErr := a.loginLimits.QueryRow(ctx, "SELECT reserve_login_attempt($1,$2,$3)", pair, source, accountKey).Scan(&slot); limitErr != nil {
+		return "", "", limitErr
+	}
+	if slot == nil {
+		return "", "", problem{429, "Too many sign-in attempts. Try again shortly."}
+	}
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(digest), []byte(pw)) != nil {
 		return "", "", deny
 	}
 	if err := factor(ctx, db, account, r.Header.Get("X-Bonfire-OTP")); err != nil {
 		return "", "", err
 	}
-	a.clearPasswordAttempts(r, name)
+	if _, err := a.loginLimits.Exec(ctx, "SELECT clear_login_attempt($1,$2,$3,$4)", *slot, pair, source, accountKey); err != nil {
+		return "", "", err
+	}
 	return account, role, nil
 }
 
@@ -511,7 +444,7 @@ func initialize(ctx context.Context, db *pgxpool.Pool) error {
 	if err = applyUpgrade(ctx, tx, 17, "migrations/017.sql"); err != nil {
 		return err
 	}
-	for version := 18; version <= 30; version++ {
+	for version := 18; version <= 32; version++ {
 		if err = applyUpgrade(ctx, tx, version, fmt.Sprintf("migrations/%03d.sql", version)); err != nil {
 			return err
 		}
@@ -543,7 +476,16 @@ func main() {
 	if err = db.Ping(ctx); err != nil {
 		log.Fatal("Datenbank nicht bereit")
 	}
-	a := &app{db: db, attempts: map[string]int{}, verificationSlots: make(chan struct{}, 8)}
+	// A login transaction may already occupy a normal pool connection. Commit
+	// reservations independently so rejected authentications retain their limits.
+	limitConfig := db.Config()
+	limitConfig.MaxConns = 2
+	loginLimits, err := pgxpool.NewWithConfig(ctx, limitConfig)
+	if err != nil {
+		log.Fatal("Could not initialize login rate limits")
+	}
+	defer loginLimits.Close()
+	a := &app{db: db, loginLimits: loginLimits, attempts: map[string]int{}, verificationSlots: make(chan struct{}, 8)}
 	mux := http.NewServeMux()
 	a.registerBackup(mux)
 	a.registerUsers(mux)

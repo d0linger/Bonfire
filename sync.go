@@ -19,6 +19,7 @@ import (
 )
 
 type data struct {
+	BalanceOrder                                                                                                                             int64             `json:",string,omitempty"`
 	PostingOrder                                                                                                                             int64             `json:",string,omitempty"`
 	Retired                                                                                                                                  bool              `json:",omitempty"`
 	Lines                                                                                                                                    []position        `json:",omitempty"`
@@ -764,7 +765,8 @@ func checkBalance(entries []row, accounts bool) error {
 		}
 	}
 	balances := map[string]int64{}
-	actual := map[string]int64{}
+	actual := map[string]data{}
+	postings := map[string][]data{}
 	opened := false
 	for _, r := range entries {
 		if accounts && (r.Kind == "account" || r.Kind == "wallet") {
@@ -786,18 +788,23 @@ func checkBalance(entries []row, accounts bool) error {
 			if _, ok := actual[account]; ok {
 				return fail("Mehrere Istwerte für denselben Bestand.")
 			}
-			actual[account] = n
+			actual[account] = v
 		case "opening":
 			opened = true
 			balances[account] += n
+			postings[account] = append(postings[account], v)
 		case "income", "payment", "donation", "presale", "card", "deposit":
 			balances[account] += n
+			postings[account] = append(postings[account], v)
 		case "expense", "reimbursement", "fee", "deposit-return", "refund":
 			balances[account] -= n
+			postings[account] = append(postings[account], v)
 		case "transfer", "return", "skim", "supply", "payout", "cashback":
 			if accounts {
 				balances[account] -= n
+				postings[account] = append(postings[account], v)
 				balances[v.To] += n
+				postings[v.To] = append(postings[v.To], v)
 			}
 		}
 	}
@@ -806,8 +813,13 @@ func checkBalance(entries []row, accounts bool) error {
 	}
 	for k, n := range balances {
 		v, ok := actual[k]
-		if !ok || v != n || k == "" || accounts && !configured[k] {
+		if !ok || *v.Amount != n || k == "" || accounts && !configured[k] {
 			return fail("Bestandsdifferenz oder fehlende Zuordnung.")
+		}
+		for _, posting := range postings[k] {
+			if posting.Date > v.Date || (posting.Date != "" && posting.Date == v.Date && (posting.BalanceOrder == 0 || v.BalanceOrder == 0 || posting.BalanceOrder >= v.BalanceOrder)) {
+				return fail("Confirm the observed balance again after the final posting.")
+			}
 		}
 	}
 	return nil

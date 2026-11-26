@@ -78,3 +78,21 @@ func TestSupplyCashInput(t *testing.T) {
 		})
 	}
 }
+
+func TestBalanceNeedsAFreshObservation(t *testing.T) {
+	entry := func(kind string, n, order int64) row {
+		return row{Kind: kind, Data: data{Date: "2026-06-11", Amount: amount(n), BalanceOrder: order}}
+	}
+	rows := []row{entry("opening", 100, 1), entry("actual", 100, 2), entry("income", 25, 3), entry("expense", 25, 4)}
+	if checkBalance(rows, false) == nil {
+		t.Fatal("stale equal balance accepted")
+	}
+	rows[1].Data.BalanceOrder = 5
+	if err := checkBalance(rows, false); err != nil {
+		t.Fatal(err)
+	}
+	rows[2].Data.BalanceOrder = 0
+	if checkBalance(rows, false) == nil {
+		t.Fatal("unknown order accepted")
+	}
+}

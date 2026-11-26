@@ -129,7 +129,10 @@ func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request)
 		return map[string]string{"challenge": token}, tx.Commit(ctx)
 	}
 	if completing {
-		a.clearPasswordAttempts(r, alias)
+		pair, source, accountKey := loginIdentities(loginSource(r), candidate)
+		if _, err := a.loginLimits.Exec(ctx, "SELECT clear_login_attempt(date_trunc('minute',clock_timestamp()),$1,$2,$3)", pair, source, accountKey); err != nil {
+			return nil, err
+		}
 	}
 	if change {
 		token = secret()
