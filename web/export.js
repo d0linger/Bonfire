@@ -424,11 +424,8 @@ export async function render(s) {
     y += 3;
   }
   const per = s.index === 3 ? 3 : s.index === 4 ? 7 : 0;
-  for (const [i, text] of s.lines.entries()) {
-    if (per) {
-      continue;
-    }
-    line(text, per ? 15 : 10, !!per);
+  if (!per) {
+    for (const text of s.lines) line(text, 10, false);
   }
   const mm = (v) => Math.round((v * 1440) / 25.4);
   if (per) {

@@ -66,7 +66,9 @@ export async function mountAccountSecurity(host, { api }) {
       let origin;
       try {
         origin = new URL(keys.origin);
-      } catch {}
+      } catch {
+        // An unconfigured origin has no sign-in address to link to.
+      }
       setupHint =
         origin &&
         ["http:", "https:"].includes(origin.protocol) &&

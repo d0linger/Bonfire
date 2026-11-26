@@ -83,7 +83,7 @@ try {
     }),
   );
   const bytes = await page.evaluate(async (encoded) => {
-    const out = await localWord.wordFiles(encoded, {
+    const out = await window.localWord.wordFiles(encoded, {
       "organization.name": "Übungsorganisation",
       "donation.amount_cents": 305,
     });

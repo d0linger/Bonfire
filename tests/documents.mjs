@@ -33,7 +33,7 @@ try {
   const page = await browser.newPage();
   await page.goto("http://127.0.0.1:" + server.address().port);
   const result = await page.evaluate(async () => {
-    const b = bonfire;
+    const b = window.bonfire;
     const rows = [
       {
         ID: "fiktiv",

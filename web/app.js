@@ -50,14 +50,12 @@ import {
   from64,
 } from "./store.js";
 import {
-  groups,
   types,
   denom,
   monetary,
   cents,
   totalPieces,
   visible,
-  summary,
   counted,
   poolCount,
   pooledRevenue,
@@ -305,6 +303,7 @@ async function workspaceRequest(id, body) {
       if (changes) unconfirmedWrites.add(id);
       throw Error(
         "Der Server hat den Vorgang nicht bestätigt. Prüfe nach der Wiederverbindung zuerst den Serverstand.",
+        { cause: err },
       );
     }
     throw err;

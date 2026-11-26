@@ -1,5 +1,5 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from "fflate";
-import { types, eur, cents } from "./domain.js";
+import { types, cents } from "./domain.js";
 const XML = (s) =>
   String(s ?? "").replace(
     /[&<>"']/g,
@@ -235,7 +235,9 @@ export async function preview(file, existing) {
           : /^\d{1,12}$/.test(r[3])
             ? Number(r[3])
             : null;
-    } catch {}
+    } catch {
+      // Keep invalid amounts null for the import review.
+    }
     const sig = [r[0], r[1], r[2], Amount].join("|");
     const dup =
       seen.has(sig) ||
