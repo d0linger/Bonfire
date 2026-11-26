@@ -230,11 +230,11 @@ try {
   await changed.getByRole("button", { name: "Sign in", exact: true }).click();
   await changed
     .locator("nav")
-    .getByRole("button", { name: "Kassenbuch", exact: true })
+    .getByRole("button", { name: "Cashbook", exact: true })
     .click();
   const journal = changed.locator("article");
   await journal
-    .getByRole("heading", { name: "Kassenbuch", exact: true })
+    .getByRole("heading", { name: "Cashbook", exact: true })
     .waitFor();
   assert.equal(
     await journal
@@ -245,7 +245,7 @@ try {
   await changed.locator("#admin-navigation summary").click();
   const links = changed.locator("#admin-navigation");
   assert.equal(
-    await links.getByRole("button", { name: "Audit-Log", exact: true }).count(),
+    await links.getByRole("button", { name: "Audit log", exact: true }).count(),
     1,
   );
   assert.equal(
