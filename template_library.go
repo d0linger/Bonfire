@@ -19,12 +19,12 @@ func (a *app) templateLibrary(ctx context.Context, w http.ResponseWriter, r *htt
 	id := r.URL.Query().Get("id")
 	if id != "" {
 		if n, e := strconv.ParseInt(id, 10, 64); e != nil || n <= 0 {
-			return nil, fail("Vorlagenstand auswählen.")
+			return nil, fail("Select a template version.")
 		}
 		var v data
 		err = tx.QueryRow(ctx, "SELECT data FROM template_library WHERE id=$1", id).Scan(&v)
 		if err == pgx.ErrNoRows {
-			return nil, problem{404, "Vorlagenstand fehlt."}
+			return nil, problem{404, "The template version is missing."}
 		}
 		return v, err
 	}

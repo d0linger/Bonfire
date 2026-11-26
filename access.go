@@ -15,7 +15,7 @@ func (a *app) access(ctx context.Context, w http.ResponseWriter, r *http.Request
 	}
 	q.Name = loginName(q.Name)
 	if !validLoginName(q.Name) || !idPattern.MatchString(q.Event) || len(strings.TrimSpace(q.Reason)) < 3 {
-		return nil, fail("Name, Veranstaltung und Begründung angeben.")
+		return nil, fail("Enter a name, event and reason.")
 	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
@@ -54,7 +54,7 @@ func (a *app) access(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return nil, err
 	}
 	if tag.RowsAffected() == 0 {
-		return nil, problem{404, "Arbeitsbereich nicht verfügbar."}
+		return nil, problem{404, "This workspace is unavailable."}
 	}
 	switch q.Action {
 	case "grant":
@@ -62,7 +62,7 @@ func (a *app) access(ctx context.Context, w http.ResponseWriter, r *http.Request
 	case "revoke":
 		_, err = tx.Exec(ctx, "DELETE FROM grants_event WHERE username=$1 AND event=$2", target, q.Event)
 	default:
-		return nil, fail("Unbekannte Rechteaktion.")
+		return nil, fail("Unknown access action.")
 	}
 	if err != nil {
 		return nil, err

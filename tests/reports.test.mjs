@@ -26,7 +26,7 @@ test("Gemeinsames Zählblatt mit erfasstem Betrag lässt unbekannte Stückzahlen
 test("Überweisungsbezug bleibt bei Altbestand verwendbar und folgt bei Originalen der zugeteilten Nummer", () => {
   const bill = { Label: "Übungsforderung" };
   assert.equal(invoiceReference(bill), bill.Label);
-  assert.equal(invoiceReference(bill, 73), "Rechnung 73");
+  assert.equal(invoiceReference(bill, 73), "Invoice 73");
   assert.equal(invoiceReference({ ...bill, Reference: "ALT-1" }, 73), "ALT-1");
   assert.equal(
     invoiceReference({ ...bill, Fields: { paymentRef: "  FEST-1 " } }, 73),
@@ -101,7 +101,7 @@ test("Meldejahr separat, anonyme Spende ohne Identität, fehlende Angaben sichtb
   const got = donationReport(rows, "2026");
   assert.equal(got.length, 2);
   assert.equal(got[0].person, null);
-  assert.deepEqual(got[1].fehlendeAngaben, ["Geburtsdatum"]);
+  assert.deepEqual(got[1].fehlendeAngaben, ["Date of birth"]);
   assert.equal(got[1].person.vorname, "Mona");
   assert.equal(donationReport(rows, "2025").length, 0);
 });

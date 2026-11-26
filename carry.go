@@ -23,7 +23,7 @@ func validateCarry(ctx context.Context, tx pgx.Tx, rows []row) error {
 				return err
 			}
 			if !current {
-				return fail("Vorjahresabschluss geändert. Den übertragenen Anfangsbestand vor dem Abschluss prüfen und berichtigen.")
+				return fail("The prior-year closing has changed. Check and correct the opening balance before closing.")
 			}
 		}
 		if source := v.Fields["yearPeriod"]; r.Kind == "opening" && source != "" {
@@ -32,7 +32,7 @@ func validateCarry(ctx context.Context, tx pgx.Tx, rows []row) error {
 				return err
 			}
 			if !active {
-				return fail("Der übernommene Jahresabschluss wurde wieder geöffnet. Anfangsbestand vor der Freigabe prüfen.")
+				return fail("The source fiscal year has reopened. Verify the opening balance before approval.")
 			}
 		}
 		if r.Kind != "opening" || v.Fields["previous"] == "" {
@@ -49,7 +49,7 @@ func validateCarry(ctx context.Context, tx pgx.Tx, rows []row) error {
 		}
 		amount, ok := src.Actuals[v.Account]
 		if !ok || src.ID != v.Fields["previous"] || v.Amount == nil || *v.Amount != amount {
-			return fail("Vorperiodenübertrag stammt aus einem überholten Abschluss. Quelle und Betrag vor Freigabe prüfen.")
+			return fail("The carry-forward refers to a superseded closing. Check the source and amount before approval.")
 		}
 	}
 	return nil
@@ -58,11 +58,11 @@ func prior(ctx context.Context, tx pgx.Tx, start string) (priorPeriod, error) {
 	var p priorPeriod
 	var rows []row
 	if !date(start) {
-		return p, fail("Periodenbeginn ungültig.")
+		return p, fail("Invalid period start date.")
 	}
 	err := tx.QueryRow(ctx, "SELECT id::text,ends::text,snapshot FROM period_closures WHERE ends<$1 AND reopened_at IS NULL ORDER BY ends DESC,version DESC LIMIT 1", start).Scan(&p.ID, &p.End, &rows)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return p, fail("Kein freigegebener Vorperiodenabschluss vorhanden.")
+		return p, fail("No approved closing is available for the previous period.")
 	}
 	if err != nil {
 		return p, err

@@ -1,4 +1,4 @@
-import { types, denom, today } from "./domain.js";
+import { priceCategoryLabel, financialLabel, types, denom, today } from "./domain.js";
 import { lineCents } from "./positions.js";
 import registry from "./variables.json" with { type: "json" };
 
@@ -6,7 +6,7 @@ export function invoiceReference(bill, number) {
   return (
     bill.Fields?.paymentRef?.trim() ||
     bill.Reference?.trim() ||
-    (number ? "Rechnung " + number : bill.Label)
+    (number ? "Invoice " + number : bill.Label)
   );
 }
 
@@ -178,7 +178,7 @@ export function exportContext(i, s, rows, opts) {
     registry.map((x) => [x.token.slice(2, -2), null]),
   );
   Object.assign(result, {
-    "organization.name": org.Label || opts.organization || "Feuerwehr",
+    "organization.name": org.Label || opts.organization || "Fire brigade",
     "organization.address": org.Address,
     "organization.logo_asset_id": org.File ? "organization" : null,
     "organization.contact": org.Fields?.contact,
@@ -200,7 +200,7 @@ export function exportContext(i, s, rows, opts) {
     "invoice.lines": lines,
     "invoice.total_cents": bill.Amount,
     "invoice.due_date": bill.Fields?.due,
-    "payment.mode": v.Method,
+    "payment.mode": financialLabel(v.Method),
     "payment.confirmation_id": ["payment", "donation"].includes(r?.Kind)
       ? r.ID
       : null,
@@ -217,7 +217,7 @@ export function exportContext(i, s, rows, opts) {
     "donor.given_name": recipient.Fields?.given,
     "donor.family_name": recipient.Fields?.family,
     "donor.address": recipient.Address,
-    "donation.reporting_status": v.Status,
+    "donation.reporting_status": financialLabel(v.Status),
     "collector.display_name":
       mode === "confirmed" ? v.Fields?.confirmedBy : v.Reference,
     "collector.signature": v.Fields?.signature,
@@ -230,7 +230,7 @@ export function exportContext(i, s, rows, opts) {
       .join(","),
     "price_list.sections": [
       ...new Set(
-        rows.filter((x) => x.Kind === "price").map((x) => x.Data.Category),
+        rows.filter((x) => x.Kind === "price").map((x) => priceCategoryLabel(x.Data.Category)),
       ),
     ],
     "print_batch.copies":

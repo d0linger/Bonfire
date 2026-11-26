@@ -9,7 +9,7 @@ import (
 
 func (a *app) renew(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
 	if _, _, ok := r.BasicAuth(); !ok {
-		return nil, problem{401, "Erneute persönliche Anmeldung erforderlich."}
+		return nil, problem{401, "Sign in again with your personal account."}
 	}
 	name, role, err := a.auth(ctx, r)
 	if err != nil {
@@ -20,7 +20,7 @@ func (a *app) renew(ctx context.Context, w http.ResponseWriter, r *http.Request)
 		return nil, err
 	}
 	if !idPattern.MatchString(q.Device) || len(q.Proof) > 128 {
-		return nil, fail("Ungültiger Gerätenachweis.")
+		return nil, fail("Invalid device evidence.")
 	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
@@ -35,7 +35,7 @@ func (a *app) renew(ctx context.Context, w http.ResponseWriter, r *http.Request)
 	err = tx.QueryRow(ctx, `SELECT e.id::text,d.secret,d.incident_state FROM devices d JOIN events e ON e.id=d.event WHERE d.id=$1 AND d.username=$2 AND NOT e.closed AND NOT d.sealed AND d.incident_state IN ('','returning') AND ($3='Admin' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.event=e.id AND g.username=d.username)) FOR UPDATE OF e,d`, q.Device, name, role).Scan(&event, &digest, &state)
 	rotate := idPattern.MatchString(q.Next) && q.Next != q.Proof
 	if err != nil || (subtle.ConstantTimeCompare(digest, hash(q.Proof)) != 1 && !(rotate && subtle.ConstantTimeCompare(digest, hash(q.Next)) == 1)) || state == "returning" && !rotate {
-		return nil, problem{403, "Gerät, Person oder Freigabe nicht bestätigt."}
+		return nil, problem{403, "The device, person or authorization has not been confirmed."}
 	}
 	if rotate {
 		digest = hash(q.Next)

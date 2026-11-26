@@ -34,7 +34,7 @@ type accountEvent struct{ ID, Name, Year string }
 func accountManager(ctx context.Context, tx pgx.Tx, r *http.Request, write bool) (string, error) {
 	c, err := r.Cookie("bonfire_session")
 	if err != nil || c.Value == "" {
-		return "", problem{401, "Anmeldung erforderlich."}
+		return "", problem{401, "Sign in to continue."}
 	}
 	query := "SELECT u.name,u.role FROM sessions s JOIN users u ON u.name=s.username WHERE s.token=$1 AND s.expires>now() AND u.active AND NOT u.password_change_required"
 	if write {
@@ -43,7 +43,7 @@ func accountManager(ctx context.Context, tx pgx.Tx, r *http.Request, write bool)
 	var name, role string
 	err = tx.QueryRow(ctx, query, hash(c.Value)).Scan(&name, &role)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", problem{401, "Anmeldung abgelaufen."}
+		return "", problem{401, "Your session has expired."}
 	}
 	if err != nil {
 		return "", err
@@ -58,7 +58,7 @@ func accountManager(ctx context.Context, tx pgx.Tx, r *http.Request, write bool)
 		}
 	}
 	if role != roleAdmin {
-		return "", problem{403, "Benutzerverwaltung erfordert Adminrechte."}
+		return "", problem{403, "Administrator access is required to manage users."}
 	}
 	return name, nil
 }
@@ -133,19 +133,19 @@ func (a *app) editAdminUser(ctx context.Context, w http.ResponseWriter, r *http.
 	q.Label = strings.TrimSpace(q.Label)
 	q.Reason = strings.TrimSpace(q.Reason)
 	if len(q.Reason) < 3 || len(q.Reason) > 320 {
-		return nil, fail("Begründung mit 3 bis 320 Zeichen angeben.")
+		return nil, fail("Enter a reason between 3 and 320 characters long.")
 	}
 	creating := q.Action == "create"
 	if creating || q.Action == "edit" {
 		q.Role = canonicalRole(q.Role)
 		if !validLoginName(q.Login) || len(q.Label) > 160 || !slices.Contains([]string{roleAdmin, roleWrite, roleRead}, q.Role) {
-			return nil, fail("Anmeldung, Anzeigename oder Rolle ungültig.")
+			return nil, fail("Invalid sign-in name, display name or role.")
 		}
 		slices.Sort(q.Events)
 		q.Events = slices.Compact(q.Events)
 		for _, id := range q.Events {
 			if !idPattern.MatchString(id) {
-				return nil, fail("Ungültiger Arbeitsbereich.")
+				return nil, fail("Invalid workspace.")
 			}
 		}
 		if creating {
@@ -156,7 +156,7 @@ func (a *app) editAdminUser(ctx context.Context, w http.ResponseWriter, r *http.
 			return nil, err
 		}
 		if clash {
-			return nil, problem{409, "Dieser Anmeldename ist bereits vergeben."}
+			return nil, problem{409, "This sign-in name is already in use."}
 		}
 	}
 	var oldRole, oldLogin string
@@ -165,13 +165,13 @@ func (a *app) editAdminUser(ctx context.Context, w http.ResponseWriter, r *http.
 	if !creating {
 		err = tx.QueryRow(ctx, "SELECT role,active,coalesce(login_alias,name),account_revision FROM users WHERE name=$1 FOR UPDATE", q.ID).Scan(&oldRole, &active, &oldLogin, &current)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, problem{404, "Benutzer unbekannt."}
+			return nil, problem{404, "Unknown user."}
 		}
 		if err != nil {
 			return nil, err
 		}
 		if current != q.Version {
-			return nil, problem{409, "Das Konto wurde inzwischen geändert. Bitte Liste aktualisieren."}
+			return nil, problem{409, "This account has changed. Refresh the list."}
 		}
 		if active && oldRole == roleAdmin && (q.Action == "disable" || (q.Action == "edit" && q.Role != roleAdmin)) {
 			var remaining bool
@@ -179,7 +179,7 @@ func (a *app) editAdminUser(ctx context.Context, w http.ResponseWriter, r *http.
 				return nil, err
 			}
 			if !remaining {
-				return nil, fail("Mindestens ein aktives Admin-Konto muss erhalten bleiben.")
+				return nil, fail("At least one administrator account must remain active.")
 			}
 		}
 	}
@@ -196,7 +196,7 @@ func (a *app) editAdminUser(ctx context.Context, w http.ResponseWriter, r *http.
 			if err != nil {
 				var violation *pgconn.PgError
 				if errors.As(err, &violation) && violation.Code == "23505" {
-					return nil, problem{409, "Dieser Anmeldename ist bereits vergeben."}
+					return nil, problem{409, "This sign-in name is already in use."}
 				}
 				return nil, err
 			}
@@ -245,7 +245,7 @@ func (a *app) editAdminUser(ctx context.Context, w http.ResponseWriter, r *http.
 	case "disable", "enable":
 		next := q.Action == "enable"
 		if active == next {
-			return nil, fail("Der Zugang hat bereits diesen Status.")
+			return nil, fail("The account already has this status.")
 		}
 		if _, err = tx.Exec(ctx, "UPDATE users SET active=$2 WHERE name=$1", q.ID, next); err != nil {
 			return nil, err
@@ -259,7 +259,7 @@ func (a *app) editAdminUser(ctx context.Context, w http.ResponseWriter, r *http.
 		action = "Sitzungen widerrufen"
 		revoke = true
 	default:
-		return nil, fail("Unbekannte Kontoaktion.")
+		return nil, fail("Unknown account action.")
 	}
 	if !creating {
 		if _, err = tx.Exec(ctx, "UPDATE users SET account_revision=account_revision+1 WHERE name=$1", q.ID); err != nil {
@@ -298,7 +298,7 @@ func replaceAccountGrants(ctx context.Context, tx pgx.Tx, user string, desired [
 				return "", err
 			}
 			if result.RowsAffected() != 1 {
-				return "", fail("Arbeitsbereich unbekannt.")
+				return "", fail("Unknown workspace.")
 			}
 			added = append(added, id)
 		}
@@ -341,7 +341,7 @@ func (a *app) changeRequiredPassword(ctx context.Context, w http.ResponseWriter,
 	var id, old string
 	err = tx.QueryRow(ctx, `SELECT u.name,u.password FROM password_changes c JOIN users u ON u.name=c.username WHERE c.token=$1 AND c.expires>now() AND u.active AND u.password_change_required FOR UPDATE OF u`, hash(q.Ticket)).Scan(&id, &old)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, problem{410, "Passwortwechsel abgelaufen. Bitte erneut anmelden."}
+		return nil, problem{410, "The password change request expired. Sign in again."}
 	}
 	if err != nil {
 		return nil, err
@@ -351,10 +351,10 @@ func (a *app) changeRequiredPassword(ctx context.Context, w http.ResponseWriter,
 		return nil, err
 	}
 	if consumed.RowsAffected() != 1 {
-		return nil, problem{410, "Passwortwechsel abgelaufen. Bitte erneut anmelden."}
+		return nil, problem{410, "The password change request expired. Sign in again."}
 	}
 	if bcrypt.CompareHashAndPassword([]byte(old), []byte(q.Password)) == nil {
-		return nil, fail("Ein anderes Passwort als das Startpasswort wählen.")
+		return nil, fail("Choose a password different from the initial password.")
 	}
 	digest, err := accountPassword(q.Password)
 	if err != nil {

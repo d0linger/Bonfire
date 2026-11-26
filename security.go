@@ -67,7 +67,7 @@ func validLoginName(name string) bool {
 	return len(name) <= 254 && !strings.Contains(name, ":") && err == nil && address.Address == name
 }
 
-var factorRequired = problem{401, "Zweiter Faktor erforderlich."}
+var factorRequired = problem{401, "A second factor is required."}
 
 func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
 	// Bind the entire password/MFA exchange to the version checked before verification.
@@ -112,7 +112,7 @@ func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request)
 	var change bool
 	err = tx.QueryRow(ctx, "SELECT role,password_change_required FROM users WHERE name=$1 AND account_revision=$2 AND active FOR UPDATE", candidate, revision).Scan(&role, &change)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, problem{401, "Zugang inzwischen geändert. Bitte erneut anmelden."}
+		return nil, problem{401, "Your access has changed. Sign in again."}
 	}
 	if err != nil {
 		return nil, err
@@ -157,7 +157,7 @@ func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request)
 }
 
 func completeLogin(ctx context.Context, tx pgx.Tx, token, code string) (string, string, error) {
-	expired := problem{410, "Anmeldung abgelaufen. Bitte erneut anmelden."}
+	expired := problem{410, "Your session has expired. Sign in again."}
 	var name, role, otpSecret string
 	err := tx.QueryRow(ctx, `SELECT u.name,u.role,u.otp_secret FROM login_challenges c JOIN users u ON c.username=u.name
 		WHERE c.token=$1 AND c.expires>now() AND c.remaining>0 AND u.active AND u.otp_secret IS NOT NULL
@@ -302,7 +302,7 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 	switch q.Action {
 	case "sponsor-contacts":
 		if !d.Online || d.Closed || (d.Role != roleAdmin && d.Role != roleWrite) {
-			return nil, problem{403, "Schreibrecht für ein offenes Fest erforderlich."}
+			return nil, problem{403, "Write access to an open event is required."}
 		}
 		rows, err := tx.Query(ctx, `SELECT id,concat_ws(' · ',data->>'Label',nullif(data->>'Address',''),nullif(data->'Fields'->>'distinct','')) AS caption
 			FROM directory WHERE NOT coalesce((data->>'Retired')::boolean,false)
@@ -316,12 +316,12 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return carryYear(ctx, tx, d, q.Target, q.Stamp, q.AccountMap)
 	case "period-close", "period-open":
 		if d.Closed {
-			return nil, problem{409, "Der Arbeitsbereich ist abgeschlossen."}
+			return nil, problem{409, "This workspace is closed."}
 		}
 		return periodAction(ctx, tx, d, q.Action, q.Target, q.Reason)
 	case "prior":
 		if d.Role != roleAdmin {
-			return nil, problem{403, "Adminrecht erforderlich."}
+			return nil, problem{403, "Administrator access required."}
 		}
 		return prior(ctx, tx, q.Target)
 	case "conflict-originals", "conflict-file":
@@ -330,7 +330,7 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return numberReport(ctx, tx, d)
 	case "incident", "incomplete", "return":
 		if d.Closed {
-			return nil, problem{409, "Der Arbeitsbereich ist abgeschlossen."}
+			return nil, problem{409, "This workspace is closed."}
 		}
 		return incidentAction(ctx, tx, d, q.Action, q.Target, q.Reason)
 	case "period", "journal-period":
@@ -355,7 +355,7 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return pgx.CollectRows(rows, pgx.RowToMap)
 	case "accounts":
 		if d.Role != roleAdmin || d.Closed {
-			return nil, problem{403, "Nur für Admins bei offener Veranstaltung."}
+			return nil, problem{403, "Administrator access and an open event are required."}
 		}
 		_, err = tx.Exec(ctx, "UPDATE events SET accounts=$1 WHERE id=$2", q.Accounts, d.Event)
 		if q.Accounts {
@@ -365,11 +365,11 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 		}
 	case "reopen", "year-reopen":
 		if d.Role != roleAdmin {
-			return nil, problem{403, "Nur Admins können einen Abschluss wieder öffnen."}
+			return nil, problem{403, "Only administrators can reopen a closing."}
 		}
 		q.Reason = strings.TrimSpace(q.Reason)
 		if !d.Closed || len(q.Reason) < 5 || len(q.Reason) > 1000 {
-			return nil, fail("Abgeschlossenen Arbeitsbereich und Wiederöffnungsgrund angeben (5–1000 Zeichen).")
+			return nil, fail("Select a closed workspace and enter a reason for reopening it (5–1000 characters).")
 		}
 		var downstream bool
 		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT FROM entries j JOIN events e ON e.id=j.event
@@ -379,7 +379,7 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 			return nil, err
 		}
 		if downstream {
-			return nil, problem{409, "Zuerst den abhängigen Folgeabschluss wieder öffnen."}
+			return nil, problem{409, "Reopen the dependent subsequent closing first."}
 		}
 		if q.Action == "year-reopen" {
 			y, err := yearForClosure(ctx, tx, d)
@@ -387,7 +387,7 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 				return nil, err
 			}
 			if !y.Closed {
-				return nil, fail("Das Geschäftsjahr ist bereits offen.")
+				return nil, fail("This fiscal year is already open.")
 			}
 			if _, err = tx.Exec(ctx, "UPDATE fiscal_years SET closed=false WHERE id=$1", y.ID); err != nil {
 				return nil, err
@@ -404,10 +404,10 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 		var exists bool
 		err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM originals WHERE event=$1 AND subject=$2)", d.Event, q.Target).Scan(&exists)
 		if err == nil && !exists {
-			return nil, fail("Original nicht vorhanden.")
+			return nil, fail("The original document is missing.")
 		}
 	default:
-		return nil, fail("Unbekannte Aktion.")
+		return nil, fail("Unknown action.")
 	}
 	if err != nil {
 		return nil, err

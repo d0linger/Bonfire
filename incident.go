@@ -10,7 +10,7 @@ import (
 func incidentAction(ctx context.Context, tx pgx.Tx, d device, action, target, reason string) (any, error) {
 	reason = strings.TrimSpace(reason)
 	if !idPattern.MatchString(target) || target == d.ID || len(reason) < 5 || len(reason) > 1000 {
-		return nil, fail("Anderes Gerät und begründete Entscheidung angeben.")
+		return nil, fail("Select a different device and explain your decision.")
 	}
 	var state, label, previous string
 	switch action {
@@ -26,10 +26,10 @@ func incidentAction(ctx context.Context, tx pgx.Tx, d device, action, target, re
 		state = "returning"
 		label = "Gerät zurück – ausstehende Vorgänge einzeln prüfen"
 	default:
-		return nil, fail("Unbekannte Vorfallentscheidung.")
+		return nil, fail("Unknown incident decision.")
 	}
 	if d.Role != roleAdmin {
-		return nil, problem{403, "Adminrecht erforderlich."}
+		return nil, problem{403, "Administrator access required."}
 	}
 	var seq int64
 	err := tx.QueryRow(ctx, `UPDATE devices SET incident_state=$1,incident=CASE WHEN $1='missing' THEN $2 ELSE incident END,
@@ -37,7 +37,7 @@ func incidentAction(ctx context.Context, tx pgx.Tx, d device, action, target, re
  AND (incident_state=$5 AND $1<>'returning' OR $1='returning' AND incident_state IN ('missing','incomplete'))
  RETURNING last_seq`, state, reason, target, d.Event, previous).Scan(&seq)
 	if err == pgx.ErrNoRows {
-		return nil, fail("Entscheidung passt nicht zum aktuellen Gerätestand.")
+		return nil, fail("This decision does not match the device's current state.")
 	}
 	if err != nil {
 		return nil, err

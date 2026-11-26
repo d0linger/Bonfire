@@ -14,9 +14,9 @@ export function donationReport(rows, period) {
       const missing = anonymous
         ? []
         : [
-            ["Vorname", contact?.Fields?.given],
-            ["Nachname", contact?.Fields?.family],
-            ["Geburtsdatum", contact?.Fields?.birth],
+            ["First name", contact?.Fields?.given],
+            ["Last name", contact?.Fields?.family],
+            ["Date of birth", contact?.Fields?.birth],
           ]
             .filter(([, v]) => !v)
             .map(([key]) => key);

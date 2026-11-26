@@ -34,7 +34,7 @@ var backupTransport = &http.Transport{
 	DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		path := os.Getenv("BONFIRE_BACKUP_SOCKET")
 		if path == "" {
-			return nil, errors.New("Sicherungsdienst nicht verbunden")
+			return nil, errors.New("The backup service is disconnected.")
 		}
 		return (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "unix", path)
 	},
@@ -60,16 +60,16 @@ func (a *app) registerBackup(mux *http.ServeMux) {
 func (a *app) proxyBackup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if _, e := r.Cookie("bonfire_session"); e != nil || r.Header.Get("Authorization") != "" {
-		http.Error(w, "Persönliche Sitzung erforderlich.", 401)
+		http.Error(w, "A personal session is required.", 401)
 		return
 	}
 	user, role, err := a.auth(r.Context(), r)
 	if err != nil {
-		http.Error(w, "Bitte erneut anmelden.", 401)
+		http.Error(w, "Sign in again.", 401)
 		return
 	}
 	if role != roleAdmin {
-		http.Error(w, "Adminrecht erforderlich.", 403)
+		http.Error(w, "Administrator access required.", 403)
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/admin/backup")
@@ -89,24 +89,24 @@ func (a *app) proxyBackup(w http.ResponseWriter, r *http.Request) {
 			r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 			var command backupAuthorization
 			if read(r, &command) != nil {
-				http.Error(w, "Ungültiger Auftrag.", 400)
+				http.Error(w, "Invalid job.", 400)
 				return
 			}
 			if command.Action == "promote" {
 				if !confirmedRestore(command.Confirmation) || command.Password == "" {
-					http.Error(w, "Passwort und ausdrückliche Bestätigung erforderlich.", 422)
+					http.Error(w, "Enter your password and confirm this action.", 422)
 					return
 				}
 				verify := r.Clone(r.Context())
 				var alias string
 				if err = a.db.QueryRow(r.Context(), "SELECT coalesce(login_alias,name) FROM users WHERE name=$1 AND active", user).Scan(&alias); err != nil {
-					http.Error(w, "Erneute Anmeldung erforderlich.", 403)
+					http.Error(w, "Sign in again to continue.", 403)
 					return
 				}
 				verify.SetBasicAuth(alias, command.Password)
 				verify.Header.Set("X-Bonfire-OTP", command.OTP)
 				if verified, checkRole, err := a.auth(r.Context(), verify); err != nil || verified != user || checkRole != roleAdmin {
-					http.Error(w, "Erneute Anmeldung fehlgeschlagen.", 403)
+					http.Error(w, "Reauthentication failed.", 403)
 					return
 				}
 			}
@@ -120,7 +120,7 @@ func (a *app) proxyBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, "http://backup", body)
 	if err != nil {
-		http.Error(w, "Auftrag ungültig.", 400)
+		http.Error(w, "Invalid job.", 400)
 		return
 	}
 	req.URL.Path = path
@@ -128,7 +128,7 @@ func (a *app) proxyBackup(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("X-Bonfire-Actor", user)
 	res, err := backupTransport.RoundTrip(req)
 	if err != nil {
-		http.Error(w, "Sicherungsdienst nicht erreichbar.", 503)
+		http.Error(w, "The backup service is unreachable.", 503)
 		return
 	}
 	defer res.Body.Close()

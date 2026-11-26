@@ -35,9 +35,21 @@ test("journal CSV escaping preserves spreadsheet-safe labels and real dates", as
   assert.match(await data.text(), /"'=1\+1"/);
   const parsed = await preview(new File([data], "journal.csv"), rows);
   assert.deepEqual(parsed.slice(0, -1).map((r) => r.label), labels);
-  assert.ok(parsed.slice(0, -1).every((r) => r.status === "Mögliche Dublette"));
-  assert.equal(parsed.at(-1).status, "Klärung");
+  assert.ok(parsed.slice(0, -1).every((r) => r.status === "Possible duplicate"));
+  assert.equal(parsed.at(-1).status, "Needs review");
   const invalidKind = await preview(new File([csv([{ ...rows[0], Kind: "constructor" }])], "journal.csv"), []);
-  assert.equal(invalidKind[0].status, "Klärung");
+  assert.equal(invalidKind[0].status, "Needs review");
   assert.throws(() => mergeText("{{constructor}}", {}));
+});
+
+test("historical German journal headers retain their amount units", async () => {
+  for (const [column, value] of [["Betrag_Cent", "305"], ["Betrag_EUR", "3,05"]]) {
+    const source = `Datum;Art;Bezeichnung;${column}\n2026-11-26;income;Donation;${value}`;
+    const rows = await preview(new File([source], "journal.csv"), []);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].amount, 305);
+    assert.equal(rows[0].label, "Donation");
+  }
+  const mixed = new File(["Datum;Art;Description;Amount_Cents"], "journal.csv");
+  await assert.rejects(preview(mixed, []), /Expected columns/);
 });

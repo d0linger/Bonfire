@@ -86,25 +86,25 @@ func (a *app) fireAccounts(ctx context.Context, w http.ResponseWriter, r *http.R
 	case "create", "edit":
 		name := strings.TrimSpace(q.Name)
 		if name == "" || len(name) > 160 {
-			return nil, fail("Kontonamen angeben.")
+			return nil, fail("Enter an account name.")
 		}
 		if q.Action == "create" {
 			q.ID = uuid()
 			_, err = tx.Exec(ctx, "INSERT INTO fire_accounts(id,name) VALUES($1,$2)", q.ID, name)
 		} else {
 			if !idPattern.MatchString(q.ID) {
-				return nil, fail("Konto auswählen.")
+				return nil, fail("Select an account.")
 			}
 			tag, e := tx.Exec(ctx, "UPDATE fire_accounts SET name=$2,active=$3,revision=revision+1 WHERE id=$1 AND revision=$4", q.ID, name, q.Active, q.Revision)
 			err = e
 			if err == nil && tag.RowsAffected() != 1 {
-				return nil, problem{409, "Kontostand geändert. Neu laden."}
+				return nil, problem{409, "The account balance has changed. Reload it."}
 			}
 		}
 		if err != nil {
 			var dbErr *pgconn.PgError
 			if errors.As(err, &dbErr) && dbErr.Code == "23505" {
-				return nil, problem{409, "Kontoname bereits vergeben."}
+				return nil, problem{409, "This account name is already in use."}
 			}
 			return nil, err
 		}
@@ -112,21 +112,21 @@ func (a *app) fireAccounts(ctx context.Context, w http.ResponseWriter, r *http.R
 		subject = q.ID + " · " + name
 	case "link":
 		if !idPattern.MatchString(q.ID) || !idPattern.MatchString(q.Event) {
-			return nil, fail("Feuerwehrkonto und Arbeitsbereich auswählen.")
+			return nil, fail("Select a fire brigade account and workspace.")
 		}
 		d, e := lockOnlineEvent(ctx, tx, r, q.Event)
 		if e != nil {
 			return nil, e
 		}
 		if d.Closed {
-			return nil, problem{409, "Arbeitsbereich abgeschlossen."}
+			return nil, problem{409, "This workspace is closed."}
 		}
 		if err = checkYearSetup(ctx, tx, q.Event); err != nil {
 			return nil, err
 		}
 		var name, start string
 		if err = tx.QueryRow(ctx, "SELECT a.name,e.starts::text FROM fire_accounts a,events e WHERE a.id=$1 AND a.active AND e.id=$2", q.ID, q.Event).Scan(&name, &start); err != nil {
-			return nil, fail("Aktives Konto auswählen.")
+			return nil, fail("Select an active account.")
 		}
 		if q.Local == "" {
 			var exists bool
@@ -147,29 +147,29 @@ func (a *app) fireAccounts(ctx context.Context, w http.ResponseWriter, r *http.R
 			return nil, e
 		}
 		if tag.RowsAffected() != 1 {
-			return nil, problem{409, "Lokales Konto fehlt oder ist bereits zugeordnet."}
+			return nil, problem{409, "The local account is missing or has already been assigned."}
 		}
 		eventID = q.Event
 		action = "Feuerwehrkonto zugeordnet"
 		subject = q.Local + " → " + q.ID
 	case "count", "carry":
 		if !idPattern.MatchString(q.Year) || !idPattern.MatchString(q.ID) {
-			return nil, fail("Geschäftsjahr und Konto auswählen.")
+			return nil, fail("Select a fiscal year and account.")
 		}
 		var ledger string
 		err = tx.QueryRow(ctx, `SELECT e.id::text FROM events e JOIN fiscal_years y ON e.fiscal_year=y.id WHERE y.id=$1 AND NOT y.closed AND NOT e.closed AND e.general_ledger ORDER BY e.id LIMIT 1`, q.Year).Scan(&ledger)
 		if err != nil {
-			return nil, fail("Offenes Geschäftsjahr erforderlich.")
+			return nil, fail("An open fiscal year is required.")
 		}
 		if q.Action == "carry" {
 			err = tx.QueryRow(ctx, `SELECT c.actual FROM fire_year_counts c JOIN fiscal_years y ON y.id=c.year WHERE c.account=$1 AND c.actual IS NOT NULL AND y.closed AND y.id=(SELECT id FROM fiscal_years WHERE ends<(SELECT starts FROM fiscal_years WHERE id=$2) ORDER BY ends DESC LIMIT 1)`, q.ID, q.Year).Scan(&q.Opening)
 			if err != nil {
-				return nil, fail("Kein bestätigter Schlussbestand im unmittelbar vorherigen Geschäftsjahr.")
+				return nil, fail("The immediately preceding fiscal year has no confirmed closing balance.")
 			}
 		}
 		for _, v := range []*int64{q.Opening, q.Actual} {
 			if v != nil && (*v < 0 || *v > 999999999999) {
-				return nil, fail("Bestand prüfen.")
+				return nil, fail("Check the balance.")
 			}
 		}
 		tag, e := tx.Exec(ctx, `INSERT INTO fire_year_counts(year,account,opening,actual,revision)
@@ -180,7 +180,7 @@ func (a *app) fireAccounts(ctx context.Context, w http.ResponseWriter, r *http.R
 			return nil, e
 		}
 		if tag.RowsAffected() != 1 {
-			return nil, problem{409, "Zuordnung oder Jahresstand geändert. Neu laden."}
+			return nil, problem{409, "The assignment or fiscal year has changed. Reload."}
 		}
 		eventID = ledger
 		action = "Jahreskontenstand erfasst"
@@ -192,7 +192,7 @@ func (a *app) fireAccounts(ctx context.Context, w http.ResponseWriter, r *http.R
 		}
 		subject = q.ID + " · Anfang " + display(q.Opening) + " · Ist " + display(q.Actual)
 	default:
-		return nil, fail("Unbekannte Kontenaktion.")
+		return nil, fail("Unknown account action.")
 	}
 	if _, err = tx.Exec(ctx, "INSERT INTO audit(event,username,action,subject) VALUES($1,$2,$3,$4)", eventID, user, action, subject); err != nil {
 		return nil, err
@@ -358,7 +358,7 @@ func yearAccountBalances(ctx context.Context, tx pgx.Tx, year string) ([]account
 func (a *app) yearBalances(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
 	year := r.URL.Query().Get("year")
 	if !idPattern.MatchString(year) {
-		return nil, fail("Geschäftsjahr auswählen.")
+		return nil, fail("Select a fiscal year.")
 	}
 	tx, err := a.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {

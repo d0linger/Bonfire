@@ -13,12 +13,12 @@ type printLog struct {
 
 func acceptPrintLog(ctx context.Context, tx pgx.Tx, d device, logs []printLog) ([]string, error) {
 	if len(logs) > 1000 {
-		return nil, fail("Zu viele Nachdruckereignisse.")
+		return nil, fail("Too many reprint events.")
 	}
 	accepted := []string{}
 	for _, l := range logs {
 		if !idPattern.MatchString(l.ID) || !key.MatchString(l.Subject) || l.At.IsZero() {
-			return nil, fail("Ungültiger Nachdruckbezug.")
+			return nil, fail("Invalid reprint reference.")
 		}
 		tag, err := tx.Exec(ctx, "INSERT INTO print_log(id,event,device,subject,local_time) SELECT $1,$2,$3,$4,$5 WHERE EXISTS(SELECT 1 FROM originals WHERE event=$2 AND subject=$4) OR EXISTS(SELECT 1 FROM operations WHERE event=$2 AND device=$3 AND target='original:'||$4 AND kind='original' AND outcome='Geklärt') ON CONFLICT DO NOTHING", l.ID, d.Event, d.ID, l.Subject, l.At)
 		if err != nil {

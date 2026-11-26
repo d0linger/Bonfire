@@ -63,7 +63,7 @@ var denoms = map[string]int64{"20000": 20000, "10000": 10000, "5000": 5000, "200
 
 func checkCashAmount(v data) error {
 	if v.Amount == nil || *v.Amount < 0 || *v.Amount > 999999999999 {
-		return fail("Gültigen Centbetrag angeben.")
+		return fail("Enter a valid amount in cents.")
 	}
 	if v.Pieces == nil {
 		return nil
@@ -72,12 +72,12 @@ func checkCashAmount(v data) error {
 	for k, n := range v.Pieces {
 		c, ok := denoms[k]
 		if !ok || n < 0 || n > 1000000 {
-			return fail("Ungültige Stückelung.")
+			return fail("Invalid denominations.")
 		}
 		total += c * n
 	}
 	if *v.Amount != total {
-		return fail("Zählsumme stimmt nicht.")
+		return fail("The count total is incorrect.")
 	}
 	return nil
 }
@@ -85,7 +85,7 @@ func checkCashAmount(v data) error {
 func validate(o op, accounts bool) error {
 	v := o.Data
 	if v.Retired && (o.Base == 0 || o.Kind != "contact" && (o.Kind != "price" || v.Status == "Freigegeben")) {
-		return fail("Nur ein vorhandener Kontakt oder Preisentwurf kann archiviert werden.")
+		return fail("Only an existing contact or draft price can be archived.")
 	}
 	if len(v.Lines) > 0 {
 		amount, err := amountPositions(v.Lines)
@@ -93,25 +93,25 @@ func validate(o op, accounts bool) error {
 			return err
 		}
 		if o.Kind != "sponsorship" || v.Amount == nil || amount != *v.Amount {
-			return fail("Positionssumme stimmt nicht.")
+			return fail("The line item total is incorrect.")
 		}
 	}
 	if len(v.Allocations) > 100 || len(v.Allocations) > 0 && o.Kind != "reimbursement" {
-		return fail("Ungültige Erstattungszuordnung.")
+		return fail("Invalid reimbursement allocation.")
 	}
 	if len(v.Fields) > 35 {
-		return fail("Zu viele Zusatzfelder.")
+		return fail("Too many additional fields.")
 	}
 	for k, value := range v.Fields {
 		if !key.MatchString(k) || len(value) > 8000 {
-			return fail("Ungültiges Zusatzfeld.")
+			return fail("Invalid additional field.")
 		}
 	}
 	if o.Kind == "donation" && len(strings.TrimSpace(v.Fields["reporting"])) > 100 {
 		return fail("Reporting period exceeds 100 bytes.")
 	}
 	if o.Kind == "price" && v.Status != "" && v.Status != "Entwurf" && v.Status != "Freigegeben" {
-		return fail("Preisstatus ungültig.")
+		return fail("Invalid price status.")
 	}
 	if o.Kind == "price" {
 		if err := validatePrice(v); err != nil {
@@ -119,32 +119,32 @@ func validate(o op, accounts bool) error {
 		}
 	}
 	if slices.Contains([]string{"supply", "skim", "return", "cashback"}, o.Kind) && v.Wallet == "" {
-		return fail("Geldtasche auswählen.")
+		return fail("Select a wallet.")
 	}
 	if o.Kind == "sponsorship" && !slices.Contains([]string{"", "Offen", "Zugesagt", "Zurückgezogen"}, v.Fields["pledge"]) {
-		return fail("Zusagestatus ungültig.")
+		return fail("Invalid pledge status.")
 	}
 	if o.Kind == "dispatch" && (!strings.HasPrefix(v.Reference, "original:") || o.Target != "dispatch:"+v.Reference ||
 		!slices.Contains([]string{"Extern übergeben", "Extern versandt", "Vermerk aufgehoben"}, v.Status) || (v.Status == "Vermerk aufgehoben" && o.Base == 0) || len(strings.TrimSpace(v.Note)) < 3) {
-		return fail("Originalbeleg, Übergabestatus und Nachweis angeben.")
+		return fail("Select the original document and enter the handover status and evidence.")
 	}
 	if o.Kind == "organization" && o.Target != "organization" {
-		return fail("Organisationsprofil ungültig.")
+		return fail("Invalid organization profile.")
 	}
 	if !key.MatchString(o.Target) || !idPattern.MatchString(o.ID) || o.Seq < 1 || o.Base < 0 || !slices.Contains(kinds, o.Kind) || len(strings.TrimSpace(v.Label)) == 0 || len(v.Label) > 200 || !date(v.Date) {
-		return fail("Vorgangsart, Bezeichnung, Datum oder Kennung ungültig.")
+		return fail("Invalid transaction type, description, date or ID.")
 	}
 	if slices.Contains(money, o.Kind) && (v.Amount == nil || *v.Amount < 0 || *v.Amount > 999999999999) {
-		return fail("Gültigen Centbetrag angeben.")
+		return fail("Enter a valid amount in cents.")
 	}
 	if o.Base > 0 && len(strings.TrimSpace(v.Note)) < 3 && !((o.Kind == "price" || o.Kind == "contact") && len(strings.TrimSpace(v.Fields["lifecycleReason"])) >= 3) {
-		return fail("Änderung begründen.")
+		return fail("Give a reason for the change.")
 	}
 	if accounts && slices.Contains(strings.Fields("income expense refund deposit deposit-return reimbursement fee card payout donation payment presale"), o.Kind) && v.Account == "" {
-		return fail("Kontozuordnung fehlt.")
+		return fail("Select an account for this entry.")
 	}
 	if slices.Contains([]string{"transfer", "payout", "skim", "supply", "return", "cashback"}, o.Kind) && (v.Account == "" || v.To == "" || v.To == v.Account) {
-		return fail("Verschiedene Quell- und Zielkonten angeben.")
+		return fail("Select different source and destination accounts.")
 	}
 	if (o.Kind == "supply" && v.To != v.Wallet) || ((o.Kind == "skim" || o.Kind == "return") && v.Account != v.Wallet) {
 		return fail("The cash movement must use the selected wallet as its cash endpoint.")
@@ -152,7 +152,7 @@ func validate(o op, accounts bool) error {
 	if o.Kind == "supply" {
 		mode := v.Fields["countMode"]
 		if !slices.Contains([]string{"", "amount", "pieces"}, mode) || (mode == "pieces") != (v.Pieces != nil) {
-			return fail("Betragseingabe und Stückelung der Nachversorgung prüfen.")
+			return fail("Check the top-up amount and denominations.")
 		}
 		if err := checkCashAmount(v); err != nil {
 			return err
@@ -160,19 +160,19 @@ func validate(o op, accounts bool) error {
 	}
 	if o.Kind == "count" || o.Kind == "plan" || o.Kind == "reserve" {
 		if o.Kind == "reserve" && (o.Target != "coinreserve" || v.Wallet != "" || v.Bar != "") {
-			return fail("Wechselgeldbestand wird zentral erfasst.")
+			return fail("Record the change reserve centrally.")
 		}
 		pooled := o.Kind == "count" && v.Fields["countScope"] == "all"
 		manual := o.Kind == "count" && v.Fields["countMode"] == "amount"
 		if o.Kind == "count" && (!slices.Contains([]string{"", "wallet", "all"}, v.Fields["countScope"]) ||
 			!slices.Contains([]string{"", "amount", "pieces"}, v.Fields["countMode"])) {
-			return fail("Zählumfang oder Betragseingabe ungültig.")
+			return fail("Invalid count scope or amount entry.")
 		}
 		if pooled && (v.Wallet != "" || v.Bar != "" || v.Phase == "Zwischenstand") {
-			return fail("Eine Gesamtzählung gehört zur gesamten Veranstaltung.")
+			return fail("A combined wallet count applies to the entire event.")
 		}
 		if o.Kind != "reserve" && ((!pooled && v.Wallet == "") || !slices.Contains([]string{"Anfang", "Zwischenstand", "Ende"}, v.Phase)) || (v.Pieces == nil) != manual {
-			return fail("Geldtasche, Zählphase und Stückelung angeben.")
+			return fail("Select a wallet and counting phase, then enter the denominations.")
 		}
 		if err := checkCashAmount(v); err != nil {
 			return err
@@ -180,30 +180,30 @@ func validate(o op, accounts bool) error {
 		phase := v.Phase
 		if observation := v.Fields["observation"]; observation != "" {
 			if o.Kind != "count" || phase != "Zwischenstand" || !idPattern.MatchString(observation) {
-				return fail("Ungültige Zwischenbeobachtung.")
+				return fail("Invalid interim observation.")
 			}
 			phase += "|" + observation
 		}
 		if o.Kind != "reserve" && o.Target != countKey(o.Kind, v.Wallet, phase) {
-			return fail("Kennung der Zählung ungültig.")
+			return fail("Invalid count ID.")
 		}
 	}
 	if o.Kind == "period" && (!date(v.To) || v.To < v.Date) {
-		return fail("Periodenende prüfen.")
+		return fail("Check the period end date.")
 	}
 	if o.Kind == "original" && (v.Reference == "" || v.Number <= 0 || !strings.HasPrefix(v.PDF, "JVBER") || !strings.HasPrefix(v.DOCX, "UEsD") || o.Base != 0 || o.Target != "original:"+archiveKey(v)) {
-		return fail("Originaldateien oder Belegbezug ungültig.")
+		return fail("Invalid original files or document reference.")
 	}
 	if o.Kind == "import-source" {
 		b, err := base64.StdEncoding.DecodeString(v.File)
 		if err != nil || len(b) == 0 || len(b) > 4<<20 || fmt.Sprintf("%x", hash(string(b))) != v.Reference || o.Target != "source:"+v.Reference || o.Base != 0 || !slices.Contains([]string{"Journal", "D1"}, v.Status) {
-			return fail("Importquelle oder Herkunft ungültig.")
+			return fail("Invalid import source or provenance.")
 		}
 	}
 	if o.Kind == "organization" && v.File != "" {
 		b, err := base64.StdEncoding.DecodeString(v.File)
 		if err != nil || len(b) > 300000 || !bytes.HasPrefix(b, []byte{137, 80, 78, 71, 13, 10, 26, 10}) {
-			return fail("Organisationslogo ungültig.")
+			return fail("Invalid organization logo.")
 		}
 	}
 	if o.Kind == "attachment" || o.Kind == "attachment-file" {
@@ -238,7 +238,7 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 		}
 		if !d.Donor {
 			if o.Data.Fields["birth"] != "" {
-				return "", problem{403, "Freigabe für Meldedaten fehlt."}
+				return "", problem{403, "Access to reporting data is required."}
 			}
 			var kept *string
 			err := tx.QueryRow(ctx, "SELECT data->'Fields'->>'birth' FROM directory WHERE id=$1", o.Target).Scan(&kept)
@@ -323,7 +323,7 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 				return "", err
 			}
 			if next != v.Number {
-				return "", problem{409, "Belegnummer inzwischen vergeben. Bitte neu laden."}
+				return "", problem{409, "This document number has already been issued. Reload and try again."}
 			}
 		}
 		var owner, subjectKind string
@@ -333,7 +333,7 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 			return "Konflikt", nil
 		}
 		if err != nil || owner != d.ID || v.Number < d.Block*1000 || v.Number >= d.Block*1000+d.DigitalCount {
-			return "", fail("Keine Ausstellungszuständigkeit oder Nummernreserve.")
+			return "", fail("Issuing authority or reserved document numbers are missing.")
 		}
 		if v.Fields["series"] == "confirmation" {
 			var snap struct {
@@ -341,7 +341,7 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 				ReceivedCents *int64
 			}
 			if json.Unmarshal([]byte(v.Note), &snap) != nil || snap.Profile != subjectKind+"_confirmation_a4" || snap.ReceivedCents == nil || subjectData.Amount == nil || *snap.ReceivedCents != *subjectData.Amount {
-				return "", fail("Bestätigung passt nicht zum Zahlungseingang.")
+				return "", fail("The confirmation does not match the payment received.")
 			}
 		}
 		pdf, doc, archiveErr := checkArchive(d, v)
@@ -405,12 +405,12 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 }
 func accept(ctx context.Context, tx pgx.Tx, d *device, o op) error {
 	if !o.yearCarry && (o.Data.Fields["yearSource"] != "" || o.Data.Fields["yearPeriod"] != "" || o.Data.Fields["yearStamp"] != "") {
-		return fail("Vorjahresquelle über die bestätigte Übernahme auswählen.")
+		return fail("Select the prior-year source through the confirmed carry-forward.")
 	}
 	var old []byte
 	var owner string
 	if !idPattern.MatchString(o.ID) {
-		return fail("Ungültige Vorgangs-ID.")
+		return fail("Invalid transaction ID.")
 	}
 	var storedSeq int64
 	err := tx.QueryRow(ctx, "SELECT digest,device::text,seq FROM operations WHERE id=$1", o.ID).Scan(&old, &owner, &storedSeq)
@@ -424,7 +424,7 @@ func accept(ctx context.Context, tx pgx.Tx, d *device, o op) error {
 	digest := hash(string(raw))
 	if err == nil {
 		if owner != d.ID || subtle.ConstantTimeCompare(old, digest) != 1 {
-			return fail("Vorgangs-ID mit abweichendem Inhalt.")
+			return fail("This transaction ID already exists with different details.")
 		}
 		return nil
 	}
@@ -432,16 +432,16 @@ func accept(ctx context.Context, tx pgx.Tx, d *device, o op) error {
 		return err
 	}
 	if d.Closed || d.Sealed || (d.Role != roleAdmin && d.Role != roleWrite) {
-		return problem{403, "Erfassung gesperrt."}
+		return problem{403, "Entry is locked."}
 	}
 	if o.Seq != d.Last+1 {
-		return fail("Gerätefolge unvollständig.")
+		return fail("The device sequence is incomplete.")
 	}
 	if err = validate(o, false); err != nil {
 		return err
 	}
 	if (slices.Contains([]string{"opening", "period", "template", "organization", "import-source", "dispatch"}, o.Kind) || strings.HasPrefix(o.Target, "import:") || strings.HasPrefix(o.Data.Reference, "source:")) && d.Role != roleAdmin {
-		return problem{403, "Adminrecht erforderlich."}
+		return problem{403, "Administrator access required."}
 	}
 	outcome := "Konflikt"
 	if d.IncidentState != "returning" {
@@ -451,11 +451,11 @@ func accept(ctx context.Context, tx pgx.Tx, d *device, o op) error {
 		}
 	}
 	if d.Online && outcome == "Konflikt" {
-		return problem{409, "Buchung widerspricht dem aktuellen Stand. Bitte aktualisieren und Angaben prüfen."}
+		return problem{409, "This entry conflicts with the current records. Refresh and check its details."}
 	}
 	if o.Kind == "original" && outcome == "Konflikt" {
 		if o.Data.Number < d.Block*1000 || o.Data.Number >= d.Block*1000+d.DigitalCount {
-			return fail("Nummer außerhalb der Gerätereserve.")
+			return fail("This number is outside the range reserved for the device.")
 		}
 		if _, _, err := checkArchive(*d, o.Data); err != nil {
 			return err
@@ -465,7 +465,7 @@ func accept(ctx context.Context, tx pgx.Tx, d *device, o op) error {
 	if o.LocalTime != "" {
 		t, err := time.Parse(time.RFC3339Nano, o.LocalTime)
 		if err != nil {
-			return fail("Gerätezeit ungültig.")
+			return fail("Invalid device time.")
 		}
 		localTime = &t
 	}
@@ -500,10 +500,10 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		return nil, err
 	}
 	if d.Online && q.Action == "Ende" {
-		return nil, fail("Onlinebuchungen sind unmittelbar gespeichert.")
+		return nil, fail("Online entries are saved immediately.")
 	}
 	if d.IncidentState == "returning" && (q.Resolve != "" || q.Action != "" && q.Action != "Ende") {
-		return nil, problem{403, "Rückkehrprofil darf nur Daten abgleichen und sein Erfassungsende bestätigen."}
+		return nil, problem{403, "A returning device may only reconcile its data and confirm the end of entry."}
 	}
 	for _, o := range q.Ops {
 		if err = accept(ctx, tx, &d, o); err != nil {
@@ -516,17 +516,17 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	}
 	if q.Resolve != "" {
 		if d.Role != roleAdmin || d.Closed || len(strings.TrimSpace(q.Reason)) < 3 {
-			return nil, fail("Klärung durch einen Admin mit Begründung erforderlich.")
+			return nil, fail("An administrator must resolve this issue and provide a reason.")
 		}
 		var o op
 		origin := d
 		err = tx.QueryRow(ctx, "SELECT o.id::text,o.target,o.kind,o.data,x.id::text,x.username,u.role,x.donor_access,x.block,x.incident_state,o.seq,x.digital_count FROM operations o JOIN devices x ON x.id=o.device JOIN users u ON u.name=x.username WHERE o.id=$1 AND o.event=$2 AND o.outcome='Konflikt'", q.Resolve, d.Event).Scan(&o.ID, &o.Target, &o.Kind, &o.Data, &origin.ID, &origin.User, &origin.Role, &origin.Donor, &origin.Block, &origin.IncidentState, &o.Seq, &origin.DigitalCount)
 		if err != nil {
-			return nil, fail("Konflikt bereits geklärt oder unbekannt.")
+			return nil, fail("This conflict is unknown or has already been resolved.")
 		}
 		if q.Choice == "übernehmen" {
 			if o.Kind == "original" && q.Last != 0 {
-				return nil, fail("Ein ausgestelltes Original bleibt unverändert.")
+				return nil, fail("An issued original cannot be changed.")
 			}
 			var current int64
 			if err = tx.QueryRow(ctx, "SELECT coalesce(max(revision),0) FROM entries WHERE event=$1 AND id=$2", d.Event, o.Target).Scan(&current); err != nil {
@@ -538,7 +538,7 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 				}
 			}
 			if current != q.Last {
-				return nil, fail("Stand inzwischen geändert. Erneut prüfen.")
+				return nil, fail("The data has changed. Check it again.")
 			}
 			o.Base = current
 			if o.Kind == "contact" && current == 0 {
@@ -555,7 +555,7 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 			}
 			if q.Account != "" || q.Destination != "" {
 				if !d.Accounts || !slices.Contains(accountEntries, o.Kind) || q.Destination != "" && !slices.Contains(transferEntries, o.Kind) {
-					return nil, fail("Kontoklärung passt nicht zum Vorgang.")
+					return nil, fail("The account resolution does not match this transaction.")
 				}
 				if q.Account != "" {
 					o.Data.Account = q.Account
@@ -578,10 +578,10 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 				return nil, err
 			}
 			if outcome == "Konflikt" {
-				return nil, fail("Fachlicher Konflikt besteht weiter.")
+				return nil, fail("The entries still conflict.")
 			}
 		} else if q.Choice != "beibehalten" {
-			return nil, fail("Klärentscheidung fehlt.")
+			return nil, fail("Enter a resolution.")
 		}
 		_, err = tx.Exec(ctx, "UPDATE operations SET outcome='Geklärt' WHERE id=$1", q.Resolve)
 		if err != nil {
@@ -597,13 +597,13 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 			return nil, err
 		}
 		if missingFile {
-			return nil, fail("Fehlende Belegdatei zuerst übertragen.")
+			return nil, fail("Upload the missing supporting document first.")
 		}
 		if len(acceptedPrints) != len(q.Prints) {
-			return nil, fail("Nachdrucke zuerst mit dem gespeicherten Original abgleichen.")
+			return nil, fail("Reconcile reprints with the stored original first.")
 		}
 		if q.Last != d.Last {
-			return nil, fail("Letzten Stand zuerst synchronisieren.")
+			return nil, fail("Sync the latest changes first.")
 		}
 		if d.IncidentState == "returning" {
 			var open bool
@@ -611,7 +611,7 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 				return nil, err
 			}
 			if open {
-				return nil, fail("Rückkehrvorgänge zuerst einzeln klären.")
+				return nil, fail("Resolve returned-device transactions individually first.")
 			}
 			if _, err = tx.Exec(ctx, "UPDATE devices SET incident=NULL,incident_state='' WHERE id=$1", d.ID); err != nil {
 				return nil, err
@@ -682,7 +682,7 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 			}
 			for _, b := range balances {
 				if b.Shared && (b.Opening == nil || b.Actual == nil || b.Soll != *b.Actual) {
-					return nil, fail("Jahreskontenabgleich prüfen: " + b.Name)
+					return nil, fail("Check the annual account reconciliation: " + b.Name)
 				}
 			}
 		}
@@ -690,10 +690,10 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	alreadyClosed := d.Closed
 	if q.Action == "Abschluss" || q.Action == closeYear && !alreadyClosed {
 		if d.Role != roleAdmin {
-			return nil, problem{403, "Adminrecht für den Abschluss erforderlich."}
+			return nil, problem{403, "Administrator access is required to close this workspace."}
 		}
 		if pending != 0 || len(conflicts) > 0 || d.Closed {
-			return nil, fail("Vollständige Gerätesiegel, offene Veranstaltung und geklärter Stand erforderlich.")
+			return nil, fail("All devices must be sealed, the event must be open, and all discrepancies must be resolved.")
 		}
 		if err = validateSettlement(entries); err != nil {
 			return nil, fail(err.Error())
@@ -786,7 +786,7 @@ func checkBalance(entries []row, accounts bool) error {
 		switch r.Kind {
 		case "actual":
 			if _, ok := actual[account]; ok {
-				return fail("Mehrere Istwerte für denselben Bestand.")
+				return fail("Multiple observed balances exist for the same account.")
 			}
 			actual[account] = v
 		case "opening":
@@ -809,12 +809,12 @@ func checkBalance(entries []row, accounts bool) error {
 		}
 	}
 	if !opened || len(balances) != len(actual) {
-		return fail("Eröffnung und vollständiger Istbestand erforderlich.")
+		return fail("An opening balance and complete observed balances are required.")
 	}
 	for k, n := range balances {
 		v, ok := actual[k]
 		if !ok || *v.Amount != n || k == "" || accounts && !configured[k] {
-			return fail("Bestandsdifferenz oder fehlende Zuordnung.")
+			return fail("The balance differs or an account assignment is missing.")
 		}
 		if v.BalanceOrder <= 0 {
 			return fail("Reconfirm the observed balance before closing.")
@@ -833,7 +833,7 @@ func (a *app) user(ctx context.Context, w http.ResponseWriter, r *http.Request) 
 		return nil, err
 	}
 	if role != roleAdmin {
-		return nil, problem{403, "Adminrecht erforderlich."}
+		return nil, problem{403, "Administrator access required."}
 	}
 	var v struct{ Name, Password, Role, Event string }
 	if err = read(r, &v); err != nil {
@@ -842,7 +842,7 @@ func (a *app) user(ctx context.Context, w http.ResponseWriter, r *http.Request) 
 	v.Name = loginName(v.Name)
 	v.Role = canonicalRole(v.Role)
 	if !validLoginName(v.Name) || len(v.Password) < 14 || len(v.Password) > 72 || !slices.Contains([]string{roleWrite, roleRead}, v.Role) {
-		return nil, fail("Name, Rolle oder Passwort ungültig.")
+		return nil, fail("Invalid name, role or password.")
 	}
 	digest, err := bcrypt.GenerateFromPassword([]byte(v.Password), 12)
 	if err != nil {
@@ -855,7 +855,7 @@ func (a *app) user(ctx context.Context, w http.ResponseWriter, r *http.Request) 
 	defer tx.Rollback(ctx)
 	_, err = tx.Exec(ctx, "INSERT INTO users VALUES($1,$2,$3,true)", v.Name, string(digest), v.Role)
 	if err != nil {
-		return nil, fail("Benutzer bereits vorhanden.")
+		return nil, fail("This user already exists.")
 	}
 	_, err = tx.Exec(ctx, "INSERT INTO grants_event VALUES($1,$2)", v.Name, v.Event)
 	if err != nil {

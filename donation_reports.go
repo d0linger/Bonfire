@@ -101,7 +101,7 @@ func (a *app) donationReports(ctx context.Context, w http.ResponseWriter, r *htt
 		return nil, err
 	}
 	if !d.Donor || d.Role != roleAdmin {
-		return nil, problem{403, "Freigegebenes Meldedatenprofil erforderlich."}
+		return nil, problem{403, "An approved reporting profile is required."}
 	}
 	q.Period = strings.TrimSpace(q.Period)
 	q.Reason = strings.TrimSpace(q.Reason)
@@ -118,7 +118,7 @@ func (a *app) donationReports(ctx context.Context, w http.ResponseWriter, r *htt
 		}
 	}
 	if q.Period == "" {
-		return nil, fail("Meldezeitraum angeben.")
+		return nil, fail("Enter a reporting period.")
 	}
 	if q.Action == "Verlauf" {
 		rows, err := tx.Query(ctx, `SELECT r.id::text,r.previous::text,r.digest,s.status,s.actor,s.evidence,s.at::text FROM donation_reports r
@@ -139,18 +139,18 @@ func (a *app) donationReports(ctx context.Context, w http.ResponseWriter, r *htt
 		return map[string]any{"daten": json.RawMessage(raw), "sha256": digest}, tx.Commit(ctx)
 	}
 	if !idPattern.MatchString(q.Report) {
-		return nil, fail("Prüflauf wählen.")
+		return nil, fail("Select a review run.")
 	}
 	if q.Action != "Datei" {
 		if !idPattern.MatchString(q.Request) || len(q.Reason) < 5 || len(q.Reason) > 500 {
-			return nil, fail("Begründung oder externen Nachweis angeben.")
+			return nil, fail("Enter a reason or provide external evidence.")
 		}
 		var same bool
 		err = tx.QueryRow(ctx, `SELECT r.id=$2 AND r.event=$3 AND r.period=$4 AND s.status=$5 AND s.actor=$6 AND s.evidence=$7 AND (s.status<>'Geprüft' OR r.digest=$8)
       FROM donation_report_steps s JOIN donation_reports r ON r.id=s.report WHERE s.request_id=$1`, q.Request, q.Report, d.Event, q.Period, q.Action, d.User, q.Reason, q.Digest).Scan(&same)
 		if err == nil {
 			if !same {
-				return nil, fail("Entscheidungskennung bereits vergeben.")
+				return nil, fail("This decision ID has already been used.")
 			}
 			return q.Action, tx.Commit(ctx)
 		}
@@ -159,7 +159,7 @@ func (a *app) donationReports(ctx context.Context, w http.ResponseWriter, r *htt
 		}
 	}
 	if d.Closed && q.Action != "Datei" {
-		return nil, problem{409, "Der Arbeitsbereich ist abgeschlossen."}
+		return nil, problem{409, "This workspace is closed."}
 	}
 	var raw []byte
 	var digest, status string
@@ -169,7 +169,7 @@ func (a *app) donationReports(ctx context.Context, w http.ResponseWriter, r *htt
 			return nil, err
 		}
 		if digest != q.Digest {
-			return nil, fail("Prüfdaten geändert. Vorschau erneut prüfen.")
+			return nil, fail("The review data has changed. Check the preview again.")
 		}
 		var previous *string
 		var lastStatus string
@@ -178,7 +178,7 @@ func (a *app) donationReports(ctx context.Context, w http.ResponseWriter, r *htt
 			return nil, err
 		}
 		if previous != nil && *previous != q.Report && lastStatus != "Korrektur" {
-			return nil, fail("Vorhandenen Prüflauf für eine Korrektur kennzeichnen.")
+			return nil, fail("Select an existing review run for correction.")
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO donation_reports(id,event,period,previous,payload,digest) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING`, q.Report, d.Event, q.Period, previous, raw, digest)
 		if err != nil {
@@ -187,7 +187,7 @@ func (a *app) donationReports(ctx context.Context, w http.ResponseWriter, r *htt
 	}
 	err = tx.QueryRow(ctx, `SELECT payload,digest,coalesce((SELECT status FROM donation_report_steps WHERE report=r.id ORDER BY seq DESC LIMIT 1),'') FROM donation_reports r WHERE id=$1 AND event=$2 AND period=$3`, q.Report, d.Event, q.Period).Scan(&raw, &digest, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fail("Prüflauf unbekannt.")
+		return nil, fail("Unknown review run.")
 	}
 	if err != nil {
 		return nil, err
@@ -198,7 +198,7 @@ func (a *app) donationReports(ctx context.Context, w http.ResponseWriter, r *htt
 			return nil, err
 		}
 		if !released {
-			return nil, fail("Export zuerst freigeben.")
+			return nil, fail("Approve the export first.")
 		}
 		if err = audit(ctx, tx, d.Event, d.User, "Spendenexport abgerufen", q.Report); err != nil {
 			return nil, err
@@ -206,7 +206,7 @@ func (a *app) donationReports(ctx context.Context, w http.ResponseWriter, r *htt
 		return map[string]any{"datei": string(raw), "sha256": digest}, tx.Commit(ctx)
 	}
 	if !(status == "" && q.Action == "Geprüft") && !donationStepAllowed(status, q.Action) {
-		return nil, fail("Unzulässige Statusfolge. Verlauf erneut laden.")
+		return nil, fail("Invalid status transition. Reload the history.")
 	}
 	if q.Action == "Exportiert" {
 		_, current, err := donationBytes(ctx, tx, d.Event, q.Period)
@@ -214,7 +214,7 @@ func (a *app) donationReports(ctx context.Context, w http.ResponseWriter, r *htt
 			return nil, err
 		}
 		if current != digest {
-			return nil, fail("Bestand geändert. Korrekturlauf erforderlich.")
+			return nil, fail("The data has changed. Start a correction run.")
 		}
 	}
 	_, err = tx.Exec(ctx, "INSERT INTO donation_report_steps(request_id,report,status,actor,evidence) VALUES($1,$2,$3,$4,$5)", q.Request, q.Report, q.Action, d.User, q.Reason)

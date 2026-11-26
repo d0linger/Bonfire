@@ -44,8 +44,19 @@ const financialLabels = {
   Bar: "Cash", Überweisung: "Bank transfer", Karte: "Card",
   Anfang: "Opening", Ende: "Closing", Zwischenstand: "Interim",
   Bestätigt: "Confirmed", Offen: "Open", Freigegeben: "Approved",
+  Entwurf: "Draft", Entnommen: "Withdrawn", Zugesagt: "Pledged", Zurückgezogen: "Withdrawn",
+  Anonym: "Anonymous", Namentlich: "Named", Unbestätigt: "Unconfirmed", Geprüft: "Reviewed", Exportiert: "Exported", Übermittelt: "Submitted", Korrektur: "Correction",
+  "Personendaten unvollständig oder ungültig": "Personal details are incomplete or invalid",
+  "Betrag prüfen": "Check the amount",
+  "Extern übergeben": "Handed over externally", "Extern versandt": "Sent externally", "Vermerk aufgehoben": "Note revoked",
+  "Ohne Versandvermerk": "No dispatch record",
+  Getränk: "Drink", Essen: "Food", Angebot: "Offer", Angeboten: "Offered",
 };
 export const financialLabel = (value) => Object.hasOwn(financialLabels, value) ? financialLabels[value] : value;
+
+// Price lists also allow free-form categories, including words that are used as financial statuses.
+export const priceCategoryLabel = (value) =>
+  value === "Getränk" || value === "Essen" ? financialLabel(value) : value;
 
 export const groups = {
   Journal: [
@@ -99,7 +110,7 @@ export const monetary = new Set(
 );
 export const eur = (n) =>
   n == null
-    ? "Offen"
+    ? "Pending"
     : new Intl.NumberFormat("de-AT", {
         style: "currency",
         currency: "EUR",
@@ -107,13 +118,13 @@ export const eur = (n) =>
 export function cents(s) {
   const m = /^(\d{1,10})(?:[,.](\d{1,2}))?$/.exec(String(s).trim());
   if (!m)
-    throw Error("Betrag in EUR mit höchstens zwei Nachkommastellen eingeben.");
+    throw Error("Enter an amount in EUR with up to two decimal places.");
   return Number(m[1]) * 100 + Number((m[2] || "").padEnd(2, "0"));
 }
 export function totalPieces(p) {
   return Object.entries(p).reduce((sum, [k, n]) => {
     if (String(+k) !== k || !denom.includes(+k) || !Number.isSafeInteger(n) || n < 0 || n > 1000000)
-      throw Error("Gültige ganze Stückzahlen eingeben.");
+      throw Error("Enter whole-number quantities.");
     return sum + n * +k;
   }, 0);
 }

@@ -10,7 +10,7 @@ import (
 func configureRuntime(ctx context.Context, pool *pgxpool.Pool) error {
 	password := os.Getenv("BONFIRE_RUNTIME_PASSWORD")
 	if len(password) < 24 {
-		return errors.New("Separates Runtime-Kennwort erforderlich")
+		return errors.New("A separate runtime password is required.")
 	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -28,7 +28,7 @@ func configureRuntime(ctx context.Context, pool *pgxpool.Pool) error {
 		return err
 	}
 	if _, err = tx.Exec(ctx, sql); err != nil {
-		return errors.New("Runtime-Kennwort konnte nicht gesetzt werden")
+		return errors.New("Could not set the runtime password.")
 	}
 	if _, err = tx.Exec(ctx, runtimeGrants); err != nil {
 		return err

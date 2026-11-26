@@ -31,11 +31,11 @@ func validatePrice(v data) error {
 	}
 	a, b := strings.TrimSpace(v.Fields["unitA"]), strings.TrimSpace(v.Fields["unitB"])
 	if strings.TrimSpace(v.Unit) == "" || v.Category == "" {
-		return fail("Einheit und Sortiment vor Freigabe klären.")
+		return fail("Confirm the unit and product range before approval.")
 	}
 	if smallCentilitre.MatchString(v.Unit) || (a != "" && b != "" && !strings.EqualFold(a, b)) {
 		if (a == "" && b == "") || len(strings.TrimSpace(v.Fields["unitReason"])) < 5 || strings.Contains(v.Unit, "/") {
-			return fail("Abweichende Quellenangaben getrennt dokumentieren, Ausgabeeinheit entscheiden und begründen.")
+			return fail("Record the conflicting sources separately, select the unit to use and explain the decision.")
 		}
 	}
 	return nil
