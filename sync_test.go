@@ -19,6 +19,9 @@ func TestUsedWalletRequiresSettlement(t *testing.T) {
 
 func TestAccountReconciliation(t *testing.T) {
 	entries := []row{{Kind: "opening", Data: data{Account: "Kassa", Amount: amount(100000)}}, {Kind: "transfer", Data: data{Account: "Kassa", To: "Tasche", Amount: amount(30000)}}, {Kind: "actual", Data: data{Account: "Kassa", Amount: amount(70000)}}, {Kind: "actual", Data: data{Account: "Tasche", Amount: amount(30000)}}}
+	for i := range entries {
+		entries[i].Data.BalanceOrder = int64(i + 1)
+	}
 	entries = append(entries, row{ID: "Kassa", Kind: "account"}, row{ID: "Tasche", Kind: "wallet"})
 	if err := checkBalance(entries, true); err != nil {
 		t.Fatal(err)
@@ -31,8 +34,23 @@ func TestAccountReconciliation(t *testing.T) {
 		t.Fatal("Differenz übergangen")
 	}
 }
+func TestInactiveAccountNeedsTracedObservation(t *testing.T) {
+	rows := []row{
+		{ID: "cash", Kind: "account"}, {ID: "bank", Kind: "account"},
+		{Kind: "opening", Data: data{Account: "cash", Amount: amount(100), BalanceOrder: 1}},
+		{Kind: "actual", Data: data{Account: "cash", Amount: amount(100), BalanceOrder: 2}},
+		{Kind: "actual", Data: data{Account: "bank", Amount: amount(0)}},
+	}
+	if checkBalance(rows, true) == nil {
+		t.Fatal("untraced zero observation certified an idle account")
+	}
+	rows[4].Data.BalanceOrder = 3
+	if err := checkBalance(rows, true); err != nil {
+		t.Fatal(err)
+	}
+}
 func TestZeroVersusUnknown(t *testing.T) {
-	v := []row{{Kind: "opening", Data: data{Amount: amount(0)}}, {Kind: "actual", Data: data{Amount: amount(0)}}}
+	v := []row{{Kind: "opening", Data: data{Amount: amount(0), BalanceOrder: 1}}, {Kind: "actual", Data: data{Amount: amount(0), BalanceOrder: 2}}}
 	if err := checkBalance(v, false); err != nil {
 		t.Fatal(err)
 	}
