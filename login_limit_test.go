@@ -4,6 +4,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestPasswordAttemptsIsolateSources(t *testing.T) {
@@ -36,5 +37,29 @@ func TestPasswordAttemptsIsolateSources(t *testing.T) {
 	}
 	if a.reservePasswordAttempt(r, "another") {
 		t.Fatal("source limit bypassed across accounts")
+	}
+}
+
+func TestPasswordAttemptsRetainAdmissionAtCapacity(t *testing.T) {
+	a := &app{attempts: map[string]int{}, reset: time.Now().Add(time.Minute)}
+	for i := range exactLoginCounters {
+		a.attempts["existing:"+strconv.Itoa(i)] = 1
+	}
+	r := httptest.NewRequest("POST", "/api/login", nil)
+	for range 12 {
+		if !a.reservePasswordAttempt(r, "cashier") {
+			t.Fatal("new pair blocked by unrelated counters")
+		}
+	}
+	if a.reservePasswordAttempt(r, "cashier") {
+		t.Fatal("overflow pair limit not enforced")
+	}
+	r.RemoteAddr = "192.0.2.251:10000"
+	if !a.reservePasswordAttempt(r, "cashier") {
+		t.Fatal("fresh source rejected")
+	}
+	a.clearPasswordAttempts(r, "cashier")
+	if len(a.attempts) > exactLoginCounters+3*4096 {
+		t.Fatal("unbounded counters")
 	}
 }

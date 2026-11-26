@@ -60,14 +60,23 @@ func withinCount(movement, closing data) bool {
 	return movement.PostingOrder == 0 || closing.PostingOrder == 0 || movement.PostingOrder <= closing.PostingOrder
 }
 
+// Rows without a recoverable same-day posting order retain the legacy date-only behavior.
+func afterOpening(movement, opening data) bool {
+	if movement.Date != opening.Date {
+		return opening.Date == "" || movement.Date > opening.Date
+	}
+	return movement.PostingOrder == 0 || opening.PostingOrder == 0 || movement.PostingOrder > opening.PostingOrder
+}
+
 func walletRevenue(rows []row, wallet string) (int64, bool) {
 	var start, end *int64
-	var cutoff data
+	var opening, cutoff data
 	for _, r := range rows {
 		v := r.Data
 		if r.Kind == "count" && v.Wallet == wallet {
 			if v.Phase == "Anfang" {
 				start = v.Amount
+				opening = v
 			} else if v.Phase == "Ende" {
 				end = v.Amount
 				cutoff = v
@@ -79,7 +88,7 @@ func walletRevenue(rows []row, wallet string) (int64, bool) {
 	}
 	total := *end - *start
 	for _, r := range rows {
-		if withinCount(r.Data, cutoff) {
+		if afterOpening(r.Data, opening) && withinCount(r.Data, cutoff) {
 			total += cashAdjustment(r, func(id string) bool { return id != "" && id == wallet }, false)
 		}
 	}
@@ -88,8 +97,8 @@ func walletRevenue(rows []row, wallet string) (int64, bool) {
 
 func pooledRevenue(rows []row) (int64, bool) {
 	wallets := map[string]bool{}
-	openings := map[string]int64{}
-	var cutoff data
+	openings := map[string]data{}
+	var opening, cutoff data
 	var start, end *int64
 	for _, r := range rows {
 		v := r.Data
@@ -103,12 +112,13 @@ func pooledRevenue(rows []row) (int64, bool) {
 		case v.Fields["countScope"] == "all":
 			if v.Phase == "Anfang" {
 				start = v.Amount
+				opening = v
 			} else if v.Phase == "Ende" {
 				end = v.Amount
 				cutoff = v
 			}
 		case v.Phase == "Anfang":
-			openings[v.Wallet] = *v.Amount
+			openings[v.Wallet] = v
 		case v.Phase == "Ende":
 			return 0, false
 		}
@@ -128,13 +138,27 @@ func pooledRevenue(rows []row) (int64, bool) {
 			if !ok {
 				return 0, false
 			}
-			total -= n
+			total -= *n.Amount
 		}
 	}
 	for _, r := range rows {
-		if r.ID != pooledSettlement && (withinCount(r.Data, cutoff)) {
-			total += cashAdjustment(r, func(id string) bool { return wallets[id] }, true)
+		if r.ID == pooledSettlement || !withinCount(r.Data, cutoff) || !afterOpening(r.Data, opening) {
+			continue
 		}
+		unassigned := true
+		if start == nil && r.Data.Wallet == "" && r.Data.Account == "" && cashAdjustment(r, func(string) bool { return false }, true) != 0 {
+			active := 0
+			for _, o := range openings {
+				if afterOpening(r.Data, o) {
+					active++
+				}
+			}
+			if active > 0 && active < len(openings) {
+				return 0, false
+			}
+			unassigned = active == len(openings)
+		}
+		total += cashAdjustment(r, func(id string) bool { return wallets[id] && afterOpening(r.Data, openings[id]) }, unassigned)
 	}
 	return total, true
 }

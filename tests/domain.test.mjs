@@ -180,7 +180,7 @@ test("R03–R06 shared cash settlement vectors", async () => {
   }
 });
 
-test("same-day top-ups after the closing count are excluded at both scopes", () => {
+test("same-day top-ups outside the count window are excluded at both scopes", () => {
   const movement = (kind, amount, order, phase = "") => ({
     Kind: kind,
     Data: { Amount: amount, Wallet: "Nord", PostingOrder: String(order), Date: "2026-07-02", Phase: phase },
@@ -189,6 +189,7 @@ test("same-day top-ups after the closing count are excluded at both scopes", () 
   const rows = [
     { ID: "Nord", Kind: "wallet", Data: {} },
     movement("count", 1000, 10, "Anfang"),
+    movement("supply", 400, 9),
     movement("supply", 300, 13),
     closing,
     movement("supply", 200, 11),
@@ -197,4 +198,18 @@ test("same-day top-ups after the closing count are excluded at both scopes", () 
   closing.Data.Wallet = "";
   closing.Data.Fields = { countScope: "all" };
   assert.equal(pooledRevenue(rows), 800);
+});
+
+test("a pooled transfer adjusts only the wallet whose opening count preceded it", () => {
+  const move = (Kind, PostingOrder, fields) => ({ Kind, Data: { Date: "2026-06-01", PostingOrder, ...fields } });
+  const rows = [
+    {ID:"a",Kind:"wallet",Data:{}}, {ID:"b",Kind:"wallet",Data:{}},
+    move("count",2,{Wallet:"a",Phase:"Anfang",Amount:0}),
+    move("count",4,{Wallet:"b",Phase:"Anfang",Amount:0}),
+    move("transfer",3,{Account:"a",To:"b",Amount:100}),
+    move("count",5,{Phase:"Ende",Amount:0,Fields:{countScope:"all"}}),
+  ];
+  assert.equal(pooledRevenue(rows),100);
+  rows.push(move("donation",3,{Method:"Bar",Amount:100}));
+  assert.equal(pooledRevenue(rows),null);
 });
