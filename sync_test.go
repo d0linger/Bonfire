@@ -87,10 +87,15 @@ func TestBalanceNeedsAFreshObservation(t *testing.T) {
 	if checkBalance(rows, false) == nil {
 		t.Fatal("stale equal balance accepted")
 	}
+	rows[2].Data.Date, rows[3].Data.Date = "2026-06-10", "2026-06-10"
+	if checkBalance(rows, false) == nil {
+		t.Fatal("backdated postings accepted after observation")
+	}
 	rows[1].Data.BalanceOrder = 5
 	if err := checkBalance(rows, false); err != nil {
 		t.Fatal(err)
 	}
+	rows[2].Data.Date = rows[1].Data.Date
 	rows[2].Data.BalanceOrder = 0
 	if checkBalance(rows, false) == nil {
 		t.Fatal("unknown order accepted")
