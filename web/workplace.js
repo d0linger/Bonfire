@@ -126,6 +126,7 @@ export const adminTabs = [
   ["Datenaustausch", "Data exchange"],
 ];
 export const consolePages = [
+  ["Wallet list", "Wallet"],
   ["Feuerwehrkonten", "Landmark"],
   ["Backup", "Database"],
   ["Benutzer", "Users"],
@@ -134,7 +135,7 @@ export const consolePages = [
 ];
 export const canOpenConsole = (p, role) =>
   consolePages.some(([key]) => key === p) &&
-  (role === "Admin" || (["Write", "Read"].includes(role) && p === "Audit-Log"));
+  (role === "Admin" || (["Write", "Read"].includes(role) && ["Audit-Log", "Wallet list"].includes(p)));
 export const sectionOf = (p) =>
   p === "Geschäftsjahre" ||
   p === "Prüfprotokoll" ||
@@ -148,7 +149,7 @@ export const sectionOf = (p) =>
           ? "Verwaltung"
           : p;
 export const titleOf = (p) =>
-  ({Feuerwehrkonten: "Treasury accounts", Benutzer: "Users", Systemstatus: "System status",
+  ({"Wallet list": "Wallet list", Feuerwehrkonten: "Treasury accounts", Benutzer: "Users", Systemstatus: "System status",
     "Audit-Log": "Audit log", Geschäftsjahre: "Fiscal years", "Konto und Sicherheit": "Account and security"}[p] ||
     modules.find(([k]) => k === sectionOf(p))?.[1] || p);
 export const route = (p, t, css = "secondary", ico = "") =>

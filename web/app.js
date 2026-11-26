@@ -1,5 +1,6 @@
 import { fiscalPicker } from "./fiscal-picker.js";
 import { fireDirectory, balanceTable, balanceLines } from "./fire-accounts.js";
+import { floatFields, openingFloatHint, suggestedFloat, updateFloatInput, walletDirectory, walletPicker } from "./wallet-catalog.js";
 import { mountAccountSecurity } from "./account-security.js";
 import { supportsPasskeys, usePasskey } from "./personal-passkeys.js";
 import { canOpenConsole } from "./workplace.js";
@@ -187,6 +188,7 @@ function closeEditor() {
   edit = null;
   const key = [
     "data-wallet-action",
+    "data-catalog-edit",
     "data-year-edit",
     "data-event-edit",
     "data-event-cleanup",
@@ -1024,6 +1026,8 @@ function formFields(k, countPhase = "") {
     );
     if (simpleBooking) extra += wallet;
     else f += wallet;
+    if (k === "count" && countPhase === "Anfang")
+      f += '<p class="catalog-hint" hidden aria-live="polite"></p>';
   }
   if (
     k === "sponsorship" ||
@@ -1772,6 +1776,7 @@ function walletActions() {
   return (
     '<section class="wallet-menu" aria-label="Manage wallets"><div class="actions">' +
     walletButton("wallet", "Add wallet") +
+    (!offlineEnabled ? '<button type="button" class="secondary" data-act="pickWallets" aria-haspopup="dialog">Add from wallet list</button>' : "") +
     walletButton("count:Anfang", "Count opening balance") +
     walletButton("supply", "Add change") +
     walletButton("count:Ende", "Count closing balance") +
@@ -3720,6 +3725,37 @@ let adminSearch = "",
   passwordTicket = "";
 let accountCatalog,
   balanceItems = [];
+let catalogWallets = [];
+
+function openCatalogEditor(trigger) {
+  const wallet = catalogWallets.find((item) => item.ID === trigger.dataset.catalogEdit);
+  openEditor(trigger, wallet ? "Edit reusable wallet" : "Create reusable wallet",
+    form("catalog-wallet",
+      field("Name", "Wallet name", "text", true, wallet?.Name) +
+      field("DefaultBar", "Usual bar (optional)", "text", false, wallet?.DefaultBar) +
+      field("Note", "Note (optional)", "text", false, wallet?.Note) +
+      floatFields(wallet) + (wallet ? select("Active", "Status",
+        [["true", "Active"], ["false", "Retired"]], String(wallet.Active)) : ""),
+      "Save wallet", button("cancel", "Cancel", true)));
+  const editor = entryDialog.querySelector("form");
+  if (wallet) {
+    editor.dataset.id = wallet.ID;
+    editor.dataset.revision = wallet.Revision;
+  }
+  updateFloatInput(editor);
+}
+
+async function openWalletPicker(trigger) {
+  const event = s.event;
+  const { wallets } = await api("wallet-catalog?event=" + encodeURIComponent(event.ID));
+  const selectable = wallets.some((wallet) => wallet.Active && !wallet.Used);
+  const fields = walletPicker(wallets) + '<div class="catalog-confirm"></div>';
+  openEditor(trigger, "Add from wallet list",
+    '<p class="booking-target">Event <strong>' + esc(event.Name) + '</strong></p>' +
+    (selectable ? form("assign-wallets", fields, "Add selected wallets", button("cancel", "Cancel", true))
+      : fields + '<div class="actions">' + route("Wallet list", "Open wallet list") + button("cancel", "Close", true) + "</div>"));
+  if (selectable) entryDialog.querySelector("form").dataset.event = event.ID;
+}
 async function openBalances(trigger) {
   balanceItems = await api(
     "year-balances?year=" + encodeURIComponent(selectedYear),
@@ -3769,6 +3805,16 @@ function show() {
       .catch((e) => {
         if (host.isConnected) host.textContent = e.message;
       });
+    return;
+  }
+  if (!offlineEnabled && logged && page === "Wallet list" && canOpenConsole(page, onlineUser.role)) {
+    const host = document.createElement("div");
+    article.replaceChildren(host);
+    api("wallet-catalog").then(({ wallets }) => {
+      if (!host.isConnected) return;
+      catalogWallets = wallets;
+      host.innerHTML = walletDirectory(wallets, onlineUser.role !== "Read");
+    }).catch((err) => { if (host.isConnected) host.textContent = err.message; });
     return;
   }
   if (!offlineEnabled && logged && canOpenConsole(page, onlineUser.role)) {
@@ -4025,6 +4071,29 @@ async function action(fn) {
 async function submit(f) {
   const vals = Object.fromEntries(new FormData(f));
   const id = f.id;
+  if (id === "catalog-wallet") {
+    await api("wallet-catalog", {
+      Action: f.dataset.id ? "edit" : "create", ID: f.dataset.id || "",
+      Revision: Number(f.dataset.revision || 0), Name: vals.Name.trim(),
+      DefaultBar: vals.DefaultBar.trim(), Note: vals.Note.trim(),
+      Active: vals.Active !== "false", ...suggestedFloat(f),
+    });
+  }
+  if (id === "assign-wallets") {
+    canWrite();
+    if (s.event.ID !== f.dataset.event || s.event.General) throw Error("Reopen the event wallet list.");
+    const IDs = new FormData(f).getAll("wallet");
+    if (!IDs.length) throw Error("Choose at least one wallet.");
+    const selection = JSON.stringify(IDs);
+    const result = await api("wallet-catalog", { Action: "assign", Event: f.dataset.event, IDs,
+      ConfirmOverlap: selection === f.dataset.overlapSelection && !!f.elements.confirmOverlap?.checked });
+    if (result.overlaps?.length) {
+      f.dataset.overlapSelection = selection;
+      f.querySelector(".catalog-confirm").innerHTML = '<label><input type="checkbox" name="confirmOverlap"> Add these wallets despite the date overlap</label>';
+      throw Error("Already allocated to another event on these dates: " + result.overlaps.map((w) => w.Name).join(", ") + ".");
+    }
+    await sync();
+  }
   if (id === "fire-master" || id === "fire-link" || id === "fire-count") {
     const body = { ...vals };
     if (id === "fire-master") {
@@ -5111,6 +5180,10 @@ async function submit(f) {
   show();
 }
 document.addEventListener("change", (e) => {
+  if (e.target.form?.id === "assign-wallets" && e.target.name === "wallet") {
+    delete e.target.form.dataset.overlapSelection;
+    e.target.form.querySelector(".catalog-confirm").replaceChildren();
+  }
   if (e.target.form?.id === "copy" && e.target.name === "year") {
     const y = years.find((y) => y.ID === e.target.value);
     if (y) {
@@ -5145,6 +5218,12 @@ function updateCountOptions(form) {
   const pooled = e.field_countScope?.value === "all";
   const manual = e.field_countMode.value === "amount";
   e.Wallet.closest("label").hidden = e.Wallet.disabled = pooled;
+  const hint = form.querySelector(".catalog-hint");
+  if (hint) {
+    const fields = rows().find((r) => r.Kind === "wallet" && r.ID === e.Wallet.value)?.Data.Fields;
+    hint.textContent = pooled ? "" : openingFloatHint(fields);
+    hint.hidden = !hint.textContent;
+  }
   e.amount.closest("label").hidden = e.amount.disabled = !manual;
   e.amount.required = manual;
   form.querySelector(".count-pieces").hidden = manual;
@@ -5156,7 +5235,7 @@ document.addEventListener("change", (e) => {
     const account = e.target.form.elements.Account;
     account.closest("label").hidden = account.disabled = !!e.target.value;
   }
-  if (e.target.matches('[name="field_countMode"],[name="field_countScope"]'))
+  if (e.target.form?.elements.field_countMode && e.target.matches('[name="Wallet"],[name="field_countMode"],[name="field_countScope"]'))
     updateCountOptions(e.target.form);
 });
 function updateCount(form) {
@@ -5178,7 +5257,8 @@ function updateCount(form) {
 }
 document.addEventListener("input", (e) => {
   if (e.target.closest(".admin-console")) return;
-  if (e.target.matches(".pieces input")) updateCount(e.target.form);
+  if (e.target.matches("#catalog-wallet .pieces input")) updateFloatInput(e.target.form);
+  if (e.target.matches("#record .pieces input")) updateCount(e.target.form);
   if (
     ["export", "template"].includes(e.target.form?.id) &&
     document.querySelector("#proof-sheet")
@@ -5505,6 +5585,7 @@ document.addEventListener("click", (e) => {
     return;
   }
   if (b.dataset.page) {
+    if (entryDialog.contains(b)) closeEditor();
     if (!s && !logged) {
       destination = b.dataset.page;
       show();
@@ -5544,6 +5625,14 @@ document.addEventListener("click", (e) => {
     return;
   }
   action(async () => {
+    if (b.dataset.catalogEdit) {
+      openCatalogEditor(b);
+      return;
+    }
+    if (b.dataset.act === "pickWallets") {
+      await openWalletPicker(b);
+      return;
+    }
     if (b.dataset.recordDocument) {
       await openRecordDocument(b);
       return;

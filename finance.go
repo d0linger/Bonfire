@@ -492,6 +492,11 @@ func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name, start, e
 		if err != nil {
 			return "", err
 		}
+		if r.Kind == "wallet" {
+			if _, err = tx.Exec(ctx, "INSERT INTO event_catalog_wallets(event,wallet,local_id) SELECT $1,wallet,$2 FROM event_catalog_wallets WHERE event=$3 AND local_id=$4", id, ids[r.ID], d.Event, r.ID); err != nil {
+				return "", err
+			}
+		}
 	}
 	if err = audit(ctx, tx, id, d.User, "Veranstaltungsstruktur kopiert", d.Event); err != nil {
 		return "", err
