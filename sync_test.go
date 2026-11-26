@@ -95,7 +95,7 @@ func TestBalanceNeedsAFreshObservation(t *testing.T) {
 	if err := checkBalance(rows, false); err != nil {
 		t.Fatal(err)
 	}
-	rows[2].Data.Date = rows[1].Data.Date
+	rows[2].Data.Date = "2026-06-10"
 	rows[2].Data.BalanceOrder = 0
 	if checkBalance(rows, false) == nil {
 		t.Fatal("unknown order accepted")
