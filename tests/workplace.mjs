@@ -79,36 +79,19 @@ try {
   await page.getByText("Server erreichbar", { exact: true }).waitFor();
   const main = page.locator("article");
   assert.ok((await main.innerText()).includes("3.236,50"));
-  assert.equal(await page.locator("nav button[data-page]").count(), 8);
+  assert.equal(await page.locator("nav button[data-page]").count(), 9);
   await page.screenshot({
     path: "test-results/ansichten/arbeitsplatz-desktop.png",
   });
   await page.reload();
   await main.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
-  for (const name of [
-    "Cashbook",
-    "Events",
-    "Contacts",
-    "Donations",
-    "Documents",
-    "Closing",
-    "Administration",
-    "Overview",
-  ]) {
-    await page
-      .locator("nav")
-      .getByRole("button", { name, exact: true })
-      .click();
-    if (name === "Cashbook")
-      await main.getByText("Kuchenstand", { exact: true }).waitFor();
-    if (name === "Events")
-      await main
-        .getByRole("button", { name: "Wallets", exact: true })
-        .click();
-    if (name === "Dokumente")
-      assert.equal(await page.locator(".catalog li").count(), 11);
-    if (name === "Verwaltung")
-      assert.equal(await page.locator("#user,#event,#access").count(), 0);
+  for (const route of ["Kassenbuch","Veranstaltungen","Kontakte","Spenden","Dokumente","Perioden","Verwaltung","Übersicht"]) {
+    if (route === "Verwaltung") await page.locator("#admin-navigation summary").click();
+    await page.locator('nav [data-page="' + route + '"]').click();
+    if (route === "Kassenbuch") await main.getByText("Kuchenstand", { exact: true }).waitFor();
+    if (route === "Veranstaltungen") await main.getByRole("button", { name: "Wallets", exact: true }).click();
+    if (route === "Dokumente") assert.equal(await page.locator(".catalog li").count(), 11);
+    if (route === "Verwaltung") assert.equal(await page.locator("#user,#event,#access").count(), 0);
   }
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.locator("#menu-toggle").isVisible());

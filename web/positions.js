@@ -3,7 +3,7 @@ export function positions(input) {
   return input
     .trim()
     .split(/\r?\n/)
-    .filter(Boolean)
+    .filter((row) => row.trim())
     .map((row) => {
       const [quantity, description, price, ...extra] = row
         .split("|")

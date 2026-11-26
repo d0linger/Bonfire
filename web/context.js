@@ -13,15 +13,22 @@ export function invoiceReference(bill, number) {
 export function closure(rows, accounts, approved) {
   const expected = new Map(),
     observed = new Map();
-  let date = null,
-    opening = false,
-    doubled = false;
+  const ambiguous = new Set(), openings = new Set(), lastPosting = new Map(), observedOn = new Map();
+  const configured = accounts ? rows.filter((r) => ["account", "wallet"].includes(r.Kind)).map((r) => r.ID) : [];
+  let date = null;
+  function recordDate(id, day) {
+    if (day && (!lastPosting.has(id) || day > lastPosting.get(id))) lastPosting.set(id, day);
+  }
   for (const { Kind: k, Data: d } of rows) {
     if (d.Amount == null) continue;
     const id = accounts ? d.Account || "" : "Gesamt";
-    if (k === "opening") opening = true;
+    if (k === "opening") {
+      if (openings.has(id)) ambiguous.add(id);
+      openings.add(id);
+    }
     if (k === "actual") {
-      if (observed.has(id)) doubled = true;
+      if (observed.has(id)) ambiguous.add(id);
+      observedOn.set(id, d.Date);
       observed.set(id, d.Amount);
       if (!date || d.Date > date) date = d.Date;
       continue;
@@ -45,16 +52,24 @@ export function closure(rows, accounts, approved) {
           ].includes(k)
         ? -1
         : 0;
-    if (sign) expected.set(id, (expected.get(id) || 0) + d.Amount * sign);
+    if (sign) {
+      expected.set(id, (expected.get(id) || 0) + d.Amount * sign);
+      recordDate(id, d.Date);
+    }
     if (
       accounts &&
       ["transfer", "payout", "supply", "skim", "return", "cashback"].includes(k)
     ) {
       expected.set(id, (expected.get(id) || 0) - d.Amount);
       expected.set(d.To, (expected.get(d.To) || 0) + d.Amount);
+      recordDate(id, d.Date);
+      recordDate(d.To, d.Date);
     }
   }
-  const ids = new Set([...expected.keys(), ...observed.keys()]);
+  const ids = new Set([...configured, ...expected.keys(), ...observed.keys()]);
+  for (const [id, day] of observedOn) {
+    if (lastPosting.get(id) > day) ambiguous.add(id);
+  }
   const complete =
     accounts &&
     ids.size > 0 &&
@@ -62,10 +77,10 @@ export function closure(rows, accounts, approved) {
       /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(k),
     );
   const known =
-    opening &&
-    !doubled &&
+    openings.size > 0 &&
+    ambiguous.size === 0 &&
     observed.size > 0 &&
-    [...ids].every((k) => observed.has(k) && expected.has(k)) &&
+    [...ids].every((k) => observed.has(k) && expected.has(k) && openings.has(k)) &&
     (!accounts || complete);
   const status = known ? "confirmed" : observed.size ? "partial" : "missing";
   const add = (m) => [...m.values()].reduce((a, b) => a + b, 0);
@@ -75,11 +90,11 @@ export function closure(rows, accounts, approved) {
         .map((k) => ({
           account_id: k,
           label: rows.find((r) => r.ID === k)?.Data.Label || k,
-          actual_status: observed.has(k) ? "confirmed" : "missing",
+          actual_status: ambiguous.has(k) ? "partial" : observed.has(k) ? "confirmed" : "missing",
           theoretical_cents: complete ? (expected.get(k) ?? 0) : null,
-          actual_cents: observed.get(k) ?? null,
+          actual_cents: ambiguous.has(k) ? null : observed.get(k) ?? null,
           difference_cents:
-            complete && observed.has(k)
+            complete && openings.has(k) && !ambiguous.has(k) && observed.has(k)
               ? observed.get(k) - (expected.get(k) ?? 0)
               : null,
         }))
@@ -213,10 +228,8 @@ export function exportContext(i, s, rows, opts) {
       ),
     ],
     "print_batch.copies":
-      i === 3
-        ? 3
-        : i === 4
-          ? 7
+      i === 3 || i === 4
+        ? opts.copies ?? (i === 3 ? 3 : 7)
           : i === 5 && Number(opts.guestCopies) === 2
             ? 2
             : 1,
@@ -233,7 +246,7 @@ export function exportContext(i, s, rows, opts) {
           }))
         : [],
     "cash_count.manual_total_cents": v.Amount,
-    "cash_count.phase": v.Phase || null,
+    "cash_count.phase": r?.Kind === "plan" ? "allocation" : ({ Anfang: "start", Übergabe: "handover", Zwischenstand: "handover", Ende: "end" })[v.Phase] || null,
     "cash_count.confirmed_at":
       mode === "confirmed" ? v.Fields?.confirmedAt : null,
     cash_movements: selected

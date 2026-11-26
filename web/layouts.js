@@ -46,7 +46,7 @@ export function tablesFor(i, s, rows, subject, opts) {
         contact?.Label || "Recipient pending",
         ...(contact?.Address || "Address pending").split(/\r?\n/),
       ],
-      meta: [s.date, s.number ? "Receipt " + s.number : s.status],
+      meta: [s.date, s.number ? (i === 0 ? "Invoice " : "Receipt ") + s.number : s.status],
       intro: bill.Fields?.service || bill.Label || v.Label,
       blocks: [
         {
@@ -235,7 +235,7 @@ export function tablesFor(i, s, rows, subject, opts) {
         k = opts.accounts ? d.Account || "Unassigned" : "Total balance";
       if (d.Amount == null) continue;
       if (r.Kind === "actual") {
-        actual.set(k, (actual.get(k) || 0) + d.Amount);
+        actual.set(k, actual.has(k) ? null : d.Amount);
         continue;
       }
       const sign = [
@@ -388,7 +388,7 @@ export async function renderTables(s) {
     (spec.invoice || spec.letter ? 25 : s.index === 10 ? 12 : 15);
   const width = s.width - left * 2;
   const top = s.layoutMargin ?? 15,
-    bottom = s.layoutMargin ?? 17;
+    bottom = Math.max(17, s.layoutMargin ?? 17);
   let y = top + 3;
   function page() {
     pdf.addPage();

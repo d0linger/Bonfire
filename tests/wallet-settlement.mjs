@@ -57,18 +57,18 @@ const first = [
   wallet,
   rec("opening", { Amount: 10000 }),
   count("Anfang", 10000),
-  count("Ende", 26000),
   rec("deposit", { Wallet, Amount: 9000, Method: "Bar" }),
   rec("deposit-return", { Wallet, Amount: 4000, Method: "Bar" }),
   rec("refund", { Wallet, Amount: 2000, Method: "Bar" }),
   rec("donation", { Wallet, Amount: 3000, Method: "Karte" }),
+  count("Ende", 26000),
   settlement(13000),
 ];
 let result = await send(d, { Ops: first });
 assert.deepEqual(result.conflicts, []);
 const separate = rec("donation", { Wallet, Amount: 1000, Method: "Bar" });
 await send(d, { Ops: [separate] });
-const wrong = settlement(13000, 1);
+const wrong = settlement(12000, 1);
 result = await send(d, { Ops: [wrong] });
 assert.ok(result.conflicts.some((x) => x.ID === wrong.ID));
 await send(d, {
@@ -77,13 +77,14 @@ await send(d, {
   Reason: "Sammelbetrag um Einzelspende vermindern",
 });
 await send(d, {
-  Ops: [settlement(12000, 1), rec("actual", { Amount: 29000 })],
+  Ops: [rec("actual", { Amount: 30000 })],
 });
 await send(d, { Action: "Ende", Last: seq });
 await send(rev, { Action: "Ende", Last: 0 });
 assert.equal((await send(d, { Action: "Abschluss" })).closed, true);
-const journal = await api("manage", auth(d), { Action: "journal" });
-assert.ok(journal.some((x) => x.action.startsWith("Storno")));
+const booked = (await send(d, {})).entries.filter((r) => r.ID === "settlement:" + Wallet);
+assert.equal(booked.length, 1);
+assert.equal(booked[0].Data.Amount, 13000);
 console.log(
   "PASS unabhängige Zählungen, Pfand und Rückgabe, Kundenrückzahlung, Kartenspende, Sammelkorrektur und Abschluss",
 );

@@ -1,3 +1,4 @@
+import { unzipSync, strFromU8 } from "fflate";
 import { chromium } from "playwright";
 import { build } from "esbuild";
 import {
@@ -82,13 +83,16 @@ try {
       ],
     }),
   );
-  const bytes = await page.evaluate(async (encoded) => {
-    const out = await localWord.wordFiles(encoded, {
+  const rendered = await page.evaluate(async (encoded) => {
+    const out = await window.localWord.wordFiles(encoded, {
       "organization.name": "Übungsorganisation",
       "donation.amount_cents": 305,
     });
-    return Array.from(new Uint8Array(await out.pdf.arrayBuffer()));
+    return { pdf: Array.from(new Uint8Array(await out.pdf.arrayBuffer())), docx: Array.from(new Uint8Array(await out.docx.arrayBuffer())) };
   }, file.toString("base64"));
+  const xml = strFromU8(unzipSync(Uint8Array.from(rendered.docx))["word/document.xml"]);
+  assert.ok(xml.includes("Übungsorganisation") && xml.includes("3,05") && !xml.includes("{{"));
+  const bytes = rendered.pdf;
   assert.equal(Buffer.from(bytes).subarray(0, 5).toString(), "%PDF-");
   await mkdir("test-results/exports", { recursive: true });
   await writeFile("test-results/exports/Word-Pruefung.pdf", Buffer.from(bytes));

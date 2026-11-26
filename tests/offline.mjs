@@ -42,14 +42,25 @@ const proxy = http.createServer((req, res) => {
         body.length &&
         JSON.parse(Buffer.concat(body)).Ops?.some((o) => o.Kind === "original")
       ) {
-        const done = dropOriginalAck;
-        dropOriginalAck = null;
+        const originals = JSON.parse(Buffer.concat(body)).Ops.filter((o) => o.Kind === "original");
+        const chunks = [];
+        r.on("data", (chunk) => chunks.push(chunk));
         r.once("end", () => {
-          connected = false;
-          res.destroy();
-          done();
+          const bytes = Buffer.concat(chunks);
+          const receipt = JSON.parse(bytes);
+          if (dropOriginalAck && originals.every((op) =>
+            !receipt.conflicts.some((c) => c.ID === op.ID) &&
+            receipt.entries.some((e) => e.ID === op.Target && e.Data.Number === op.Data.Number && e.Data.PDF === op.Data.PDF))) {
+            const done = dropOriginalAck;
+            dropOriginalAck = null;
+            connected = false;
+            res.destroy();
+            done();
+          } else {
+            res.writeHead(r.statusCode, r.headers);
+            res.end(bytes);
+          }
         });
-        r.resume();
         return;
       }
       res.writeHead(r.statusCode, r.headers);
@@ -144,16 +155,11 @@ async function record(p, group, type, label, values = {}) {
       sponsorship: "Veranstaltungen",
       price: "Veranstaltungen",
     }[type];
-  await press(p, section);
-  if (section === "Veranstaltungen")
-    await press(
-      p,
-      group === "Geldtaschen"
-        ? "Geldtaschen"
-        : type === "price"
-          ? "Preise & Druck"
-          : "Sponsoren & Rechnungen",
-    );
+  await p.locator('nav [data-page="' + section + '"]').click();
+  if (section === "Veranstaltungen") {
+    const tab = group === "Geldtaschen" ? "Geldtaschen" : type === "price" ? "Preise" : "Sponsoring";
+    await p.locator('.tabs [data-page="' + tab + '"]').click();
+  }
   if (group === "Geldtaschen") {
     const action =
       type === "count" ? "count:" + (values.Phase || "Anfang") : type;
@@ -716,7 +722,7 @@ try {
   assert.deepEqual(manifest.fehlendeDateien, []);
   assert.deepEqual(manifest.offeneGeraete, []);
   const covered = [...manifest.exportdateien, ...manifest.dateien];
-  assert.equal(covered.length, Object.keys(contents).length - 1);
+  assert.deepEqual(covered.map((f) => f.path).sort(), Object.keys(contents).filter((p) => p !== "manifest.json").sort());
   for (const file of covered)
     assert.equal(
       createHash("sha256").update(contents[file.path]).digest("hex"),

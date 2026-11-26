@@ -37,14 +37,14 @@ const event = await api("events", {
   Starts: day,
   Ends: day,
 });
-const browser = await chromium.launch({
-  executablePath: process.env.BONFIRE_BROWSER || undefined,
-});
 const pooledEvent = await api("events", {
   Name: "Fiktives Fest mit Gesamtzählung",
   Year: year.ID,
   Starts: day,
   Ends: day,
+});
+const browser = await chromium.launch({
+  executablePath: process.env.BONFIRE_BROWSER || undefined,
 });
 try {
   const context = await browser.newContext({
@@ -99,7 +99,7 @@ try {
             if (a.contains(b) || b.contains(a)) continue;
             const dx = Math.max(x.left - y.right, y.left - x.right);
             const dy = Math.max(x.top - y.bottom, y.top - x.bottom);
-            if ((dx < 3.5 && dy < -2) || (dy < 3.5 && dx < -2))
+            if ((dx < 0 && dy < 0) || (dx < 3.5 && dy < -2) || (dy < 3.5 && dx < -2))
               issues.push([a.textContent.trim(), b.textContent.trim()]);
           }
         }

@@ -26,3 +26,16 @@ test("generated receipt amounts, CSV labels and template values round-trip", asy
   assert.deepEqual(actual.map((r) => [r.amount, r.label]), rows.map((r) => [r.Data.Amount, r.Data.Label]));
   assert.throws(() => mergeText("{{missing}}", {}));
 });
+
+test("journal CSV escaping preserves spreadsheet-safe labels and real dates", async () => {
+  const labels = ["- Main gate", "'- Main gate", "=1+1", "'ordinary", "@desk"];
+  const rows = labels.map((Label) => ({ Kind: "income", Data: { Label, Date: "2028-02-29", Amount: 400 } }));
+  const bad = { Kind: "income", Data: { Label: "Invalid date", Date: "2026-02-30", Amount: 100 } };
+  const data = csv([...rows, bad]);
+  assert.match(await data.text(), /"'=1\+1"/);
+  const parsed = await preview(new File([data], "journal.csv"), rows);
+  assert.deepEqual(parsed.slice(0, -1).map((r) => r.label), labels);
+  assert.ok(parsed.slice(0, -1).every((r) => r.status === "Mögliche Dublette"));
+  assert.equal(parsed.at(-1).status, "Klärung");
+  assert.throws(() => mergeText("{{constructor}}", {}));
+});

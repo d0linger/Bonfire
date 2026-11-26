@@ -38,6 +38,9 @@ function openVault() {
     r.onupgradeneeded = () => r.result.createObjectStore("vault");
     r.onsuccess = () => ok(r.result);
     r.onerror = () => no(r.error);
+  }).catch((error) => {
+    connection = undefined;
+    throw error;
   }));
 }
 const requested = new URLSearchParams(location.search).get("profil");
@@ -124,6 +127,7 @@ export async function unlock(pass) {
   return profileState(JSON.parse(new TextDecoder().decode(plain)));
 }
 export async function save(state) {
+  const expectedRevision = rev;
   const db = await openVault();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const bytes = await crypto.subtle.encrypt(
@@ -148,15 +152,15 @@ export async function save(state) {
     let stale = false;
     const get = store.get(slot);
     get.onsuccess = () => {
-      if ((get.result?.rev ?? 0) !== rev) {
+      if ((get.result?.rev ?? 0) !== expectedRevision) {
         stale = true;
         tx.abort();
         return;
       }
-      store.put({ rev: rev + 1, iv, salt, bytes }, slot);
+      store.put({ rev: expectedRevision + 1, iv, salt, bytes }, slot);
     };
     tx.oncomplete = () => {
-      rev++;
+      rev = expectedRevision + 1;
       ok();
     };
     tx.onabort = () =>

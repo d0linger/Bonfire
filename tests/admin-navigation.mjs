@@ -92,8 +92,7 @@ try {
       await checkScheme("light");
       assert.equal(await background(panel), "rgb(255, 255, 255)");
       await view
-        .locator(".ops-pages, .ops-empty")
-        .filter({ hasNotText: "Loading" })
+        .locator("button[data-entry]")
         .first()
         .waitFor();
       for (const width of [1360, 390]) {

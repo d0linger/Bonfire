@@ -1,7 +1,7 @@
-import { testPassword } from "./test-password.mjs";
+import { disposableURL, testPassword } from "./test-password.mjs";
 import { randomUUID, createHmac } from "node:crypto";
 import assert from "node:assert/strict";
-const base = process.env.BONFIRE_URL || "http://127.0.0.1:8137",
+const base = disposableURL(),
   pass =
     testPassword();
 const basic = (u, p) => "Basic " + Buffer.from(u + ":" + p).toString("base64"),
@@ -103,6 +103,8 @@ await post("sync", auth(a), {
     },
   ],
 });
+const ownerView = await (await post("sync", auth(a), {})).json();
+assert.equal(ownerView.entries.find((r) => r.ID === Target).Data.Fields.birth, "2000-03-06");
 let pull = await (await post("sync", auth(k), {})).json();
 assert.equal(
   pull.entries.find((r) => r.ID === Target).Data.Fields?.birth,

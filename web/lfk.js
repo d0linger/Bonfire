@@ -41,7 +41,13 @@ export async function fillBackground(encoded, values) {
   for (const [i, value] of values.entries()) {
     const text = String(value ?? "").replace(/[\r\n]+/g, ", ");
     const [x, t, right, bottom] = boxes[i];
-    if (font.widthOfTextAtSize(text, 10) > (right - x) * unit - 3)
+    let width;
+    try {
+      width = font.widthOfTextAtSize(text, 10);
+    } catch (cause) {
+      throw Error("The receipt font cannot print a character in field " + fields[i], { cause });
+    }
+    if (width > (right - x) * unit - 3)
       throw Error("LFK-Feld zu lang: " + fields[i]);
     page.drawText(text, {
       x: x * unit + 1.5,

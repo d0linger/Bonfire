@@ -36,7 +36,17 @@ if (process.argv.includes("--replay")) {
   const cipher = createDecipheriv("aes-256-gcm",key,Buffer.from(packet.iv,"base64"));
   cipher.setAuthTag(Buffer.from(packet.tag,"base64"));
   const { d, acked, pending } = JSON.parse(Buffer.concat([cipher.update(Buffer.from(packet.body,"base64")),cipher.final()]).toString("utf8"));
+  const before = await send(d, {});
+  assert.equal(before.last, 1);
+  assert.equal(before.entries.find((r) => r.ID === acked.Target)?.Data.Amount, acked.Data.Amount);
+  assert.ok(!before.entries.some((r) => r.ID === pending.Target));
   const sent = await send(d, { Ops: [acked, pending] });
+  for (const op of [acked, pending]) {
+    const matching = sent.entries.filter((r) => r.ID === op.Target);
+    assert.equal(matching.length, 1);
+    assert.equal(matching[0].Data.Amount, op.Data.Amount);
+    assert.equal(matching[0].Data.Label, op.Data.Label);
+  }
   assert.equal(sent.last, 2);
   assert.equal(sent.entries.filter((r) => r.Kind !== "contact").length, 2);
   const again = await send(d, { Ops: [acked, pending] });
