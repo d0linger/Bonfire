@@ -70,14 +70,11 @@ export function closure(rows, accounts, approved) {
   }
   const ids = new Set([...configured, ...expected.keys(), ...observed.keys()]);
   for (const [id, actual] of observedOn) {
-    const stale = lastPosting.get(id)?.some(posting => {
-      if (posting.Date > actual.Date) return true;
-      if (posting.BalanceOrder && actual.BalanceOrder) {
-        return BigInt(posting.BalanceOrder) >= BigInt(actual.BalanceOrder);
-      }
-      return Boolean(posting.Date);
-    });
-    if (stale) ambiguous.add(id);
+    const order = BigInt(actual.BalanceOrder || 0);
+    if (order <= 0n || lastPosting.get(id)?.some(posting => {
+      const posted = BigInt(posting.BalanceOrder || 0);
+      return posting.Date > actual.Date || posted <= 0n || posted >= order;
+    })) ambiguous.add(id);
   }
   const complete =
     accounts &&

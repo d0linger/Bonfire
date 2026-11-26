@@ -164,6 +164,13 @@ test("closing comparisons require a current, unambiguous observation per account
     row(kind, { Account: account, Amount: amount, Date: date, BalanceOrder: String(++order) });
   const rows = [row("account", { Label: "Bank" }, a), row("account", { Label: "Cash" }, b),
     posting("opening", a, 100), posting("opening", b, 0), posting("actual", a, 100), posting("actual", b, 0)];
+  const idle = rows.filter(r => r.Kind !== "opening" || r.Data.Account !== b);
+  const idleActual = idle.find(r => r.Kind === "actual" && r.Data.Account === b);
+  delete idleActual.Data.BalanceOrder;
+  const bankLine = () => closure(idle,true,true)["report.closing"].account_lines.find(line => line.account_id === b);
+  assert.equal(bankLine().actual_status, "partial");
+  idleActual.Data.BalanceOrder = String(++order);
+  assert.equal(bankLine().actual_status, "confirmed");
   for (const extra of [posting("income", a, 50, "2026-06-06"), posting("actual", a, 200)]) {
     for (const sorted of [[...rows, extra], [extra, ...rows]]) {
       const result = closure(sorted, true, true);
