@@ -78,7 +78,7 @@ try {
         textCell("C1", "Ausgaben") +
         textCell("D1", "Globalbudget") +
         '</row><row r="2"><c r="A2"><v>45999</v></c>' +
-        textCell("B2", "Übungsaufwand") +
+        textCell("B2", "Marktgemeinde Musterort") + textCell("E2", "Beschreibung") +
         '<c r="C2"><v>0</v></c><c r="D2"><v>19</v></c></row><row r="3">' +
         textCell("B3", "Fehlender Wert") +
         '<c r="C3"/></row><row r="4"><c r="C4"><v>-12.50</v></c></row></sheetData></worksheet>',
@@ -88,6 +88,39 @@ try {
       "D1",
       "2025",
     );
+    const budgetOnly = b.strFromU8(variant[sheet])
+      .replace('</row><row r="2">', '<c r="F1"><v>2025</v></c></row><row r="2">')
+      .replace("Ausgaben", "Globalbudget 2025")
+      .replace("Marktgemeinde Musterort", "Globalbudget 2025");
+    const budgetRows = await b.historyPreview(
+      new File([b.zipSync({ ...variant, [sheet]: b.strToU8(budgetOnly) })], "budget.xlsx"),
+      "D1",
+      "2025",
+    );
+    if (budgetRows.some((r) => /^[CD]\d+$/.test(r.cell)))
+      throw Error("A dated budget column appeared in the journal preview");
+    const repeated = budgetOnly.replace(/<sheetData>[\s\S]*?<\/sheetData>/, "<sheetData>" +
+      '<row r="1">' + textCell("A1", "Datum") + textCell("B1", "Beschreibung") +
+      textCell("C1", "Ausgaben") + '</row><row r="2">' + textCell("A2", "01.05.") +
+      textCell("B2", "Training receipt") + '<c r="C2"><v>8</v></c></row><row r="3">' +
+      textCell("A3", "Datum") + textCell("B3", "Beschreibung") + textCell("C3", "Globalbudget 2025") +
+      '<c r="F3"><v>2025</v></c></row><row r="4">' + textCell("A4", "02.05.") +
+      textCell("B4", "Budget entry") + '<c r="C4"><v>9</v></c></row></sheetData>');
+    const refreshed = await b.historyPreview(
+      new File([b.zipSync({ ...variant, [sheet]: b.strToU8(repeated) })], "repeated.xlsx"), "D1", "2025",
+    );
+    if (!refreshed.some((r) => r.cell === "C2" && r.kind === "expense") || refreshed.some((r) => r.cell === "C4"))
+      throw Error("A repeated header with a year annotation kept its old expense mapping");
+    const sparse = budgetOnly.replace(/<c r="(?:A2|C2|D2)"><v>[^<]*<\/v><\/c>/g, "")
+      .replace('</row><row r="3">', '<c r="F2"><v>17</v></c></row><row r="3">');
+    for (const xml of [sparse, sparse.replace('<c r="F2"><v>17</v></c>', textCell("F2", "15.07."))]) {
+      const sparseRows = await b.historyPreview(
+        new File([b.zipSync({ ...variant, [sheet]: b.strToU8(xml) })], "sparse-budget.xlsx"),
+        "D1", "2025",
+      );
+      if (sparseRows.some((r) => /^[CD]\d+$/.test(r.cell)))
+        throw Error("A sparse mixed row erased the budget headings");
+    }
     const doc = (x, styles, parts = {}) =>
       new File(
         [

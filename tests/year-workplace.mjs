@@ -79,6 +79,27 @@ try {
       .getAttribute("data-fiscal");
   };
   const yearA = await createYear("Entwurf 2046", "2046-01-02", "2046-10-30");
+  if (!(await page.locator("nav").isVisible())) await page.locator("#menu-toggle").click();
+  const organization = page.locator("#admin-navigation").getByRole("button", { name: "Organization", exact: true });
+  if (!(await organization.isVisible())) await page.locator("#admin-navigation summary").click();
+  await organization.click();
+  await button("Data exchange").click();
+  const previewForm = page.locator("#preview");
+  await previewForm.locator("input[type=file]").setInputFiles({
+    name: "training.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("Date;Type;Description;Amount_Cents\n2046-01-03;expense;Training supplies;425\n"),
+  });
+  await previewForm.getByRole("button", { name: "Review file" }).click();
+  await button("Review import row").click();
+  const importForm = page.locator("#importRow");
+  assert.equal(await importForm.locator("[name=kind]").inputValue(), "");
+  await importForm.locator("[name=ix]").selectOption("0");
+  assert.equal(await importForm.locator("[name=kind]").inputValue(), "expense");
+  assert.equal(await importForm.locator("[name=date]").inputValue(), "2046-01-03");
+  await importForm.locator("[name=ix]").selectOption("");
+  assert.equal(await importForm.locator("[name=date]").inputValue(), "");
+  await button("Cancel").click();
   await chooseYear("");
   await button("Edit fiscal year Entwurf 2046").click();
   const yearDialog = page.getByRole("dialog", {

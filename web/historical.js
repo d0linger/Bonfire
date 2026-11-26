@@ -10,6 +10,7 @@ const parse = (bytes) => {
 };
 const all = (node, name) => [...node.getElementsByTagNameNS("*", name)];
 const excluded = (text) => /gemeinde|globalbudget/i.test(text);
+const localDate = /^(\d{1,2})\.(\d{1,2})\.(\d{4})?$/;
 function sourceCents(value) {
   if (!/^-?\d+(?:[.,]\d{1,2})?$/.test(value)) return null;
   try {
@@ -124,16 +125,27 @@ export async function historyPreview(file, role, year) {
       const texts = row.cells.filter(
         (c) => ["s", "inlineStr", "str"].includes(c.type) && c.value.trim(),
       );
-      const header =
+      const matchesPriorHeader = texts.some((c) =>
+        headings.get(c.col)?.toLowerCase() === c.value.trim().toLowerCase() &&
+        /^(datum|buchungsdatum|bezeichnung|beschreibung|buchungstext)$/i.test(c.value.trim()));
+      const hasBookingValue = row.cells.some((c) => {
+        if (c.formula !== null || c.type === "d" || localDate.test(c.value) ||
+            /^\d{4}-\d{2}-\d{2}$/.test(c.value)) return true;
+        if (c.type !== "n" || c.value === "") return false;
+        const yearAnnotation = /^\d{4}$/.test(c.value) && !dateStyle.has(c.style) &&
+          !headings.has(c.col) && (!headings.size || matchesPriorHeader);
+        return !yearAnnotation;
+      });
+      const header = !hasBookingValue &&
         texts.some((c) =>
           /^(datum|buchungsdatum|bezeichnung|beschreibung|buchungstext)$/i.test(
             c.value.trim(),
           ),
         ) &&
         texts.some((c) =>
-          /^(einnahmen?|ausgaben?|betrag|soll|haben|eingang|ausgang|globalbudget|gemeinde)$/i.test(
+          /^(einnahmen?|ausgaben?|betrag|soll|haben|eingang|ausgang)$/i.test(
             c.value.trim(),
-          ),
+          ) || /^(?:gemeinde(?:\s+\d{4})?$|globalbudget\b)/i.test(c.value.trim()),
         );
       if (header) {
         headings = new Map(texts.map((c) => [c.col, c.value.trim()]));
@@ -147,7 +159,7 @@ export async function historyPreview(file, role, year) {
         .map((c) => c.value)
         .join(" · ")
         .slice(0, 195);
-      if (excluded(label) || (!label && !headings.size)) continue;
+      if (!label && !headings.size) continue;
       let date = "",
         origin = "Check the date";
       const dates = new Set();
@@ -156,7 +168,7 @@ export async function historyPreview(file, role, year) {
           /datum/i.test(headings.get(c.col) || "") ||
           dateStyle.has(c.style) ||
           c.type === "d";
-        const match = /^(\d{1,2})\.(\d{1,2})\.(\d{4})?$/.exec(c.value);
+        const match = localDate.exec(c.value);
         let day = "",
           source = "";
         if (match) {
