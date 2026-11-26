@@ -4475,7 +4475,7 @@ async function submit(f) {
         Wallet: vals.wallet,
         To: vals.to,
         Status: vals.status,
-        Note: "Handover " + vals.status,
+        Note: "Handover " + financialLabel(vals.status),
       },
       target,
       prev?.Revision || 0,
@@ -4561,7 +4561,7 @@ async function submit(f) {
       },
       target,
     );
-    r.status = "Übernommen";
+    r.status = "Imported";
   }
   if (id === "letters") {
     const selected = new FormData(f).getAll("recipients");
