@@ -84,7 +84,7 @@ func checkOpenPayments(entries []row) error {
 				cashbacks[provider] = true
 			}
 		case "payout", "fee":
-			providers[r.Data.Fields["provider"]] -= n
+			providers[strings.TrimSpace(r.Data.Fields["provider"])] -= n
 		case "outlay":
 			outlays += n
 		case "reimbursement":

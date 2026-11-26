@@ -174,16 +174,17 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 		}
 		var priorKey string
 		if o.Base > 0 {
-			if err := tx.QueryRow(ctx, "SELECT trim(coalesce(data->'Fields'->>'provider','')) FROM entries WHERE event=$1 AND id=$2", d.Event, o.Target).Scan(&priorKey); err != nil {
+			if err := tx.QueryRow(ctx, "SELECT coalesce(data->'Fields'->>'provider','') FROM entries WHERE event=$1 AND id=$2", d.Event, o.Target).Scan(&priorKey); err != nil {
 				return false, err
 			}
+			priorKey = strings.TrimSpace(priorKey)
 			if priorKey != "" && priorKey != key {
 				return false, nil
 			}
 		}
 		if key != "" {
 			var balance int64
-			err := tx.QueryRow(ctx, "SELECT coalesce(sum(CASE WHEN kind IN ('card','cashback') THEN 1 ELSE -1 END*(data->>'Amount')::bigint),0)::bigint FROM entries WHERE event=$1 AND kind IN ('card','fee','payout','cashback') AND trim(data->'Fields'->>'provider')=$2 AND id<>$3", d.Event, key, o.Target).Scan(&balance)
+			err := tx.QueryRow(ctx, "SELECT coalesce(sum(CASE WHEN kind IN ('card','cashback') THEN 1 ELSE -1 END*(data->>'Amount')::bigint),0)::bigint FROM entries WHERE event=$1 AND kind IN ('card','fee','payout','cashback') AND btrim(data->'Fields'->>'provider',$4)=$2 AND id<>$3", d.Event, key, o.Target, trimWhitespace).Scan(&balance)
 			if err != nil {
 				return false, err
 			}
