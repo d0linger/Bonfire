@@ -42,8 +42,11 @@ func TestPasswordAttemptsIsolateSources(t *testing.T) {
 
 func TestPasswordAttemptsRetainAdmissionAtCapacity(t *testing.T) {
 	a := &app{attempts: map[string]int{}, reset: time.Now().Add(time.Minute)}
-	for i := range exactLoginCounters {
-		a.attempts["existing:"+strconv.Itoa(i)] = 1
+	windows := []*attemptWindow{&a.passwordAttempts.pairs, &a.passwordAttempts.sources, &a.passwordAttempts.accounts}
+	for i := range loginWindowCapacity {
+		for _, window := range windows {
+			window.add("existing:"+strconv.Itoa(i), 60)
+		}
 	}
 	r := httptest.NewRequest("POST", "/api/login", nil)
 	for range 12 {
@@ -59,7 +62,9 @@ func TestPasswordAttemptsRetainAdmissionAtCapacity(t *testing.T) {
 		t.Fatal("fresh source rejected")
 	}
 	a.clearPasswordAttempts(r, "cashier")
-	if len(a.attempts) > exactLoginCounters+3*4096 {
-		t.Fatal("unbounded counters")
+	for _, window := range windows {
+		if len(window.entries) > loginWindowCapacity {
+			t.Fatal("unbounded counters")
+		}
 	}
 }

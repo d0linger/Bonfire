@@ -208,6 +208,9 @@ function withinCount(movement, closing) {
   return !movement.PostingOrder || !closing.PostingOrder ||
     BigInt(movement.PostingOrder) <= BigInt(closing.PostingOrder);
 }
+function unknownOrder(movement, boundary) {
+  return !!boundary?.Date && movement.Date === boundary.Date && (!movement.PostingOrder || !boundary.PostingOrder || BigInt(movement.PostingOrder) === 0n || BigInt(boundary.PostingOrder) === 0n);
+}
 function afterOpening(movement, opening) {
   if (!opening?.Date || movement.Date !== opening.Date) return !opening?.Date || movement.Date > opening.Date;
   return !movement.PostingOrder || !opening.PostingOrder || BigInt(movement.PostingOrder) > BigInt(opening.PostingOrder);
@@ -224,10 +227,14 @@ export function counted(rows, wallet) {
   const start = count("Anfang"),
     end = count("Ende");
   if (start == null || end == null) return null;
-  return rows.reduce(
-    (n, r) => !afterOpening(r.Data, opening) || !withinCount(r.Data, cutoff) ? n : n + cashAdjustment(r, (id) => id === wallet),
-    end - start,
-  );
+  let total = end - start;
+  for (const r of rows) {
+    if (!afterOpening(r.Data, opening) || !withinCount(r.Data, cutoff)) continue;
+    const adjustment = cashAdjustment(r, id => id === wallet);
+    if (adjustment && (unknownOrder(r.Data, opening) || unknownOrder(r.Data, cutoff))) return null;
+    total += adjustment;
+  }
+  return total;
 }
 export function poolCount(rows, phase) {
   return rows.find(
@@ -267,11 +274,19 @@ export function pooledRevenue(rows) {
     if (r.ID === "settlement-total" || !withinCount(r.Data, closing) || !afterOpening(r.Data, opening)) continue;
     let unassigned = true;
     if (!opening && !r.Data.Wallet && !r.Data.Account && cashAdjustment(r, () => false, true)) {
+      if (openings.some(o => unknownOrder(r.Data, o.Data))) return null;
       const active = openings.filter(o => afterOpening(r.Data, o.Data)).length;
       if (active && active < openings.length) return null;
       unassigned = active === openings.length;
     }
-    total += cashAdjustment(r, id => wallets.has(id) && afterOpening(r.Data, perWallet.get(id)), unassigned);
+    let uncertain = false;
+    const adjustment = cashAdjustment(r, id => {
+      if (!wallets.has(id)) return false;
+      if (unknownOrder(r.Data, perWallet.get(id)) && cashAdjustment(r, candidate => candidate === id)) uncertain = true;
+      return afterOpening(r.Data, perWallet.get(id));
+    }, unassigned);
+    if (uncertain || adjustment && (unknownOrder(r.Data, opening) || unknownOrder(r.Data, closing))) return null;
+    total += adjustment;
   }
   return total;
 }
