@@ -108,6 +108,15 @@ const make = (Kind, Label, Amount) => ({
       To: local(bank),
     }),
   ]);
+  async function checkDisabledAttribution() {
+    const options = { "X-Bonfire-Event": fest.ID };
+    await call("manage", cash, { Action: "accounts", Accounts: false }, 200, options);
+    const frozen = await call("year-balances?year=" + fy.ID, cash);
+    assert.equal(frozen.find((b) => b.ID === bank)?.Soll, 30000);
+    assert.equal(frozen.find((b) => b.ID === till)?.Soll, 5000);
+    await call("manage", cash, { Action: "accounts", Accounts: true }, 200, options);
+  }
+  await checkDisabledAttribution();
   for (const [ID, Actual] of [
     [bank, 30000],
     [till, 5000],
@@ -120,6 +129,7 @@ const make = (Kind, Label, Amount) => ({
       Actual,
       Revision: 0,
     });
+  await checkDisabledAttribution();
   const balances = await call("year-balances?year=" + fy.ID, cash);
   for (const [id, expected] of [
     [bank, 30000],
