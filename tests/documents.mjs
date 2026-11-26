@@ -89,6 +89,7 @@ try {
       "2025",
     );
     const budgetOnly = b.strFromU8(variant[sheet])
+      .replace('</row><row r="2">', '<c r="F1"><v>2025</v></c></row><row r="2">')
       .replace("Ausgaben", "Globalbudget 2025")
       .replace("Marktgemeinde Musterort", "Globalbudget 2025");
     const budgetRows = await b.historyPreview(
@@ -96,8 +97,18 @@ try {
       "D1",
       "2025",
     );
-    if (budgetRows.some((r) => r.cell === "C2" || r.cell === "D2"))
+    if (budgetRows.some((r) => /^[CD]\d+$/.test(r.cell)))
       throw Error("A dated budget column appeared in the journal preview");
+    const sparse = budgetOnly.replace(/<c r="(?:A2|C2|D2)"><v>[^<]*<\/v><\/c>/g, "")
+      .replace('</row><row r="3">', '<c r="F2"><v>17</v></c></row><row r="3">');
+    for (const xml of [sparse, sparse.replace('<c r="F2"><v>17</v></c>', textCell("F2", "15.07."))]) {
+      const sparseRows = await b.historyPreview(
+        new File([b.zipSync({ ...variant, [sheet]: b.strToU8(xml) })], "sparse-budget.xlsx"),
+        "D1", "2025",
+      );
+      if (sparseRows.some((r) => /^[CD]\d+$/.test(r.cell)))
+        throw Error("A sparse mixed row erased the budget headings");
+    }
     const doc = (x, styles, parts = {}) =>
       new File(
         [
