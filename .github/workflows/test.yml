@@ -41,6 +41,8 @@ jobs:
         run: |
           ./ops/init.ps1
           ./ops/accept-online.ps1
+      - name: Prove that broken amount, duplicate and gate checks are detected
+        run: python3 ops/test-mutations.py
       - name: Report application coverage from the Compose run
         run: |
           go tool covdata textfmt -i=test-results/integration-counters -o=test-results/integration.cover
