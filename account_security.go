@@ -34,7 +34,7 @@ func (a *app) registerAccountSecurity(mux *http.ServeMux) {
 // that was waiting behind a session revocation must observe the deletion.
 func lockSelfAccount(ctx context.Context, tx pgx.Tx, r *http.Request) (selfAccount, error) {
 	var u selfAccount
-	denied := problem{401, "Bitte erneut anmelden."}
+	denied := problem{401, "Please sign in again."}
 	cookie, err := r.Cookie("bonfire_session")
 	if err != nil || cookie.Value == "" {
 		return u, denied
@@ -141,7 +141,7 @@ func (a *app) reserveSecurityAttempt(key string) error {
 		a.reset = time.Now().Add(time.Minute)
 	}
 	if a.attempts[key] >= 8 {
-		return problem{429, "Zu viele Versuche. Bitte in einer Minute erneut versuchen."}
+		return problem{429, "Too many attempts. Try again in one minute."}
 	}
 	a.attempts[key]++
 	return nil
@@ -158,13 +158,13 @@ func (a *app) verifySelfPassword(ctx context.Context, tx pgx.Tx, u selfAccount, 
 		return err
 	}
 	if len(password) > 72 || bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password)) != nil {
-		return problem{403, "Aktuelles Passwort prüfen."}
+		return problem{403, "Check your current password."}
 	}
 	if u.OTP != nil {
 		if err := verifyCode(ctx, tx, u.ID, *u.OTP, strings.TrimSpace(code)); err != nil {
 			var p problem
 			if errors.As(err, &p) {
-				return problem{403, "Zweiter Faktor ungültig oder bereits verwendet."}
+				return problem{403, "The second factor is invalid or has already been used."}
 			}
 			return err
 		}
@@ -206,7 +206,7 @@ func newRecoveryCodes(ctx context.Context, tx pgx.Tx, username string) ([]string
 
 func beginAuthenticator(ctx context.Context, tx pgx.Tx, u selfAccount) (map[string]string, error) {
 	if u.OTP != nil {
-		return nil, problem{409, "Ein Authenticator ist bereits eingerichtet."}
+		return nil, problem{409, "An authenticator is already configured."}
 	}
 	if _, err := tx.Exec(ctx, "DELETE FROM mfa_enrollments WHERE expires<=now() OR (username=$1 AND binding=$2)", u.ID, u.SessionID); err != nil {
 		return nil, err
@@ -223,12 +223,12 @@ func beginAuthenticator(ctx context.Context, tx pgx.Tx, u selfAccount) (map[stri
 
 func (a *app) confirmAuthenticator(ctx context.Context, tx pgx.Tx, u selfAccount, code, givenSecret string) ([]string, error) {
 	if u.OTP != nil {
-		return nil, problem{409, "Ein Authenticator ist bereits eingerichtet."}
+		return nil, problem{409, "An authenticator is already configured."}
 	}
 	var seed string
 	err := tx.QueryRow(ctx, `SELECT secret FROM mfa_enrollments WHERE username=$1 AND binding=$2 AND revision=$3 AND expires>clock_timestamp()`, u.ID, u.SessionID, u.Revision).Scan(&seed)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, problem{410, "Einrichtung abgelaufen. Bitte neu beginnen."}
+		return nil, problem{410, "Setup expired. Start again."}
 	}
 	if err != nil {
 		return nil, err
@@ -239,7 +239,7 @@ func (a *app) confirmAuthenticator(ctx context.Context, tx pgx.Tx, u selfAccount
 	}
 	step, ok := otpMatch(seed, strings.TrimSpace(code), time.Now())
 	if !ok || (givenSecret != "" && subtle.ConstantTimeCompare([]byte(seed), []byte(givenSecret)) != 1) {
-		return nil, fail("Bestätigungscode ungültig.")
+		return nil, fail("Invalid confirmation code.")
 	}
 	a.clearSecurityAttempts(k)
 	if _, err = tx.Exec(ctx, "UPDATE users SET otp_secret=$1,otp_last=$2 WHERE name=$3", seed, step, u.ID); err != nil {
@@ -284,14 +284,14 @@ func (a *app) changeAccountSecurity(ctx context.Context, w http.ResponseWriter, 
 	case "revoke", "revoke-others":
 		if q.Action == "revoke" {
 			if !idPattern.MatchString(q.SessionID) || q.SessionID == u.SessionID {
-				return nil, fail("Eine andere Sitzung dieses Kontos auswählen.")
+				return nil, fail("Select another session belonging to this account.")
 			}
 			tag, err := tx.Exec(ctx, "DELETE FROM sessions WHERE username=$1 AND public_id=$2 AND expires>now()", u.ID, q.SessionID)
 			if err != nil {
 				return nil, err
 			}
 			if tag.RowsAffected() != 1 {
-				return nil, problem{404, "Sitzung nicht mehr aktiv."}
+				return nil, problem{404, "This session is no longer active."}
 			}
 			err = accountSecurityAudit(ctx, tx, u, "Eigene Sitzung widerrufen")
 			if err != nil {
@@ -311,7 +311,7 @@ func (a *app) changeAccountSecurity(ctx context.Context, w http.ResponseWriter, 
 			return nil, err
 		}
 	default:
-		return nil, fail("Unbekannte Kontoaktion.")
+		return nil, fail("Unknown account action.")
 	}
 	if q.Action == "mfa-begin" {
 		setup, err := beginAuthenticator(ctx, tx, u)
@@ -326,7 +326,7 @@ func (a *app) changeAccountSecurity(ctx context.Context, w http.ResponseWriter, 
 	switch q.Action {
 	case "password":
 		if q.Password == q.NewPassword {
-			return nil, fail("Ein anderes neues Passwort wählen.")
+			return nil, fail("Choose a different password.")
 		}
 		digest, err := accountPassword(q.NewPassword)
 		if err != nil {
@@ -345,7 +345,7 @@ func (a *app) changeAccountSecurity(ctx context.Context, w http.ResponseWriter, 
 		action = "Eigenes Passwort geändert"
 	case "mfa-disable":
 		if u.OTP == nil {
-			return nil, fail("Kein Authenticator eingerichtet.")
+			return nil, fail("No authenticator configured.")
 		}
 		if _, err = tx.Exec(ctx, "UPDATE users SET otp_secret=NULL,otp_last=-1 WHERE name=$1", u.ID); err != nil {
 			return nil, err
@@ -356,7 +356,7 @@ func (a *app) changeAccountSecurity(ctx context.Context, w http.ResponseWriter, 
 		action = "Eigener Authenticator deaktiviert"
 	case "recovery":
 		if u.OTP == nil {
-			return nil, fail("Zuerst einen Authenticator einrichten.")
+			return nil, fail("Set up an authenticator first.")
 		}
 		codes, err := newRecoveryCodes(ctx, tx, u.ID)
 		if err != nil {
