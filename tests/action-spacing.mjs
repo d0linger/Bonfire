@@ -635,7 +635,7 @@ try {
     }
     const dialogs =
       key === "Backup"
-        ? ["Jetzt sichern", "Wiederherstellen"]
+        ? ["Back up now", "Restore"]
         : key === "Benutzer"
           ? [
               "Create user",

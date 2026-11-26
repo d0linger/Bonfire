@@ -58,12 +58,12 @@ try {
     dlg.getByRole("button", { name, exact: true }).click();
   const openAccount = async () => {
     await click("Account and security");
-    await page.getByRole("heading", { name: "Aktive Sitzungen" }).waitFor();
+    await page.getByRole("heading", { name: "Active sessions" }).waitFor();
   };
   const settled = async () => {
     await dlg.waitFor({ state: "hidden" });
     await page
-      .getByText("Kontoeinstellungen aktualisiert.", { exact: true })
+      .getByText("Account settings updated.", { exact: true })
       .waitFor();
   };
   await page.goto(url.href);
@@ -72,22 +72,22 @@ try {
   await click("Sign in");
   await openAccount();
   assert.equal((await current()).sessions.length, 2);
-  await click("Beenden");
-  await submit("Sitzung beenden");
+  await click("End session");
+  await submit("Sign out session");
   await settled();
   assert.equal(
     (await other.request.get(api("account/security"))).status(),
     401,
   );
   assert.ok((await login(other.request, basic(user, initial))).ok());
-  await click("Passwort ändern");
+  await click("Change password");
   await dlg.locator("[name=password]").fill("Falsches Passwort");
   await dlg.locator("[name=newPassword]").fill(changed);
   await dlg.locator("[name=repeat]").fill(changed);
-  await submit("Passwort ändern");
-  await dlg.getByText("Aktuelles Passwort prüfen.").waitFor();
+  await submit("Change password");
+  await dlg.getByText("Check your current password.").waitFor();
   await dlg.locator("[name=password]").fill(initial);
-  await submit("Passwort ändern");
+  await submit("Change password");
   await settled();
   assert.equal(
     (await other.request.get(api("account/security"))).status(),
@@ -100,8 +100,8 @@ try {
   assert.ok((await login(other.request, basic(user, changed))).ok());
   await page.reload();
   await openAccount();
-  await click("Andere Sitzungen beenden");
-  await submit("Andere Sitzungen beenden");
+  await click("Sign out other sessions");
+  await submit("Sign out other sessions");
   await settled();
   assert.equal(
     (await other.request.get(api("account/security"))).status(),
@@ -113,27 +113,27 @@ try {
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   );
-  await click("Authenticator einrichten");
+  await click("Set up authenticator");
   await dlg.locator("[name=password]").fill(changed);
-  await submit("Authenticator einrichten");
+  await submit("Set up authenticator");
   await dlg.locator("canvas").waitFor();
   assert.ok(await dlg.evaluate((el) => el.scrollWidth <= el.clientWidth));
   const secret = await dlg.locator("code").textContent();
   await dlg.locator("[name=code]").fill(totp(secret));
-  await submit("Aktivieren");
+  await submit("Enable");
   await dlg.locator(".recovery-codes").waitFor();
   const codes = await dlg.locator("li code").allTextContents();
   assert.equal(codes.length, 8);
-  await submit("Gesichert und schließen");
+  await submit("Saved, close");
   await settled();
-  await click("Recoverycodes erneuern");
+  await click("Replace recovery codes");
   await dlg.locator("[name=password]").fill(changed);
   await dlg.locator("[name=code]").fill(codes[0]);
-  await submit("Recoverycodes erneuern");
+  await submit("Replace recovery codes");
   await dlg.locator(".recovery-codes").waitFor();
   const fresh = await dlg.locator("li code").allTextContents();
   assert.ok(fresh.every((c) => !codes.includes(c)));
-  await submit("Gesichert und schließen");
+  await submit("Saved, close");
   await settled();
   await page.setViewportSize({ width: 1280, height: 800 });
   const cdp = await context.newCDPSession(page);
@@ -148,11 +148,11 @@ try {
       automaticPresenceSimulation: true,
     },
   });
-  await click("Passkey hinzufügen");
+  await click("Add passkey");
   await dlg.locator("[name=name]").fill("Virtueller Kassaschlüssel");
   await dlg.locator("[name=password]").fill(changed);
   await dlg.locator("[name=code]").fill(fresh[0]);
-  await submit("Passkey hinzufügen");
+  await submit("Add passkey");
   await settled();
   await page.getByText("Virtueller Kassaschlüssel", { exact: true }).waitFor();
   await click("Sign out");
@@ -162,16 +162,16 @@ try {
     .get(api("account/passkeys"))
     .then((r) => r.json());
   assert.ok(keys.items[0].lastUsed);
-  await click("Entfernen");
+  await click("Remove");
   await dlg.locator("[name=password]").fill(changed);
   await dlg.locator("[name=code]").fill(fresh[1]);
-  await submit("Passkey entfernen");
+  await submit("Remove passkey");
   await settled();
-  await page.getByText("Kein Passkey registriert.").waitFor();
-  await click("Authenticator deaktivieren");
+  await page.getByText("No passkeys registered.").waitFor();
+  await click("Disable authenticator");
   await dlg.locator("[name=password]").fill(changed);
   await dlg.locator("[name=code]").fill(fresh[2]);
-  await submit("Authenticator deaktivieren");
+  await submit("Disable authenticator");
   await settled();
   assert.equal((await current()).mfa, false);
   await click("Sign out");
