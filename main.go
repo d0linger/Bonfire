@@ -15,9 +15,11 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -490,5 +492,20 @@ func main() {
 		}
 		protected.ServeHTTP(w, r)
 	})}
-	log.Fatal(server.ListenAndServe())
+	stopping, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	drained := make(chan struct{})
+	go func() {
+		<-stopping.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			log.Print("HTTP shutdown timed out")
+		}
+		close(drained)
+	}()
+	if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+	<-drained
 }
