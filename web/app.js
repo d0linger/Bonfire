@@ -2130,10 +2130,9 @@ function exchange() {
             ]) +
               field(
                 "year",
-                "Source year",
+                "Year shown in the historical source (XLSX)",
                 "number",
-                true,
-                String(new Date().getFullYear()),
+                false,
               ) +
               label(
                 "Journal file (CSV or XLSX)",

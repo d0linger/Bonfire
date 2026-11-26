@@ -147,7 +147,7 @@ export async function historyPreview(file, role, year) {
         .map((c) => c.value)
         .join(" · ")
         .slice(0, 195);
-      if (excluded(label) || (!label && !headings.size)) continue;
+      if (!label && !headings.size) continue;
       let date = "",
         origin = "Check the date";
       const dates = new Set();
