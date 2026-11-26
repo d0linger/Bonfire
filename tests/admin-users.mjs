@@ -166,30 +166,30 @@ try {
   await page.locator("#admin-navigation summary").click();
   await page
     .locator("#admin-navigation")
-    .getByRole("button", { name: "Benutzer", exact: true })
+    .getByRole("button", { name: "Users", exact: true })
     .click();
-  await page.getByRole("heading", { name: "Benutzerkonten" }).waitFor();
+  await page.getByRole("heading", { name: "User accounts" }).waitFor();
   await page
-    .getByRole("button", { name: "Benutzer anlegen", exact: true })
+    .getByRole("button", { name: "Create user", exact: true })
     .click();
   await page
     .getByRole("dialog")
     .getByLabel("Email or username")
     .waitFor();
   assert.equal(
-    await page.getByRole("dialog").getByLabel("Rolle").inputValue(),
+    await page.getByRole("dialog").getByLabel("Role").inputValue(),
     "Write",
   );
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Abbrechen" })
+    .getByRole("button", { name: "Cancel" })
     .click();
   await page.getByRole("button", { name: "Fiktive Kassa " + newLogin }).click();
   const dialog = page.getByRole("dialog");
   await dialog
     .getByRole("heading", { name: "Fiktive Kassa", exact: true })
     .waitFor();
-  await dialog.getByRole("button", { name: "Zugang bearbeiten" }).click();
+  await dialog.getByRole("button", { name: "Edit account" }).click();
   assert.deepEqual(
     (
       await dialog.locator('select[name="Role"] option').allTextContents()
@@ -200,10 +200,10 @@ try {
     await dialog.locator('select[name="Role"]').inputValue(),
     "Read",
   );
-  await dialog.getByLabel("Anzeigename").fill("Fiktive Kassa Test");
-  await dialog.getByLabel("Begründung").fill("Synthetischer Oberflächentest");
-  await dialog.getByRole("button", { name: "Änderungen speichern" }).click();
-  await page.getByText("Änderung gespeichert.", { exact: true }).waitFor();
+  await dialog.getByLabel("Display name").fill("Fiktive Kassa Test");
+  await dialog.getByLabel("Reason").fill("Synthetischer Oberflächentest");
+  await dialog.getByRole("button", { name: "Save changes" }).click();
+  await page.getByText("Changes saved.", { exact: true }).waitFor();
   assert.equal((await user(loginID)).Label, "Fiktive Kassa Test");
   const changed = await browser.newPage();
   await changed.goto(url.origin);
@@ -211,12 +211,12 @@ try {
   await changed.locator("#login [name=pass]").fill(interim);
   await changed.getByRole("button", { name: "Sign in", exact: true }).click();
   await changed
-    .getByRole("heading", { name: "Neues Passwort festlegen" })
+    .getByRole("heading", { name: "Set a new password" })
     .waitFor();
   const newSecret = randomUUID();
-  await changed.getByLabel("Neues Passwort", { exact: true }).fill(newSecret);
-  await changed.getByLabel("Neues Passwort wiederholen").fill(newSecret);
-  await changed.getByRole("button", { name: "Passwort speichern" }).click();
+  await changed.getByLabel("New password", { exact: true }).fill(newSecret);
+  await changed.getByLabel("Confirm new password").fill(newSecret);
+  await changed.getByRole("button", { name: "Save password" }).click();
   await changed.locator("#login").waitFor();
   await edit(loginID, {
     Action: "edit",
@@ -249,7 +249,7 @@ try {
     1,
   );
   assert.equal(
-    await links.getByRole("button", { name: "Benutzer", exact: true }).count(),
+    await links.getByRole("button", { name: "Users", exact: true }).count(),
     0,
   );
   const selfSecurity = url.origin + "/api/account/security";
@@ -267,12 +267,12 @@ try {
     200,
   );
   await page
-    .getByRole("button", { name: "Aktualisieren", exact: true })
+    .getByRole("button", { name: "Refresh", exact: true })
     .click();
   const row = page
     .locator("tr")
     .filter({ has: page.locator('[data-account-id="' + loginID + '"]') });
-  await row.getByText("TOTP aktiv").waitFor();
+  await row.getByText("TOTP enabled").waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   await row.getByText("Read", { exact: true }).click();
   await dialog.getByRole("heading", { name: "Fiktive Kassa Test" }).waitFor();
@@ -304,8 +304,8 @@ try {
   }
   async function confirmAction(label, password) {
     await dialog.getByRole("button", { name: label, exact: true }).click();
-    await dialog.getByLabel("Begründung").fill("Synthetischer Verwaltungstest");
-    if (password) await dialog.getByLabel("Startpasswort").fill(password);
+    await dialog.getByLabel("Reason").fill("Synthetischer Verwaltungstest");
+    if (password) await dialog.getByLabel("Temporary password").fill(password);
     await dialog.getByRole("button", { name: label, exact: true }).click();
     await dialog.waitFor({ state: "hidden" });
     await page.waitForFunction(
@@ -313,17 +313,17 @@ try {
       loginID,
     );
   }
-  await confirmAction("Zweiten Faktor zurücksetzen");
+  await confirmAction("Reset second factor");
   assert.equal((await user(loginID)).MFA, false);
   await row.locator("button").click();
-  await confirmAction("Zugang sperren");
+  await confirmAction("Disable account");
   assert.equal((await user(loginID)).Active, false);
   await login(basic(newLogin, newSecret), 401);
   await row.locator("button").click();
-  await confirmAction("Zugang aktivieren");
+  await confirmAction("Enable account");
   const reset = randomUUID();
   await row.locator("button").click();
-  await confirmAction("Passwort zurücksetzen", reset);
+  await confirmAction("Reset password", reset);
   assert.ok((await login(basic(newLogin, reset))).data.passwordChange);
 } finally {
   await browser.close();

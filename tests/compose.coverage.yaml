@@ -1,0 +1,14 @@
+services:
+  migrate:
+    build:
+      args:
+        BONFIRE_COVER: "true"
+    environment:
+      GOCOVERDIR: /coverage
+    volumes:
+      - ./test-results/integration-counters:/coverage
+  app:
+    environment:
+      GOCOVERDIR: /coverage
+    volumes:
+      - ./test-results/integration-counters:/coverage
