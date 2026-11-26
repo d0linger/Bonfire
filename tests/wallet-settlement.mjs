@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
-import { api, admin, auth, basic } from "./local-api.mjs";
-const day = "2034-08-03";
-const event = await api("events", admin, {
-  Name: "Rechenprüfung " + randomUUID().slice(0, 8),
-  Starts: day,
-  Ends: day,
-});
+import { api, admin, basic, onlineClient, practiceEvent } from "./local-api.mjs";
+const day = "2703-08-03";
+const cashier = await onlineClient();
+const event = await practiceEvent(cashier, "Wallet settlement exercise", day);
 const reviewer = "p-" + randomUUID().slice(0, 12),
   pw = randomUUID();
 await api("users", admin, {
@@ -15,10 +12,9 @@ await api("users", admin, {
   Role: "Read",
   Event: event.ID,
 });
-const prepare = (Name, who) => api("prepare", who, { Name, Event: event.ID });
-const d = await prepare("Kassa", admin),
-  rev = await prepare("Abschluss", basic(reviewer, pw));
-const send = (d, body, status) => api("sync", auth(d), body, status);
+const reader = await onlineClient(basic(reviewer, pw));
+const route = "online?event=" + event.ID;
+const send = (body, status) => cashier(route, body, status);
 let seq = 0;
 const rec = (Kind, Data, Target = randomUUID(), Base = 0) => ({
   ID: randomUUID(),
@@ -64,27 +60,15 @@ const first = [
   count("Ende", 26000),
   settlement(13000),
 ];
-let result = await send(d, { Ops: first });
-assert.deepEqual(result.conflicts, []);
+await send({ Ops: first });
 const separate = rec("donation", { Wallet, Amount: 1000, Method: "Bar" });
-await send(d, { Ops: [separate] });
-const wrong = settlement(12000, 1);
-result = await send(d, { Ops: [wrong] });
-assert.ok(result.conflicts.some((x) => x.ID === wrong.ID));
-await send(d, {
-  Resolve: wrong.ID,
-  Choice: "beibehalten",
-  Reason: "Sammelbetrag um Einzelspende vermindern",
-});
-await send(d, {
-  Ops: [rec("actual", { Amount: 30000 })],
-});
-await send(d, { Action: "Ende", Last: seq });
-await send(rev, { Action: "Ende", Last: 0 });
-assert.equal((await send(d, { Action: "Abschluss" })).closed, true);
-const booked = (await send(d, {})).entries.filter((r) => r.ID === "settlement:" + Wallet);
+await send({ Ops: [separate] });
+// A donation recorded after the count does not change the previously settled cash.
+await send({ Ops: [settlement(12000, 1)] }, 409);
+await send({ Ops: [rec("actual", { Amount: 30000 })] });
+await reader(route, { Action: "Abschluss" }, 403);
+assert.equal((await send({ Action: "Abschluss" })).closed, true);
+const booked = (await reader(route, {})).entries.filter((r) => r.ID === "settlement:" + Wallet);
 assert.equal(booked.length, 1);
 assert.equal(booked[0].Data.Amount, 13000);
-console.log(
-  "PASS unabhängige Zählungen, Pfand und Rückgabe, Kundenrückzahlung, Kartenspende, Sammelkorrektur und Abschluss",
-);
+console.log("PASS wallet opening and closing denominations, deposits, refunds, card donation, settlement cutoff and read-only access");

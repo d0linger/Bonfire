@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { disposableURL, testPassword } from "./test-password.mjs";
 import assert from "node:assert/strict";
 const pass =
@@ -38,4 +39,14 @@ export async function onlineClient(authorization = admin) {
 export async function practiceEvent(call, name, day) {
   const year = await call("years", { Name: name, Starts: day, Ends: day });
   return call("events", { Name: name, Year: year.ID, Starts: day, Ends: day });
+}
+
+export async function auditFixture(day) {
+  const call = await onlineClient();
+  const name = "Audit fixture " + day;
+  const years = await call("years");
+  const year = years.find(y => y.Name === name) || await call("years", { Name: name, Starts: day, Ends: day });
+  assert.equal(year.Starts, day);
+  assert.equal(year.Ends, day);
+  await call("events", { Name: "Audit event " + randomUUID(), Year: year.ID, Starts: day, Ends: day });
 }
