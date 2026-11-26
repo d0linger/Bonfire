@@ -14,7 +14,7 @@ import {
   Header,
   PageNumber,
 } from "docx";
-import { financialLabel, eur, types, summary, denom } from "./domain.js";
+import { priceCategoryLabel, financialLabel, eur, types, summary, denom } from "./domain.js";
 import { lineCents } from "./positions.js";
 const mm = (v) => Math.round((v * 1440) / 25.4);
 export function tablesFor(i, s, rows, subject, opts) {
@@ -103,7 +103,7 @@ export function tablesFor(i, s, rows, subject, opts) {
     );
     const blocks = [...new Set(prices.map((r) => r.Data.Category))].map(
       (category) => ({
-        headers: [category, "Unit", "Price"],
+        headers: [priceCategoryLabel(category), "Unit", "Price"],
         widths: [s.width - 105, 37, 38],
         rows: prices
           .filter((r) => r.Data.Category === category)

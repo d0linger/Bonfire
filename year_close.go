@@ -14,7 +14,7 @@ func requireOpenYear(ctx context.Context, tx pgx.Tx, event string) error {
 		return err
 	}
 	if closed {
-		return problem{409, "Das Geschäftsjahr ist abgeschlossen. Zuerst das Geschäftsjahr wieder öffnen."}
+		return problem{409, "Reopen the fiscal year before making changes."}
 	}
 	return nil
 }
@@ -24,11 +24,11 @@ func requireOpenYear(ctx context.Context, tx pgx.Tx, event string) error {
 func yearForClosure(ctx context.Context, tx pgx.Tx, d device) (fiscalYear, error) {
 	var y fiscalYear
 	if !d.Online || d.Role != roleAdmin {
-		return y, problem{403, "Adminrecht für den Jahresabschluss erforderlich."}
+		return y, problem{403, "Administrator access is required to close this fiscal year."}
 	}
 	err := tx.QueryRow(ctx, `SELECT y.id::text,y.name,y.starts::text,y.ends::text,y.closed FROM fiscal_years y JOIN events e ON e.fiscal_year=y.id WHERE e.id=$1 AND e.general_ledger`, d.Event).Scan(&y.ID, &y.Name, &y.Starts, &y.Ends, &y.Closed)
 	if err == pgx.ErrNoRows {
-		return y, fail("Jahresabschluss im allgemeinen Kassenbuch öffnen.")
+		return y, fail("Open the fiscal year closing in the general cashbook.")
 	}
 	return y, err
 }
@@ -40,7 +40,7 @@ func checkYearEvents(ctx context.Context, tx pgx.Tx, year, ledger string) error 
 		return err
 	}
 	if len(open) > 0 {
-		return problem{409, "Zuerst diese Veranstaltungen abrechnen und abschließen: " + strings.Join(open, ", ")}
+		return problem{409, "Settle and close these events first: " + strings.Join(open, ", ")}
 	}
 	// Older closed events may predate the current wallet and payment checks.
 	rows, err := tx.Query(ctx, `SELECT e.name,c.snapshot FROM events e CROSS JOIN LATERAL
@@ -99,15 +99,15 @@ func checkOpenPayments(entries []row) error {
 	}
 	for provider := range cashbacks {
 		if providers[provider] != 0 {
-			return fail("Offene Terminalabrechnung zuerst klären: " + provider)
+			return fail("Reconcile the outstanding terminal settlement first: " + provider)
 		}
 	}
 	if outlays != 0 {
-		return fail("Offene Privatauslagen zuerst abrechnen.")
+		return fail("Settle outstanding personal advances first.")
 	}
 	for _, balance := range claims {
 		if balance > 0 {
-			return fail("Offene Forderungen zuerst klären.")
+			return fail("Resolve outstanding receivables first.")
 		}
 	}
 	return nil

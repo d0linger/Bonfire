@@ -26,9 +26,9 @@ func yearWriteError(err error) error {
 	if errors.As(err, &dbErr) {
 		switch dbErr.Code {
 		case "23P01":
-			return problem{409, "Der Zeitraum überschneidet sich mit einem bestehenden Geschäftsjahr."}
+			return problem{409, "This period overlaps an existing fiscal year."}
 		case "23505":
-			return problem{409, "Diese Geschäftsjahresbezeichnung ist bereits vergeben."}
+			return problem{409, "This fiscal year name is already in use."}
 		}
 	}
 	return err
@@ -49,7 +49,7 @@ func (a *app) years(ctx context.Context, w http.ResponseWriter, r *http.Request)
 		return pgx.CollectRows(rows, pgx.RowToStructByPos[fiscalYear])
 	}
 	if role != roleAdmin {
-		return nil, problem{403, "Nur Admins können Geschäftsjahre anlegen."}
+		return nil, problem{403, "Only administrators can create fiscal years."}
 	}
 	var y fiscalYear
 	if err = read(r, &y); err != nil {
@@ -58,7 +58,7 @@ func (a *app) years(ctx context.Context, w http.ResponseWriter, r *http.Request)
 	y.Name = strings.TrimSpace(y.Name)
 	y.Closed = false
 	if !validYearDetails(y.Name, y.Starts, y.Ends) {
-		return nil, fail("Bezeichnung und Zeitraum des Geschäftsjahrs prüfen.")
+		return nil, fail("Check the fiscal year name and dates.")
 	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
@@ -71,7 +71,7 @@ func (a *app) years(ctx context.Context, w http.ResponseWriter, r *http.Request)
 	}
 	ledger := uuid()
 	_, err = tx.Exec(ctx, `INSERT INTO events(id,name,starts,ends,general_ledger,fiscal_year)
-		VALUES($1,'Allgemeines Kassenbuch',$2,$3,true,$4)`, ledger, y.Starts, y.Ends, y.ID)
+		VALUES($1,'General cashbook',$2,$3,true,$4)`, ledger, y.Starts, y.Ends, y.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (a *app) editYear(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	next := in.Updated
 	next.Name = strings.TrimSpace(next.Name)
 	if !idPattern.MatchString(in.Year) || !validYearDetails(next.Name, next.Starts, next.Ends) {
-		return nil, fail("Name, Startdatum und Enddatum des Geschäftsjahrs prüfen.")
+		return nil, fail("Check the fiscal year name, start date and end date.")
 	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
@@ -114,31 +114,31 @@ func (a *app) editYear(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		WHERE y.id=$1 ORDER BY EXISTS(SELECT FROM audit a WHERE a.event=e.id AND a.action='Geschäftsjahr angelegt' AND a.subject=y.id::text) DESC,e.id
 		LIMIT 1 FOR UPDATE OF y,e`, in.Year).Scan(&current.Name, &current.Starts, &current.Ends, &closed, &ledger)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, problem{404, "Geschäftsjahr nicht gefunden."}
+		return nil, problem{404, "Fiscal year not found."}
 	}
 	if err != nil {
 		return nil, err
 	}
 	if closed {
-		return nil, problem{409, "Geschäftsjahr oder Kassenbuch abgeschlossen. Zur Bearbeitung zuerst wieder öffnen."}
+		return nil, problem{409, "The fiscal year or cashbook is closed. Reopen it before editing."}
 	}
 	if current == next {
 		return true, tx.Commit(ctx)
 	}
 	if current != in.Previous {
-		return nil, problem{409, "Das Geschäftsjahr wurde inzwischen geändert. Den Bearbeitungsdialog erneut öffnen."}
+		return nil, problem{409, "The fiscal year has changed. Reopen the edit dialog."}
 	}
 	if current.Starts != next.Starts || current.Ends != next.Ends {
 		var blocker string
 		err = tx.QueryRow(ctx, `SELECT CASE
  WHEN EXISTS(SELECT FROM period_closures p JOIN fiscal_years y ON y.id=p.fiscal_year WHERE y.id=$1 AND p.reopened_at IS NULL AND p.starts=y.starts AND p.ends=y.ends) THEN 'Reopen the full-year closure before changing its dates.'
 			WHEN EXISTS(SELECT FROM events WHERE fiscal_year=$1 AND id<>$5 AND (starts<$2 OR ends>$3))
-				THEN 'Der neue Zeitraum muss alle zugeordneten Veranstaltungen und weiteren Arbeitsbereiche umfassen.'
+				THEN 'The new date range must include all assigned events and other workspaces.'
 			WHEN EXISTS(SELECT FROM entries j JOIN events e ON e.id=j.event WHERE e.fiscal_year=$1 AND j.kind=ANY($4::text[])
 				AND ((j.data->>'Date')::date NOT BETWEEN $2 AND $3 OR (CASE WHEN j.kind='period' THEN j.data->>'To' END)::date NOT BETWEEN $2 AND $3))
-				THEN 'Der neue Zeitraum muss alle vorhandenen Buchungen, Zählungen und Abrechnungsperioden umfassen.'
+				THEN 'The new date range must include all existing entries, counts and accounting periods.'
 			WHEN EXISTS(SELECT FROM period_closures WHERE fiscal_year=$1 AND reopened_at IS NULL AND (starts<$2 OR ends>$3))
-				THEN 'Eine freigegebene Abrechnungsperiode liegt außerhalb des neuen Zeitraums.'
+				THEN 'A closed accounting period falls outside the new date range.'
 			ELSE '' END`, in.Year, next.Starts, next.Ends, fiscalDatedKinds, ledger).Scan(&blocker)
 		if err != nil {
 			return nil, err
@@ -168,10 +168,10 @@ func (a *app) createEvent(ctx context.Context, user string, e event) (event, err
 		return e, err
 	}
 	if !idPattern.MatchString(e.Year) {
-		return e, fail("Bitte ein Geschäftsjahr auswählen.")
+		return e, fail("Select a fiscal year.")
 	}
 	if e.General {
-		return e, fail("Das allgemeine Kassenbuch wird beim Anlegen des Geschäftsjahrs erstellt.")
+		return e, fail("The general cashbook is created with the fiscal year.")
 	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
@@ -188,7 +188,7 @@ func (a *app) createEvent(ctx context.Context, user string, e event) (event, err
 		return e, err
 	}
 	if tag.RowsAffected() == 0 {
-		return e, fail("Der Veranstaltungszeitraum muss vollständig im gewählten Geschäftsjahr liegen.")
+		return e, fail("The event must fall entirely within the selected fiscal year.")
 	}
 	if err = checkYearSetup(ctx, tx, e.ID); err != nil {
 		return e, err
@@ -215,7 +215,7 @@ func checkYearSetup(ctx context.Context, tx pgx.Tx, eventID string) error {
 		return err
 	}
 	if frozen {
-		return problem{409, "Der Arbeitsbereich fällt in eine bereits abgeschlossene Periode dieses Geschäftsjahrs."}
+		return problem{409, "This workspace falls within a closed period in this fiscal year."}
 	}
 	return nil
 }
@@ -235,7 +235,7 @@ func fiscalDateAllowed(ctx context.Context, tx pgx.Tx, eventID string, o op) err
 		return err
 	}
 	if outside {
-		return fail("Das Buchungsdatum bzw. Periodenende liegt außerhalb des Geschäftsjahrs.")
+		return fail("The posting date or period end falls outside the fiscal year.")
 	}
 	return nil
 }
@@ -246,14 +246,14 @@ func (a *app) assignYear(ctx context.Context, w http.ResponseWriter, r *http.Req
 		return nil, err
 	}
 	if role != roleAdmin {
-		return nil, problem{403, "Nur Admins können bestehende Arbeitsbereiche zuordnen."}
+		return nil, problem{403, "Only administrators can assign existing workspaces."}
 	}
 	var in struct{ Year, Event string }
 	if err = read(r, &in); err != nil {
 		return nil, err
 	}
 	if !idPattern.MatchString(in.Year) || !idPattern.MatchString(in.Event) {
-		return nil, fail("Geschäftsjahr und Arbeitsbereich auswählen.")
+		return nil, fail("Select a fiscal year and workspace.")
 	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
@@ -268,7 +268,7 @@ func (a *app) assignYear(ctx context.Context, w http.ResponseWriter, r *http.Req
 	var previous string
 	err = tx.QueryRow(ctx, "SELECT coalesce(fiscal_year::text,'') FROM events WHERE id=$1 FOR UPDATE", in.Event).Scan(&previous)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fail("Arbeitsbereich unbekannt.")
+		return nil, fail("Unknown workspace.")
 	}
 	if err != nil {
 		return nil, err
@@ -277,7 +277,7 @@ func (a *app) assignYear(ctx context.Context, w http.ResponseWriter, r *http.Req
 		return true, tx.Commit(ctx)
 	}
 	if previous != "" {
-		return nil, problem{409, "Dieser Arbeitsbereich ist bereits einem anderen Geschäftsjahr zugeordnet."}
+		return nil, problem{409, "This workspace already belongs to another fiscal year."}
 	}
 	tag, err := tx.Exec(ctx, `UPDATE events e SET fiscal_year=y.id FROM fiscal_years y
 		WHERE e.id=$1 AND y.id=$2 AND e.starts>=y.starts AND e.ends<=y.ends
@@ -288,7 +288,7 @@ func (a *app) assignYear(ctx context.Context, w http.ResponseWriter, r *http.Req
 		return nil, err
 	}
 	if tag.RowsAffected() != 1 {
-		return nil, fail("Der Arbeitsbereich und seine vorhandenen Buchungen müssen vollständig im Geschäftsjahr liegen.")
+		return nil, fail("The workspace and all its existing transactions must fall within the fiscal year.")
 	}
 	if err = checkYearSetup(ctx, tx, in.Event); err != nil {
 		return nil, err

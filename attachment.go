@@ -18,13 +18,13 @@ func attachmentValid(o op) error {
 	if digest != "" || o.Kind == "attachment-file" || v.File == "" {
 		expected, e := hex.DecodeString(digest)
 		if e != nil || len(expected) != 32 || size <= 0 || size > 4<<20 || err != nil {
-			return fail("Beleggröße und SHA-256 erforderlich.")
+			return fail("The document size and SHA-256 checksum are required.")
 		}
 	}
 	if o.Kind == "attachment-file" {
 		rev, err := strconv.ParseInt(v.Fields["revision"], 10, 64)
 		if err != nil || rev < 1 || v.Reference == "" || o.Target != countKey("file", v.Reference, v.Fields["revision"]) || o.Base != 0 || v.File == "" {
-			return fail("Datei gehört zu keiner gültigen Belegrevision.")
+			return fail("This file does not belong to a valid document revision.")
 		}
 	}
 	if v.File == "" {
@@ -32,12 +32,12 @@ func attachmentValid(o op) error {
 	}
 	b, err := base64.StdEncoding.DecodeString(v.File)
 	if err != nil || len(b) > 4<<20 || !(bytes.HasPrefix(b, []byte("%PDF-")) || bytes.HasPrefix(b, []byte{0xff, 0xd8, 0xff}) || bytes.HasPrefix(b, []byte{137, 80, 78, 71, 13, 10, 26, 10})) {
-		return fail("Beleg muss PDF, JPEG oder PNG bis 4 MiB sein.")
+		return fail("Attach a PDF, JPEG or PNG file of up to 4 MiB.")
 	}
 	actual := sha256.Sum256(b)
 	expected, _ := hex.DecodeString(digest)
 	if digest != "" && (!bytes.Equal(actual[:], expected) || len(b) != size) {
-		return fail("Dateigröße oder Prüfsumme weicht ab.")
+		return fail("The file size or checksum differs.")
 	}
 	return nil
 }
@@ -74,7 +74,7 @@ func attachBody(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) 
 func completeAttachments(rows []row) error {
 	for _, r := range rows {
 		if r.Kind == "attachment" && r.Data.File == "" {
-			return fail("Dateiübertragung für mindestens einen Beleg ausständig.")
+			return fail("At least one supporting document still needs to be uploaded.")
 		}
 	}
 	return nil

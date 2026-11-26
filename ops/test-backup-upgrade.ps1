@@ -3,7 +3,7 @@ param([Parameter(Mandatory=$true)][string]$PreviousSource)
 $ErrorActionPreference = 'Stop'
 $previousCompose = (Resolve-Path (Join-Path $PreviousSource 'compose.yaml')).Path
 if (!(Test-Path (Join-Path $PreviousSource 'migrations/021.sql')) -or (Test-Path (Join-Path $PreviousSource 'migrations/022.sql'))) {
-  throw 'Für die Ausgangssicherung den Quellstand mit Schema 21 angeben.'
+  throw 'Provide the schema 21 source revision for the initial backup.'
 }
 $project = 'bonfire-backup-upgrade-' + [guid]::NewGuid().ToString('N')
 $saved = @{}
@@ -20,9 +20,9 @@ try {
   $env:BONFIRE_ADMIN_PASSWORD = [guid]::NewGuid().ToString('N')
   function Start-TestStack($compose) {
     docker compose -f $compose up -d --build --wait
-    if ($LASTEXITCODE) {throw 'Prüfstack konnte nicht starten.'}
+    if ($LASTEXITCODE) {throw 'Failed to start the test stack.'}
     $address = (docker compose -f $compose port app 8080).Trim()
-    if ($address -notmatch '^127\.0\.0\.1:[0-9]+$' -or $address -eq '127.0.0.1:8137') {throw 'Isolierter Prüfport fehlt.'}
+    if ($address -notmatch '^127\.0\.0\.1:[0-9]+$' -or $address -eq '127.0.0.1:8137') {throw 'The isolated test port is missing.'}
     $script:api = 'http://' + $address + '/api/'
   }
   function Connect-TestAccount {
@@ -48,7 +48,7 @@ try {
       }
       Start-Sleep -Milliseconds 500
     }
-    throw "Auftrag $action ist nicht abgeschlossen."
+    throw "Job $action did not finish."
   }
   Start-TestStack $previousCompose
   Connect-TestAccount
@@ -72,8 +72,8 @@ try {
   $null = Post-Data 'admin/backup' @{action='backup';target='local'}
   $name = (Wait-BackupJob 'backup').recent[0].message
   $file = Invoke-WebRequest -Uri ($api + 'admin/backup/file?target=local&name=' + $name) -WebSession $session
-  if ([Text.Encoding]::ASCII.GetString($file.Content[0..7]) -ne 'BONFIRE2') {throw 'Verschlüsselte BONFIRE2-Datei erwartet.'}
-  Write-Output 'PASS Verschlüsseltes Archiv unter Schema 21 erstellt.'
+  if ([Text.Encoding]::ASCII.GetString($file.Content[0..7]) -ne 'BONFIRE2') {throw 'Expected an encrypted BONFIRE2 file.'}
+  Write-Output 'PASS encrypted archive created on schema 21.'
 
   Start-TestStack 'compose.yaml'
   Connect-TestAccount
@@ -81,7 +81,7 @@ try {
   $null = Post-Data 'events/delete' @{Event=$event.ID}
   $null = Post-Data 'admin/backup' @{action='probe';target='local';name=$name}
   $null = Wait-BackupJob 'probe'
-  Write-Output 'PASS Archiv im ursprünglichen Schema geprüft und isoliert migriert.'
+  Write-Output 'PASS archive verified against its original schema and migrated in isolation.'
   $null = Post-Data 'admin/backup' @{action='promote';target='local';name=$name;confirmation='WIEDERHERSTELLEN';password=$env:BONFIRE_ADMIN_PASSWORD}
   $revoked = $false
   for ($try = 0; $try -lt 120; $try++) {
@@ -89,7 +89,7 @@ try {
     if ($check.StatusCode -eq 401) {$revoked=$true; break}
     Start-Sleep -Milliseconds 500
   }
-  if (!$revoked) {throw 'Alte Sitzung wurde nicht widerrufen.'}
+  if (!$revoked) {throw 'The old session was not revoked.'}
   # During the database swap the old session can already be invalid while
   # the pool is still reconnecting to the restored database.
   for ($try = 0; $try -lt 30; $try++) {
@@ -98,10 +98,10 @@ try {
   }
   $null = Wait-BackupJob 'promote'
   $events = Invoke-RestMethod -Uri ($api + 'events') -WebSession $session
-  if ($event.ID -notin $events.ID) {throw 'Veranstaltung aus dem früheren Archiv fehlt.'}
+  if ($event.ID -notin $events.ID) {throw 'The restored event from the earlier archive is missing.'}
   $book = Post-Data ('online?event=' + $event.ID) @{}
   $restored = @($book.entries | Where-Object {$_.ID -eq $target})
-  if ($restored.Count -ne 1 -or $restored[0].Data.Amount -ne 125) {throw 'Ursprüngliche Finanzbuchung fehlt.'}
+  if ($restored.Count -ne 1 -or $restored[0].Data.Amount -ne 125) {throw 'The original financial transaction is missing.'}
   $orderSQL = "SELECT count(*) FROM settlement_entries WHERE (event=:'event'::uuid AND id=:'source' AND (data->>'PostingOrder')::bigint>0) OR (event=:'legacy'::uuid AND id=:'id' AND NOT (data ? 'PostingOrder') AND (data->>'BalanceOrder')::bigint > (SELECT balance_order FROM entries WHERE event=:'event'::uuid AND id=:'source'));"
   $orders = $orderSQL | docker compose -p $project exec -T db psql -X -At -v ON_ERROR_STOP=1 -U bonfire -d bonfire -v "legacy=$($legacyEvent.ID)" -v "id=$legacyID" -v "event=$($event.ID)" -v "source=$target"
   if ($LASTEXITCODE -or $orders -ne '2') {throw 'Restored legacy entries must distinguish known posting order from unknown order.'}
@@ -124,8 +124,8 @@ try {
   Remove-TestBooking
   $null = Post-Data 'events/delete' @{Event=$event.ID}
   $events = Invoke-RestMethod -Uri ($api + 'events') -WebSession $session
-  if ($event.ID -in $events.ID) {throw 'Löschung nach der Wiederherstellung unwirksam.'}
-  Write-Output 'PASS Schema-21-Archiv erstellt, mit der aktuellen Version geprüft und wiederhergestellt, Veranstaltung erneut gelöscht.'
+  if ($event.ID -in $events.ID) {throw 'The event still exists after deletion from the restored database.'}
+  Write-Output 'PASS schema 21 archive created, verified and restored with the current version, and restored event deleted.'
 } catch {
   Write-Output $_.ScriptStackTrace
   throw

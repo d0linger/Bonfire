@@ -3,9 +3,9 @@ import { cents } from "./domain.js";
 const parse = (bytes) => {
   const source = new TextDecoder().decode(bytes);
   if (/<!ENTITY|<!DOCTYPE/i.test(source))
-    throw Error("Ungültige XML-Deklaration.");
+    throw Error("Invalid XML declaration.");
   const doc = new DOMParser().parseFromString(source, "application/xml");
-  if (doc.querySelector("parsererror")) throw Error("Ungültiges XML.");
+  if (doc.querySelector("parsererror")) throw Error("Invalid XML.");
   return doc;
 };
 const all = (node, name) => [...node.getElementsByTagNameNS("*", name)];
@@ -38,14 +38,14 @@ function simpleSum(formula, cells) {
   return Number.isSafeInteger(Number(total)) ? Number(total) : null;
 }
 export async function historyPreview(file, role, year) {
-  if (file.size > 4 << 20) throw Error("Datei übersteigt 4 MiB.");
+  if (file.size > 4 << 20) throw Error("The file exceeds 4 MiB.");
   if (!/^\d{4}$/.test(year))
-    throw Error("Jahr des historischen Bestands angeben.");
+    throw Error("Enter the year of the historical records.");
   const bytes = new Uint8Array(await file.arrayBuffer()),
     files = officeFiles(bytes);
   const book = parse(files["xl/workbook.xml"]),
     rels = parse(files["xl/_rels/workbook.xml.rels"]);
-  if (!["D1", "D8"].includes(role)) throw Error("Quellenrolle unbekannt.");
+  if (!["D1", "D8"].includes(role)) throw Error("Unknown source role.");
   const date1904 = ["1", "true"].includes(
     all(book, "workbookPr")[0]?.getAttribute("date1904"),
   );
@@ -91,7 +91,7 @@ export async function historyPreview(file, role, year) {
       ?.getAttribute("Target");
     if (!target) continue;
     const path = target.startsWith("/") ? target.slice(1) : "xl/" + target;
-    if (!files[path]) throw Error("Tabellenblatt fehlt.");
+    if (!files[path]) throw Error("The worksheet is missing.");
     const sheetRows = all(parse(files[path]), "row").map((row) => ({
       number: Number(row.getAttribute("r")),
       cells: all(row, "c").map((c) => {
@@ -149,7 +149,7 @@ export async function historyPreview(file, role, year) {
         .slice(0, 195);
       if (excluded(label) || (!label && !headings.size)) continue;
       let date = "",
-        origin = "Datum prüfen";
+        origin = "Check the date";
       const dates = new Set();
       for (const c of cells) {
         const isDate =
@@ -166,10 +166,10 @@ export async function historyPreview(file, role, year) {
             match[2].padStart(2, "0") +
             "-" +
             match[1].padStart(2, "0");
-          source = match[3] ? "Zelldatum" : "Manuell gewähltes Quellenjahr";
+          source = match[3] ? "Cell date" : "Manually selected source year";
         } else if (c.type === "d") {
           day = c.value.slice(0, 10);
-          source = "ISO-Zelldatum";
+          source = "ISO cell date";
         } else if (
           isDate &&
           c.type === "n" &&
@@ -186,7 +186,7 @@ export async function historyPreview(file, role, year) {
           )
             .toISOString()
             .slice(0, 10);
-          source = "Excel-Datum";
+          source = "Excel date";
         }
         if (isDate || match) dates.add(c.ref);
         if (
@@ -249,15 +249,15 @@ export async function historyPreview(file, role, year) {
           kind,
           status:
             role === "D8"
-              ? "Folgevorlage · nur Vergleich"
+              ? "Subsequent template · comparison only"
               : mismatch
-                ? "Formel und Cache weichen ab"
+                ? "The formula and cached result differ"
                 : c.formula !== null
-                  ? "Formel · nur Vergleich"
+                  ? "Formula · comparison only"
                   : aggregate
-                    ? "Summen- oder Übertragszeile"
+                    ? "Total or carry-forward row"
                     : amount === null
-                      ? "Betrag fehlt oder unlesbar"
+                      ? "Missing or unreadable amount"
                       : signed < 0 ? "Negative source amount requires manual reconciliation" : "Review individual booking",
           blocked,
         });

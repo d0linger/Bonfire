@@ -32,7 +32,7 @@ func passkeyPolicy() (*webauthn.WebAuthn, error) {
 		raw = "http://localhost:8137"
 	}
 	u, err := url.Parse(raw)
-	bad := problem{503, "Die Passkey-Adresse ist ungültig konfiguriert."}
+	bad := problem{503, "Invalid passkey origin configuration."}
 	if err != nil || u.User != nil || u.Hostname() == "" || u.RawQuery != "" || u.ForceQuery ||
 		u.Fragment != "" || (u.EscapedPath() != "" && u.EscapedPath() != "/") {
 		return nil, bad
@@ -69,7 +69,7 @@ func passkeyRequest(r *http.Request) (*webauthn.WebAuthn, error) {
 		return nil, err
 	}
 	if origin := r.Header.Get("Origin"); origin != "" && origin != p.Config.RPOrigins[0] {
-		return nil, problem{403, "Für Passkeys bitte BONFIRE unter " + p.Config.RPOrigins[0] + " öffnen."}
+		return nil, problem{403, "To use passkeys, open BONFIRE at " + p.Config.RPOrigins[0] + "."}
 	}
 	return p, nil
 }
@@ -138,7 +138,7 @@ func issuePasskeyChallenge(ctx context.Context, tx pgx.Tx, w http.ResponseWriter
 		return err
 	}
 	if total >= 512 || fromHost >= 32 {
-		return problem{429, "Zu viele offene Passkey-Anfragen. Bitte später erneut versuchen."}
+		return problem{429, "Too many pending passkey requests. Try again later."}
 	}
 	token := secret()
 	_, err = tx.Exec(ctx, `INSERT INTO passkey_challenges(token,kind,origin,source,username,session_id,revision,label,session_data)
@@ -154,7 +154,7 @@ func issuePasskeyChallenge(ctx context.Context, tx pgx.Tx, w http.ResponseWriter
 	return nil
 }
 
-var expiredPasskey = problem{410, "Der Passkey-Vorgang ist abgelaufen. Bitte erneut starten."}
+var expiredPasskey = problem{410, "The passkey request expired. Start again."}
 
 // Consume independently of the later verification transaction, including failed responses.
 func (a *app) takePasskeyChallenge(ctx context.Context, w http.ResponseWriter, r *http.Request, kind, origin string) (passkeyCeremony, error) {

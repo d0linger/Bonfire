@@ -14,7 +14,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -57,6 +56,7 @@ type backupState struct {
 	Probe     *backupReceipt            `json:"receipt"`
 }
 type backupWorker struct {
+	storageDir     string
 	service        context.Context
 	jobs           sync.WaitGroup
 	db             *pgx.ConnConfig
@@ -69,8 +69,15 @@ type backupWorker struct {
 	active         bool
 }
 
+func (b *backupWorker) storageRoot() string {
+	if b.storageDir != "" {
+		return b.storageDir
+	}
+	return backupHome
+}
+
 func (b *backupWorker) persist() error {
-	return saveBackupJSON(filepath.Join(backupHome, "state.json"), b.state)
+	return b.saveBackupJSON("state.json", b.state)
 }
 func backupNow() time.Time { return time.Now().UTC() }
 func writeBackupJSON(w http.ResponseWriter, data any) {
@@ -109,7 +116,7 @@ func (b *backupWorker) health(target string, now time.Time) backupHealth {
 func (b *backupWorker) status(w http.ResponseWriter, r *http.Request) {
 	files, err := b.listFiles(r.Context(), "local")
 	if err != nil {
-		http.Error(w, "Lokale Sicherungen nicht lesbar.", 503)
+		http.Error(w, "Could not read local backups.", 503)
 		return
 	}
 	remoteErr := ""
@@ -118,7 +125,7 @@ func (b *backupWorker) status(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		remote, e := b.listFiles(ctx, "s3")
 		if e != nil {
-			remoteErr = "S3-Dateiliste nicht erreichbar."
+			remoteErr = "Could not retrieve the S3 file list."
 		} else {
 			files = append(files, remote...)
 		}
@@ -146,13 +153,13 @@ func (b *backupWorker) command(w http.ResponseWriter, r *http.Request) {
 	var q backupCommand
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if read(r, &q) != nil {
-		badBackup(w, "Ungültiger Auftrag.")
+		badBackup(w, "Invalid job.")
 		return
 	}
 	actor := r.Header.Get("X-Bonfire-Actor")
 	if q.Action == "schedule" {
 		if q.Target != "local" && q.Target != "s3" && q.Target != "probe" || q.Days < 0 || q.Days > 3650 {
-			badBackup(w, "Ziel oder Aufbewahrung ungültig.")
+			badBackup(w, "Invalid destination or retention period.")
 			return
 		}
 		if q.Cron != "" {
@@ -163,20 +170,20 @@ func (b *backupWorker) command(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if q.Target == "s3" && q.Cron != "" && b.s3 == nil {
-			badBackup(w, "S3 nicht eingerichtet.")
+			badBackup(w, "S3 is not configured.")
 			return
 		}
 		b.mu.Lock()
 		defer b.mu.Unlock()
 		if err := b.audit(actor, "Zeitplan geändert", q.Target); err != nil {
-			http.Error(w, "Protokollierung fehlgeschlagen.", 503)
+			http.Error(w, "Could not write the audit record.", 503)
 			return
 		}
 		prev := b.state.Schedules[q.Target]
 		b.state.Schedules[q.Target] = backupSchedule{q.Cron, q.Days, backupNow()}
 		if err := b.persist(); err != nil {
 			b.state.Schedules[q.Target] = prev
-			http.Error(w, "Zeitplan konnte nicht gespeichert werden.", 500)
+			http.Error(w, "Could not save the schedule.", 500)
 			return
 		}
 		writeBackupJSON(w, true)
@@ -204,35 +211,35 @@ func (b *backupWorker) startIfDue(q backupCommand, actor, schedule string) error
 		return nil
 	}
 	if b.active {
-		return errors.New("Ein Sicherungsauftrag läuft bereits")
+		return errors.New("A backup job is already running.")
 	}
 	if q.Target == "s3" && b.s3 == nil {
-		return errors.New("S3 nicht eingerichtet")
+		return errors.New("S3 is not configured.")
 	}
 	switch q.Action {
 	case "backup":
 		if q.Target != "local" && q.Target != "s3" {
-			return errors.New("Sicherungsziel ungültig")
+			return errors.New("Invalid backup destination.")
 		}
 	case "test":
 		if q.Target != "s3" {
-			return errors.New("S3-Ziel erforderlich")
+			return errors.New("An S3 destination is required.")
 		}
 	case "probe", "promote":
 		if !backupName.MatchString(q.Name) || (q.Target != "local" && q.Target != "s3" && q.Target != "upload") {
-			return errors.New("Sicherungsdatei auswählen")
+			return errors.New("Select a backup file.")
 		}
 		if q.Action == "promote" {
 			pr := b.state.Probe
 			if !confirmedRestore(q.Confirmation) || pr == nil || pr.Name != q.Name || pr.Target != q.Target || pr.Manifest.Installation == "" || time.Since(pr.At) > time.Hour {
-				return errors.New("Aktuelle bestandene Probe dieser Sicherung und Bestätigung erforderlich")
+				return errors.New("Confirm the restore after a successful, recent test of this backup.")
 			}
 		}
 	default:
-		return errors.New("Unbekannter Auftrag")
+		return errors.New("Unknown job.")
 	}
 	if err := b.audit(actor, "Gestartet "+q.Action, q.Target); err != nil {
-		return errors.New("Auftrag konnte nicht protokolliert werden")
+		return errors.New("Could not audit the backup job.")
 	}
 	b.active = true
 	now := backupNow()
@@ -256,7 +263,7 @@ func (b *backupWorker) startIfDue(q backupCommand, actor, schedule string) error
 		} else {
 			delete(b.state.Last, key)
 		}
-		return errors.New("Auftragsstatus konnte nicht gespeichert werden")
+		return errors.New("Could not save the job status.")
 	}
 	prev := b.state.Probe
 	days := b.state.Schedules[q.Target].Days
@@ -278,15 +285,15 @@ func (b *backupWorker) run(q backupCommand, actor, key string, days int, pr *bac
 		defer ctl.Close(ctx)
 		var lock bool
 		if err = ctl.QueryRow(ctx, "SELECT pg_try_advisory_lock(751036)").Scan(&lock); err != nil || !lock {
-			return errors.New("Ein anderer Sicherungsauftrag ist aktiv")
+			return errors.New("Another backup job is active.")
 		}
 		switch q.Action {
 		case "test":
 			ok, e := b.s3.BucketExists(ctx, b.bucket)
 			if e != nil || !ok {
-				return errors.New("S3-Bucket nicht erreichbar")
+				return errors.New("The S3 bucket is unreachable.")
 			}
-			result.Message = "S3-Bucket erreichbar"
+			result.Message = "The S3 bucket is reachable."
 			return nil
 		case "backup":
 			result.Message, archiveDigest, err = b.makeArchive(ctx, b.db.Database, q.Target)
@@ -308,16 +315,16 @@ func (b *backupWorker) run(q backupCommand, actor, key string, days int, pr *bac
 			}()
 			if q.Action == "promote" {
 				if pr.Hash != fingerprint {
-					return errors.New("Datei seit der Prüfung verändert")
+					return errors.New("The file has changed since verification.")
 				}
 				if err = b.promote(ctx, ctl, db, actor, m); err != nil {
 					return err
 				}
-				result.Message = "Übernahme abgeschlossen. Neu anmelden."
+				result.Message = "Restore complete. Sign in again."
 				return nil
 			}
 			receipt = &backupReceipt{q.Target, q.Name, fingerprint, m, backupNow()}
-			result.Message = fmt.Sprintf("Probe bestanden · %d Geschäftsjahre, %d Einträge, %d Originalbelege", m.Years, m.Entries, m.Originals)
+			result.Message = fmt.Sprintf("Restore test passed: %d fiscal years, %d entries and %d original documents", m.Years, m.Entries, m.Originals)
 			return nil
 		}
 		return nil
@@ -389,12 +396,18 @@ func (b *backupWorker) run(q backupCommand, actor, key string, days int, pr *bac
 
 func safeBackupError(err error) string {
 	// Keep connection strings, object paths, PostgreSQL details and credentials out of logs/UI.
-	for _, prefix := range []string{"Sicherungsdatei ", "Migrationsnachweis ", "Schemaversion ", "Prüfsummen ", "Andere Installation ", "Datei seit ", "S3-Bucket ", "Legacy-Archiv ", "pg_", "Ein anderer ", "Sicherung überschreitet "} {
-		if strings.HasPrefix(err.Error(), prefix) {
+	for _, message := range []string{
+		"The backup is incomplete, unreadable or encrypted with another key.", "Migration verification mismatch.",
+		"Schema version mismatch. Test the restore with a matching BONFIRE version.", "The checksums or financial records differ from the backup manifest.",
+		"This backup belongs to another installation or uses a legacy format. Restore is blocked.", "The file has changed since verification.",
+		"The S3 bucket is unreachable.", "Legacy archive unreadable or larger than 128 MiB. Use the external restore procedure.",
+		"pg_dump failed", "pg_restore failed", "Another backup job is active.", "The backup exceeds the size limit.",
+	} {
+		if err.Error() == message {
 			return err.Error()
 		}
 	}
-	return "Auftrag fehlgeschlagen. Verbindung, Schlüssel und freien Speicher prüfen."
+	return "Backup job failed. Check the connection, encryption key and free disk space."
 }
 
 func (b *backupWorker) tick() {
@@ -422,12 +435,12 @@ func (b *backupWorker) download(w http.ResponseWriter, r *http.Request) {
 	target, name := r.URL.Query().Get("target"), r.URL.Query().Get("name")
 	file, err := b.openArchive(r.Context(), target, name)
 	if err != nil {
-		http.Error(w, "Datei nicht verfügbar.", 404)
+		http.Error(w, "File unavailable.", 404)
 		return
 	}
 	defer file.Close()
 	if err = b.audit(r.Header.Get("X-Bonfire-Actor"), "Download", target); err != nil {
-		http.Error(w, "Protokollierung fehlgeschlagen.", 503)
+		http.Error(w, "Could not write the audit record.", 503)
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
@@ -447,37 +460,37 @@ func (b *backupWorker) upload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Cannot initialize backup upload.", http.StatusInternalServerError)
 		return
 	}
-	dir := filepath.Join(backupHome, "uploads")
+	dir := filepath.Join(b.storageRoot(), "uploads")
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		http.Error(w, "Uploadspeicher nicht verfügbar.", 503)
+		http.Error(w, "Upload storage is unavailable.", 503)
 		return
 	}
 	tmp, err := os.CreateTemp(dir, ".upload-")
 	if err != nil {
-		http.Error(w, "Uploadspeicher nicht verfügbar.", 503)
+		http.Error(w, "Upload storage is unavailable.", 503)
 		return
 	}
 	defer os.Remove(tmp.Name())
 	size, err := io.Copy(tmp, http.MaxBytesReader(w, r.Body, archiveLimit+(64<<20)))
 	closeErr := tmp.Close()
 	if err != nil || closeErr != nil || size < 36 {
-		badBackup(w, "Upload unvollständig oder zu groß.")
+		badBackup(w, "The upload is incomplete or too large.")
 		return
 	}
 	// One uploaded candidate at a time; its random name and receipt bind the later takeover.
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.active {
-		http.Error(w, "Ein Auftrag läuft.", 409)
+		http.Error(w, "A job is in progress.", 409)
 		return
 	}
 	name := "bonfire-" + backupNow().Format("20060102T150405Z") + "-" + uuid() + ".dump.enc"
 	if err = b.audit(r.Header.Get("X-Bonfire-Actor"), "Datei zur Probe hochgeladen", "upload"); err != nil {
-		http.Error(w, "Protokollierung fehlgeschlagen.", 503)
+		http.Error(w, "Could not write the audit record.", 503)
 		return
 	}
 	if err = os.Rename(tmp.Name(), filepath.Join(dir, name)); err != nil {
-		http.Error(w, "Upload nicht gespeichert.", 503)
+		http.Error(w, "The upload could not be saved.", 503)
 		return
 	}
 	entries, _ := os.ReadDir(dir)
@@ -494,7 +507,7 @@ func (b *backupWorker) upload(w http.ResponseWriter, r *http.Request) {
 func runBackupWorker() error {
 	cfg, err := pgx.ParseConfig(os.Getenv("DATABASE_URL"))
 	if err != nil {
-		return errors.New("Datenbankkonfiguration ungültig")
+		return errors.New("Invalid database configuration.")
 	}
 	service, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -539,16 +552,16 @@ func runBackupWorker() error {
 		return err
 	}
 	if len(b.key) != 32 {
-		return errors.New("Ungültiger Sicherungsschlüssel")
+		return errors.New("Invalid backup key.")
 	}
 	b.s3, b.bucket, b.prefix, err = newS3()
 	if err != nil {
-		return errors.New("Ungültige S3-Konfiguration")
+		return errors.New("Invalid S3 configuration.")
 	}
-	raw, err := os.ReadFile(filepath.Join(backupHome, "state.json"))
+	raw, err := os.ReadFile(filepath.Join(b.storageRoot(), "state.json"))
 	if err == nil {
 		if err = json.Unmarshal(raw, &b.state); err != nil {
-			return errors.New("Statusdatei unlesbar")
+			return errors.New("Could not read the status file.")
 		}
 	} else if !os.IsNotExist(err) {
 		return err
@@ -573,11 +586,11 @@ func runBackupWorker() error {
 	defer cancel()
 	c, err := b.connect(ctx, "postgres")
 	if err != nil {
-		return errors.New("Wartungsdatenbank nicht erreichbar")
+		return errors.New("The maintenance database is unreachable.")
 	}
 	err = errors.Join(b.recoverSwap(ctx, c), c.Close(ctx))
 	if err != nil {
-		return errors.New("Unvollständigen Restore anhand des Sicherungsjournals prüfen")
+		return errors.New("Check the backup journal for an incomplete restore.")
 	}
 	if err = b.persist(); err != nil {
 		return err

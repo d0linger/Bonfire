@@ -203,7 +203,7 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 		q, e1 := strconv.ParseInt(v.Fields["saleQuantity"], 10, 64)
 		u, e2 := strconv.ParseInt(v.Fields["unitCents"], 10, 64)
 		if e1 != nil || e2 != nil || q < 1 || q > 1000000 || u < 0 || u > 999999999 || q*u != *v.Amount {
-			return false, fail("Vorverkaufsmenge und Preis passen nicht zum Erlös.")
+			return false, fail("The advance sale quantity and price do not match the proceeds.")
 		}
 	}
 	if sale := v.Fields["sale"]; o.Kind == "expense" && sale != "" {
@@ -215,7 +215,7 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 	if o.Kind == "card" || o.Kind == "fee" || o.Kind == "payout" || o.Kind == "cashback" {
 		key := strings.TrimSpace(v.Fields["provider"])
 		if o.Kind == "cashback" && (key == "" || v.Wallet == "" || v.Account != v.Wallet || v.Method != "" && v.Method != "Bar") {
-			return false, fail("Terminal, auszahlende Geldtasche und Terminal-Verrechnungskonto angeben.")
+			return false, fail("Select the terminal, payout wallet and terminal clearing account.")
 		}
 		if o.Kind == "cashback" && d.Accounts {
 			var terminal bool
@@ -223,7 +223,7 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 				return false, err
 			}
 			if !terminal {
-				return false, fail("Ein Konto für die Terminalabrechnung auswählen.")
+				return false, fail("Select an account for card terminal settlement.")
 			}
 		}
 		var priorKey string
@@ -261,7 +261,7 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 			return false, err
 		}
 		if approved || v.Status == "Freigegeben" {
-			return false, problem{403, "Preisfreigabe durch einen Admin erforderlich."}
+			return false, problem{403, "An administrator must approve the price."}
 		}
 	}
 	if o.Kind == "opening" && o.Base > 0 && v.Fields["previous"] == "" {
@@ -333,7 +333,7 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 		pooled := o.Target == pooledSettlement
 		if o.Kind != "income" || v.Method != "Bar" || (pooled && (v.Reference != "wallet-settlement-total" || v.Wallet != "" || v.Bar != "")) ||
 			(!pooled && (v.Reference != "wallet-settlement" || v.Wallet == "" || o.Target != "settlement:"+v.Wallet)) {
-			return false, fail("Geldtaschenbezug ungültig.")
+			return false, fail("Invalid wallet reference.")
 		}
 		rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM settlement_entries WHERE event=$1 AND id<>$2 AND (kind='wallet' OR kind='count' OR kind=ANY($3))", d.Event, o.Target, journalKinds)
 		if err != nil {
@@ -366,7 +366,7 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 		}
 	}
 	if o.Kind == "payment" && v.Method == "Bar" && v.Wallet == "" {
-		return false, fail("Tatsächliche Barkassa für den Zahlungseingang angeben.")
+		return false, fail("Select the cash account that received the payment.")
 	}
 	return true, nil
 }
@@ -388,7 +388,7 @@ func validateSettlement(rows []row) error {
 	if pooled || booked != nil {
 		amount, known := pooledRevenue(rows)
 		if !known || booked == nil || *booked != amount {
-			return errors.New("Gesamtzählung aller Geldtaschen noch nicht vollständig abgerechnet")
+			return errors.New("The combined wallet count is not fully settled.")
 		}
 		return nil
 	}
@@ -415,7 +415,7 @@ func validateSettlement(rows []row) error {
 		}
 		amount, ok := walletRevenue(others, r.ID)
 		if !ok || booked == nil || *booked != amount {
-			return fmt.Errorf("Geldtasche %s noch nicht vollständig abgerechnet", r.Data.Label)
+			return fmt.Errorf("Wallet %s is not fully settled.", r.Data.Label)
 		}
 	}
 	return nil
@@ -423,10 +423,10 @@ func validateSettlement(rows []row) error {
 
 func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name, start, end, year string, kinds []string) (string, error) {
 	if d.Role != roleAdmin || len(name) == 0 || len(name) > 160 {
-		return "", fail("Name und Adminrecht erforderlich.")
+		return "", fail("A name and administrator access are required.")
 	}
 	if (start != "" || end != "") && (!date(start) || !date(end) || end < start) {
-		return "", fail("Gültigen Zielzeitraum angeben.")
+		return "", fail("Enter a valid destination period.")
 	}
 	allowed := strings.Fields("bar wallet shift price template")
 	if kinds == nil {
@@ -434,7 +434,7 @@ func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name, start, e
 	}
 	for _, k := range kinds {
 		if !slices.Contains(allowed, k) {
-			return "", fail("Unbekannter Kopierumfang.")
+			return "", fail("Unknown copy scope.")
 		}
 	}
 	id := uuid()
@@ -447,7 +447,7 @@ func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name, start, e
 		WHERE (y.id IS NOT NULL OR (s.fiscal_year IS NULL AND $6)) AND ($7='' OR y.id::text=$7)
 		RETURNING starts::text`, id, name, d.Event, start, end, offlineEnabled(), year).Scan(&start)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", fail("Für den Zielzeitraum zuerst ein passendes Geschäftsjahr anlegen.")
+		return "", fail("Create a fiscal year covering the destination period first.")
 	}
 	if err != nil {
 		return "", err
@@ -501,7 +501,7 @@ func (a *app) copyEvent(ctx context.Context, tx pgx.Tx, d device, name, start, e
 
 func (a *app) globalPeriod(ctx context.Context, tx pgx.Tx, d device, start, end string, history bool) (any, error) {
 	if !date(start) || !date(end) || start > end {
-		return nil, fail("Gültigen Zeitraum angeben.")
+		return nil, fail("Enter a valid date range.")
 	}
 	var year *string
 	if err := tx.QueryRow(ctx, "SELECT fiscal_year::text FROM events WHERE id=$1", d.Event).Scan(&year); err != nil {

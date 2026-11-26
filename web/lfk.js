@@ -7,6 +7,8 @@ const fields = [
   "Geburtsdatum des Spenders",
   "Ort un Datum der Ausstellung",
 ];
+// The PDF form field names above are part of the published source form.
+const fieldLabels = ["Donation amount", "Receipt number", "Fire brigade address", "Donor name and address", "Donor date of birth", "Place and date of issue"];
 const boxes = [
   [64.958, 26.426, 97.973, 33.742],
   [112.295, 26.426, 142.86, 33.742],
@@ -16,7 +18,7 @@ const boxes = [
   [5.057, 82.547, 69.594, 88.266],
 ];
 export async function background(file) {
-  if (file.size > 3 << 20) throw Error("LFK-Druckvorlage maximal 3 MiB.");
+  if (file.size > 3 << 20) throw Error("Choose an LFK form of up to 3 MiB.");
   const source = await PDFDocument.load(await file.arrayBuffer());
   const pages = source.getPages();
   if (
@@ -24,8 +26,14 @@ export async function background(file) {
     Math.abs(pages[0].getWidth() - 419.528) > 0.5 ||
     Math.abs(pages[0].getHeight() - 297.638) > 0.5
   )
-    throw Error("Erwartet wird die einseitige A6-Quellvorlage.");
-  for (const name of fields) source.getForm().getTextField(name);
+    throw Error("Choose the single-page A6 source form.");
+  for (const [i, name] of fields.entries()) {
+    try {
+      source.getForm().getTextField(name);
+    } catch (cause) {
+      throw Error("Missing or invalid LFK form field: " + fieldLabels[i], { cause });
+    }
+  }
   // Import only static page content. The new document has no form values, actions or annotations.
   const output = await PDFDocument.create();
   const page = await output.embedPage(pages[0]);
@@ -45,10 +53,10 @@ export async function fillBackground(encoded, values) {
     try {
       width = font.widthOfTextAtSize(text, 10);
     } catch (cause) {
-      throw Error("The receipt font cannot print a character in field " + fields[i], { cause });
+      throw Error("The receipt font cannot print a character in field " + fieldLabels[i], { cause });
     }
     if (width > (right - x) * unit - 3)
-      throw Error("LFK-Feld zu lang: " + fields[i]);
+      throw Error("Text does not fit the LFK field: " + fieldLabels[i]);
     page.drawText(text, {
       x: x * unit + 1.5,
       y: page.getHeight() - ((t + bottom) * unit) / 2 - 3,

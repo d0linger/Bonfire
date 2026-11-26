@@ -31,7 +31,7 @@ import {
 } from "./workplace.js";
 import { sponsorshipStatus } from "./sponsorship.js";
 import { festivalPanel } from "./festabrechnung.js";
-import { denominationNeeds } from "./domain.js";
+import { denominationNeeds, financialLabel } from "./domain.js";
 import { zipSync } from "fflate";
 import { historyPreview } from "./historical.js";
 import { positions, lineCents } from "./positions.js";
@@ -97,7 +97,7 @@ const select = (n, t, choices, selected) =>
     t,
     '<select name="' +
       esc(n) +
-      '">' +
+      '" aria-label="' + esc(t) + '">' +
       choices
         .map(([v, l]) =>
           selected !== undefined && v === selected
@@ -133,7 +133,7 @@ function popupForm(id, title, fields, submitLabel) {
     '" aria-haspopup="dialog">' +
     esc(title) +
     "</button><template>" +
-    form(id, fields, submitLabel, button("cancel", "Abbrechen", true)) +
+    form(id, fields, submitLabel, button("cancel", "Cancel", true)) +
     "</template>"
   );
 }
@@ -144,7 +144,7 @@ function openEditor(trigger, title, content, selector = "") {
   entryDialog.innerHTML =
     '<div class="panel-head"><h2 id="entry-title">' +
     esc(title) +
-    '</h2><button type="button" class="entry-close" data-act="cancel" aria-label="Schließen">×</button></div>' +
+    '</h2><button type="button" class="entry-close" data-act="cancel" aria-label="Close">×</button></div>' +
     selector +
     content +
     '<div class="entry-error" role="alert"></div>';
@@ -162,9 +162,9 @@ function openReasonEditor(trigger, title, subject, saveReason) {
       "</p>" +
       form(
         "entry-reason",
-        field("reason", "Begründung", "text", true),
+        field("reason", "Reason", "text", true),
         title,
-        button("cancel", "Abbrechen", true),
+        button("cancel", "Cancel", true),
       ),
   );
   entryDialog.querySelector("form").addEventListener("submit", (event) => {
@@ -172,7 +172,7 @@ function openReasonEditor(trigger, title, subject, saveReason) {
     event.stopPropagation();
     action(async () => {
       const reason = new FormData(event.target).get("reason").trim();
-      if (!reason) throw Error("Begründung angeben.");
+      if (!reason) throw Error("Enter a reason.");
       await saveReason(reason);
       show();
       closeEditor();
@@ -288,13 +288,13 @@ function onlineSnapshot(out, previous = {}) {
 async function workspaceRequest(id, body) {
   if (!navigator.onLine)
     throw Error(
-      "Keine Serververbindung. Speichern ist erst wieder mit Verbindung möglich.",
+      "The server is unreachable. Reconnect before saving.",
     );
   const changes =
     body.Ops?.length || body.Prints?.length || body.Action || body.Resolve;
   if (changes && unconfirmedWrites.has(id))
     throw Error(
-      "Vor einem weiteren Speicherversuch zuerst den Serverstand aktualisieren und den letzten Eintrag prüfen.",
+      "Refresh the server records and check the last entry before saving again.",
     );
   try {
     const result = await api("online?event=" + encodeURIComponent(id), body);
@@ -304,7 +304,7 @@ async function workspaceRequest(id, body) {
     if (err instanceof TypeError) {
       if (changes) unconfirmedWrites.add(id);
       throw Error(
-        "Der Server hat den Vorgang nicht bestätigt. Prüfe nach der Wiederverbindung zuerst den Serverstand.",
+        "The server did not confirm this operation. Check the server records after reconnecting.",
         { cause: err },
       );
     }
@@ -313,7 +313,7 @@ async function workspaceRequest(id, body) {
 }
 async function reprint(row, format) {
   if (!row.Data[format])
-    throw Error("Dieses Original benötigt ein Belegprofil.");
+    throw Error("This original requires a receipt profile.");
   if (!s.recovery)
     await commit({
       ...s,
@@ -333,7 +333,7 @@ async function reprint(row, format) {
         ? "application/pdf"
         : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ),
-    "Beleg-" + row.Data.Number + "." + format.toLowerCase(),
+    "Receipt-" + row.Data.Number + "." + format.toLowerCase(),
   );
 }
 async function commit(next) {
@@ -384,8 +384,8 @@ function canWrite() {
   if (!writableWorkspace())
     throw Error(
       offlineEnabled
-        ? "Lokale Schreibfreigabe beendet."
-        : "Dieser Arbeitsbereich ist schreibgeschützt.",
+        ? "Local write access has expired."
+        : "This workspace is read-only.",
     );
 }
 async function queue(k, d, target = crypto.randomUUID(), base = 0) {
@@ -421,11 +421,11 @@ async function sync(extra = {}) {
     return;
   }
   if (s.recovery)
-    throw Error("Wiederhergestelltes Archiv ist schreibgeschützt.");
+    throw Error("The restored archive is read-only.");
   const probe = await api("sync", { Ops: [] }, bearer());
   if (probe.last > s.seq)
     throw Error(
-      "Server kennt weitere Vorgänge dieser Gerätekennung. Profil sperren und Kopien klären.",
+      "The server has additional transactions for this device ID. Lock the profile and check for copies.",
     );
   if (probe.last < s.last) {
     const missing = (s.history || [])
@@ -433,7 +433,7 @@ async function sync(extra = {}) {
       .sort((a, b) => a.Seq - b.Seq);
     if (missing.length !== s.last - probe.last)
       throw Error(
-        "Wiederhergestellter Serverstand älter als lokales Archiv. Daten bleiben lokal erhalten.",
+        "The restored server records are older than the local archive. Local data was retained.",
       );
     for (const o of missing) await api("sync", { Ops: [o] }, bearer());
   }
@@ -455,7 +455,7 @@ async function sync(extra = {}) {
       )
     )
       throw Error(
-        "Der Server liefert einen älteren Fachstand. Lokale Daten für die Wiederherstellung aufbewahrt.",
+        "The server returned an older version. Local data was retained for recovery.",
       );
     const next = {
       ...s,
@@ -548,9 +548,9 @@ async function loadSponsorChoices(form) {
   }
 }
 function table(list, editable = []) {
-  if (!list.length) return '<p class="muted">Keine Einträge.</p>';
+  if (!list.length) return '<p class="muted">No entries.</p>';
   return (
-    '<div class="list entry-list"><table><thead><tr><th>Datum</th><th>Vorgang</th><th>Bezeichnung</th><th>Betrag</th><th aria-label="Aktionen"></th></tr></thead><tbody>' +
+    '<div class="list entry-list"><table><thead><tr><th>Date</th><th>Transaction</th><th>Description</th><th>Amount</th><th aria-label="Actions"></th></tr></thead><tbody>' +
     list
       .map(
         (r) =>
@@ -559,7 +559,7 @@ function table(list, editable = []) {
           "</td><td>" +
           esc(
             r.Data.Fields?.claimType === "invoice"
-              ? "Ausgangsrechnung"
+              ? "Outgoing invoice"
               : types[r.Kind],
           ) +
           "</td><td>" +
@@ -567,13 +567,13 @@ function table(list, editable = []) {
           (r.Kind === "expense" && r.Data.Fields?.issuer
             ? " · " + esc(r.Data.Fields.issuer)
             : "") +
-          (r.Data.Retired ? " · Archiviert" : "") +
+          (r.Data.Retired ? " · Archived" : "") +
           (r.Kind === "attachment"
             ? r.Data.uploadPending
-              ? " · Datei lokal, Übertragung offen"
+              ? " · File on this device, upload pending"
               : r.Data.File
-                ? " · Datei verfügbar"
-                : " · Metadaten vorhanden, Datei ausständig"
+                ? " · File available"
+                : " · Metadata saved, file pending"
             : "") +
           "</td><td>" +
           esc(flowAmount(r)) +
@@ -584,21 +584,21 @@ function table(list, editable = []) {
               esc(r.ID) +
               '">' +
               {
-                donation: "Spendenbeleg",
-                sponsorship: "Rechnung",
-                payment: "Zahlung bestätigen",
+                donation: "Donation receipt",
+                sponsorship: "Invoice",
+                payment: "Confirm payment",
               }[r.Kind] +
               "</button>"
             : "") +
           (r.Kind === "attachment" && r.Data.File
             ? '<button type="button" data-attachment="' +
               esc(r.ID) +
-              '">Datei laden</button>'
+              '">Download file</button>'
             : "") +
           (editable.includes(r.Kind) && !r.Data.Retired
             ? '<button class="secondary" data-edit="' +
               esc(r.ID) +
-              '">Bearbeiten</button>'
+              '">Edit</button>'
             : "") +
           (editable.includes(r.Kind) &&
           s.role === "Admin" &&
@@ -609,7 +609,7 @@ function table(list, editable = []) {
             ? '<button type="button" class="secondary" data-lifecycle="' +
               esc(r.ID) +
               '">' +
-              (r.Data.Retired ? "Wiederherstellen" : "Archivieren") +
+              (r.Data.Retired ? "Restore" : "Archive") +
               "</button>"
             : "") +
           "</div></td></tr>",
@@ -623,9 +623,9 @@ let conflictFiles;
 function incidentPanel() {
   const devices = s.devices || [];
   const labels = {
-    missing: "Vermisst",
-    incomplete: "Abschluss unvollständig · Ausnahme protokolliert",
-    returning: "Zurückgemeldet · Einzelprüfung läuft",
+    missing: "Missing",
+    incomplete: "Closing incomplete · Exception recorded",
+    returning: "Returned · Individual review in progress",
   };
   const cases = devices.filter((d) => d.IncidentState);
   let content = cases
@@ -635,25 +635,25 @@ function incidentPanel() {
         esc(d.Name) +
         "</strong> · " +
         esc(labels[d.IncidentState]) +
-        " · bestätigte Folge " +
+        " · Confirmed sequence " +
         esc(d.Last) +
         (d.IncidentNote ? "<br>" + esc(d.IncidentNote) : "") +
         "</p>",
     )
     .join("");
   for (const [id, allowed, label, reason] of [
-    ["incident", [""], "Gerät vermisst melden", "Vorfall und bekannte Lücke"],
+    ["incident", [""], "Report missing device", "Incident and known discrepancy"],
     [
       "incomplete",
       ["missing"],
-      "Unvollständigkeit bestätigen",
-      "Rekonstruktion und verbleibende Lücke",
+      "Confirm incomplete records",
+      "Reconstruction and remaining discrepancy",
     ],
     [
       "returnDevice",
       ["missing", "incomplete"],
-      "Rückkehr zur Prüfung freigeben",
-      "Nachweis der Geräterückkehr",
+      "Authorize return for review",
+      "Evidence of device return",
     ],
   ]) {
     const choices = devices.filter(
@@ -668,37 +668,37 @@ function incidentPanel() {
         label,
         select(
           "device",
-          "Betroffenes Gerät",
+          "Affected device",
           choices.map((d) => [d.ID, d.Name]),
         ) + field("reason", reason, "text", true),
         label,
       );
   }
-  return content ? panel("Gerätevorfälle", content) : "";
+  return content ? panel("Device incidents", content) : "";
 }
 function copyForm() {
   return popupForm(
     "copy",
-    "Veranstaltung kopieren",
-    "<p>Quelle <strong>" +
+    "Copy event",
+    "<p>Source <strong>" +
       esc(s.event.Name) +
       "</strong></p>" +
-      field("name", "Name der neuen Veranstaltung", "text", true) +
+      field("name", "New event name", "text", true) +
       (years.length
         ? select(
             "year",
-            "Zielgeschäftsjahr",
+            "Destination fiscal year",
             years.filter((y) => !y.Closed).map((y) => [y.ID, y.Name]),
             s.event.Year,
           )
         : "") +
-      "<fieldset><legend>Struktur übernehmen</legend>" +
+      "<fieldset><legend>Copy event structure</legend>" +
       [
         ["bar", "Bars"],
-        ["wallet", "Geldtaschen"],
-        ["shift", "Schichten"],
-        ["price", "Preisentwürfe"],
-        ["template", "Vorlagen"],
+        ["wallet", "Wallets"],
+        ["shift", "Shifts"],
+        ["price", "Draft prices"],
+        ["template", "Templates"],
       ]
         .map(
           ([k, l]) =>
@@ -710,9 +710,9 @@ function copyForm() {
         )
         .join("") +
       "</fieldset>" +
-      field("start", "Neuer Beginn", "date", true, s.event.Starts) +
-      field("end", "Neues Ende", "date", true, s.event.Ends),
-    "Struktur und Preisentwürfe kopieren",
+      field("start", "New start date", "date", true, s.event.Starts) +
+      field("end", "New end date", "date", true, s.event.Ends),
+    "Copy structure and draft prices",
   );
 }
 function devicePage() {
@@ -721,30 +721,30 @@ function devicePage() {
       const cur = s.entries.find((r) => r.ID === c.Target);
       const sameName = c.Kind === "contact" && !cur && c.Base === 0;
       return panel(
-        "Konflikt · " + c.Data.Label,
+        "Conflict · " + c.Data.Label,
         (sameName
-          ? "<p>Kontaktneuanlage prüfen. Bei gleichem Namen für eine getrennte Person oder Firma die Abgrenzung begründen. Vorhandene Adressen bleiben erhalten.</p>"
+          ? "<p>Review the new contact. If another person or company has the same name, explain how to distinguish them. Existing addresses are preserved.</p>"
           : "") +
-          "<p>Ausgangsrevision " +
+          "<p>Original revision " +
           esc(c.Base) +
-          " · gespeicherte Revision " +
+          " · Saved revision " +
           esc(cur?.Revision ?? 0) +
-          "</p><p>Gespeichert: " +
-          esc(cur?.Data.Label || "Fehlt") +
+          "</p><p>Saved: " +
+          esc(cur?.Data.Label || "Missing") +
           " · " +
           eur(cur?.Data.Amount) +
-          "</p><p>Vorschlag: " +
+          "</p><p>Suggested: " +
           esc(c.Data.Label) +
           " · " +
           eur(c.Data.Amount) +
-          "</p><details><summary>Beide Fassungen ansehen</summary><pre>" +
+          "</p><details><summary>View both versions</summary><pre>" +
           esc(
             JSON.stringify(
               [cur?.Data, c.Data],
               (k, v) =>
                 ["File", "PDF", "DOCX"].includes(k)
                   ? v
-                    ? "Datei vorhanden"
+                    ? "File available"
                     : undefined
                   : v,
               2,
@@ -754,12 +754,12 @@ function devicePage() {
           (s.role === "Admin" && !s.recovery && !s.closed
             ? form(
                 "resolve-" + c.ID,
-                select("choice", "Entscheidung", [
-                  ["beibehalten", "Bisherigen Stand behalten"],
-                  ["übernehmen", "Vorschlag übernehmen"],
+                select("choice", "Decision", [
+                  ["beibehalten", "Keep existing value"],
+                  ["übernehmen", "Use suggestion"],
                 ]) +
                   (s.accounts && monetary.has(c.Kind)
-                    ? refs("account", "Konto für Klärung (optional)", [
+                    ? refs("account", "Account for resolution (optional)", [
                         "account",
                         "wallet",
                       ])
@@ -773,13 +773,13 @@ function devicePage() {
                     "return",
                     "cashback",
                   ].includes(c.Kind)
-                    ? refs("destination", "Zielkonto für Klärung (optional)", [
+                    ? refs("destination", "Destination account for resolution (optional)", [
                         "account",
                         "wallet",
                       ])
                     : "") +
-                  field("reason", "Begründung", "text", true),
-                "Klärung speichern",
+                  field("reason", "Reason", "text", true),
+                "Save resolution",
               )
             : ""),
       );
@@ -791,66 +791,66 @@ function devicePage() {
         esc(s.user) +
         " · " +
         esc(s.role) +
-        " · Gerätefreigabe bis " +
-        esc(new Date(s.expires).toLocaleString("de-AT")) +
+        " · Device access expires " +
+        esc(new Date(s.expires).toLocaleString("en-GB")) +
         "</p>" +
         (!s.sealed && !s.recovery
           ? panel(
-              "Gerätefreigabe verlängern",
+              "Extend device authorization",
               form(
                 "renew",
-                field("password", "Online-Passwort", "password", true) +
-                  field("otp", "TOTP oder Recoverycode (falls eingerichtet)"),
-                "Gerät erneut autorisieren",
+                field("password", "Online password", "password", true) +
+                  field("otp", "TOTP or recovery code (if configured)"),
+                "Reauthorize device",
               ),
             )
           : "") +
         panel(
-          "Abgleich",
-          button("readiness", "Offlinebereitschaft prüfen", true) +
+          "Reconcile",
+          button("readiness", "Check offline readiness", true) +
             readiness.map((t) => "<p>" + esc(t) + "</p>").join("") +
             "<p>" +
             s.ops.length +
-            " lokale Vorgänge ausstehend · " +
+            " local transactions pending · " +
             s.conflicts.length +
-            " Konflikte im letzten Abgleich</p><p>" +
+            " conflicts at the last sync</p><p>" +
             esc(
               s.synced
-                ? "Letzter bestätigter Abgleich " +
-                    new Date(s.synced).toLocaleString("de-AT")
-                : "Erster Abgleich ausständig",
+                ? "Last confirmed sync " +
+                    new Date(s.synced).toLocaleString("en-GB")
+                : "First sync pending",
             ) +
             '</p><div class="actions">' +
-            button("sync", "Jetzt abgleichen") +
-            button("recover", "Verschlüsselte Sicherung laden", true) +
+            button("sync", "Sync now") +
+            button("recover", "Download encrypted backup", true) +
             "</div>",
         )
       : button("sync", "Refresh entries", true)) +
     conflicts +
     panel(
-      "Prüfprotokoll",
+      "Audit log",
       '<div class="actions">' +
-        button("audit", "Protokoll anzeigen", true) +
-        button("journalHistory", "Storno und Ersatz anzeigen", true) +
-        button("numbers", "Nummernregister prüfen", true) +
-        button("conflictFiles", "Strittige Originalfassungen laden", true) +
+        button("audit", "Show log", true) +
+        button("journalHistory", "Show reversal and replacement", true) +
+        button("numbers", "Review number register", true) +
+        button("conflictFiles", "Load disputed originals", true) +
         "</div>" +
         (conflictFiles?.device === s.device && conflictFiles.list.length
           ? form(
               "conflictFile",
               select(
                 "operation",
-                "Archivierte Konfliktfassung",
+                "Archived conflicting version",
                 conflictFiles.list.map((x) => [
                   x.id,
-                  "Nr. " + x.number + " · " + x.outcome + " · " + x.id,
+                  "No. " + x.number + " · " + x.outcome + " · " + x.id,
                 ]),
               ) +
-                select("format", "Dateityp", [
+                select("format", "File type", [
                   ["pdf", "PDF"],
                   ["docx", "DOCX"],
                 ]),
-              "Archivdatei laden",
+              "Download archive",
             )
           : conflictFiles?.device === s.device ? "<p>No disputed originals found.</p>" : "") +
         auditRows
@@ -862,12 +862,12 @@ function devicePage() {
               esc(r.username) +
               " · " +
               esc(r.action) +
-              (r.device ? "<br>Ausführendes Gerät " + esc(r.device) : "") +
-              (r.local_time ? " · Gerätezeit " + esc(r.local_time) : "") +
+              (r.device ? "<br>Recording device " + esc(r.device) : "") +
+              (r.local_time ? " · Device time " + esc(r.local_time) : "") +
               (r.source_device
-                ? " · Quellgerät " +
+                ? " · Source device " +
                   esc(r.source_device) +
-                  " · Ausgangsrevision " +
+                  " · Original revision " +
                   esc(r.base_revision)
                 : "") +
               "</p>",
@@ -876,27 +876,27 @@ function devicePage() {
     ) +
     (s.role === "Admin" && !s.event.General
       ? panel(
-          "Veranstaltung verwalten",
+          "Manage event",
           copyForm() +
             esc(syncDetail) +
             (s.closed
               ? popupForm(
                   "reopen",
-                  "Arbeitsbereich wieder öffnen",
-                  field("reason", "Begründung", "text", true),
-                  "Veranstaltung wieder öffnen",
+                  "Reopen workspace",
+                  field("reason", "Reason", "text", true),
+                  "Reopen event",
                 )
               : ""),
         )
       : "") +
     (s.role === "Admin"
       ? panel(
-          "Kontozuordnung",
+          "Account allocation",
           button(
             "accounts",
             s.event.Accounts
-              ? "Kontozuordnung ausschalten"
-              : "Kontozuordnung einschalten",
+              ? "Disable account allocation"
+              : "Enable account allocation",
             true,
           ),
         )
@@ -904,20 +904,20 @@ function devicePage() {
     (offlineEnabled
       ? incidentPanel() +
         panel(
-          "Erfassungsende",
-          "<p>Mit der Bestätigung endet die Erfassung auf diesem Gerät für diese Veranstaltung.</p><p>Geräte ohne bestätigtes Ende beim letzten Abgleich: " +
-            esc(s.pending ?? "Unbekannt") +
+          "End of recording",
+          "<p>Confirm to finish recording this event on this device.</p><p>Devices still recording at the last sync: " +
+            esc(s.pending ?? "Unknown") +
             '</p><div class="actions">' +
             (!s.sealed
-              ? button("seal", "Mein Erfassungsende bestätigen")
-              : "<strong>Erfassungsende bestätigt</strong>") +
+              ? button("seal", "Confirm end of recording")
+              : "<strong>Recording complete</strong>") +
             (s.role === "Admin" && !s.closed && !s.recovery
-              ? button("close", "Bestände prüfen und abschließen")
+              ? button("close", "Review balances and close")
               : "") +
             "</div>",
         )
       : s.role === "Admin" && !s.closed
-        ? button("close", "Bestände prüfen und abschließen")
+        ? button("close", "Review balances and close")
         : "")
   );
 }
@@ -939,7 +939,7 @@ function formFields(k, countPhase = "") {
         ? "What was it for?"
         : k === "contact"
           ? "Name or company"
-          : "Bezeichnung",
+          : "Description",
       "text",
       true,
       walletTopUp
@@ -954,7 +954,7 @@ function formFields(k, countPhase = "") {
     ) +
     field(
       "Date",
-      k === "period" ? "Periodenbeginn" : "Datum",
+      k === "period" ? "Period start" : "Date",
       "date",
       true,
       offlineEnabled ? today() : defaultDay(s.event),
@@ -964,7 +964,7 @@ function formFields(k, countPhase = "") {
       "Amount in EUR",
       '<input name="amount" inputmode="decimal" required placeholder="0,00">',
     );
-  if (k === "period") f += field("To", "Periodenende", "date", true);
+  if (k === "period") f += field("To", "Period end", "date", true);
   if (k === "expense") {
     const issuers = [
       ...new Set(
@@ -1013,13 +1013,13 @@ function formFields(k, countPhase = "") {
     ].includes(k)
   ) {
     if (k === "count" && (countPhase || edit?.Data.Phase) !== "Zwischenstand")
-      f += select("field_countScope", "Zählumfang", [
-        ["wallet", "Einzelne Geldtasche"],
-        ["all", "Alle Geldtaschen zusammen"],
+      f += select("field_countScope", "Count scope", [
+        ["wallet", "Single wallet"],
+        ["all", "All wallets combined"],
       ]);
     const wallet = refs(
       "Wallet",
-      walletTopUp ? "Empfangende Geldtasche" : "Geldtasche",
+      walletTopUp ? "Receiving wallet" : "Wallet",
       ["wallet"],
     );
     if (simpleBooking) extra += wallet;
@@ -1032,7 +1032,7 @@ function formFields(k, countPhase = "") {
   ) {
     const contact = refs(
       "Contact",
-      eventBooking ? "Sponsor aus dem Kontaktverzeichnis" : "Kontakt",
+      eventBooking ? "Sponsor from the contact directory" : "Contact",
       ["contact"],
       eventBooking,
     );
@@ -1043,60 +1043,60 @@ function formFields(k, countPhase = "") {
       (r) => r.Kind === "contact" && r.ID === edit.Data.Contact,
     );
     if (contact)
-      f += "<p>Zugeordneter Kontakt: " + esc(contact.Data.Label) + "</p>";
+      f += "<p>Linked contact: " + esc(contact.Data.Label) + "</p>";
   }
   if (k === "organization")
     f +=
       label(
-        "Organisationslogo (PNG, optional)",
+        "Organization logo (PNG, optional)",
         '<input type="file" name="logo" accept="image/png">',
       ) +
-      field("Address", "Anschrift", "text", true) +
-      field("field_IBAN", "Entwicklungskonto / IBAN") +
-      field("field_holder", "Kontoinhaber") +
-      field("field_legal", "Freigegebener Rechnungstext") +
-      field("field_donationLegal", "Freigegebener Spendentext");
+      field("Address", "Address", "text", true) +
+      field("field_IBAN", "Account / IBAN") +
+      field("field_holder", "Account holder") +
+      field("field_legal", "Approved invoice text") +
+      field("field_donationLegal", "Approved donation text");
   if (k === "contact")
     f +=
-      field("field_salutation", "Briefanrede (optional)") +
-      field("field_given", "Vorname") +
-      field("field_family", "Familienname") +
+      field("field_salutation", "Letter salutation (optional)") +
+      field("field_given", "First name") +
+      field("field_family", "Last name") +
       (s.donorAccess
-        ? field("field_birth", "Geburtsdatum für die Spendenprüfung", "date")
+        ? field("field_birth", "Date of birth for donation reporting", "date")
         : "");
   if (["card", "fee", "payout", "cashback"].includes(k))
     f += field(
       "field_provider",
-      "Kartenanbieter / Abrechnungskreis",
+      "Card provider / settlement group",
       "text",
       true,
     );
   if (k === "presale")
     f +=
-      field("field_saleQuantity", "Stückzahl Vorverkauf", "number", true) +
-      field("unitSale", "Preis pro Stück in EUR", "text", true) +
-      field("field_paymentEvidence", "Zahlungsnachweis / Belegnummer");
+      field("field_saleQuantity", "Advance tickets sold", "number", true) +
+      field("unitSale", "Unit price in EUR", "text", true) +
+      field("field_paymentEvidence", "Proof of payment / receipt number");
   if (k === "expense")
-    extra += refs("field_sale", "Zugehöriger Vorverkauf (Herstellungskosten)", [
+    extra += refs("field_sale", "Related advance sale (production costs)", [
       "presale",
     ]);
   if (k === "paper")
     f +=
       field(
         "Number",
-        "Papiernummer P- (nur Zahl, " +
+        "Paper number P- (digits only, " +
           s.first +
-          " bis " +
+          " to " +
           (s.paperLimit ?? s.limit) +
           ")",
         "number",
         true,
       ) +
-      select("Status", "Papierbelegstatus", [
-        ["Ausgegeben", "Ausgegeben"],
-        ["Verworfen", "Verworfen"],
+      select("Status", "Paper receipt status", [
+        ["Ausgegeben", "Issued"],
+        ["Verworfen", "Voided"],
       ]) +
-      refs("Reference", "Bereits erfasste Barzahlung", [
+      refs("Reference", "Previously recorded cash payment", [
         "income",
         "payment",
         "donation",
@@ -1105,33 +1105,33 @@ function formFields(k, countPhase = "") {
   if (k === "contact")
     f += field(
       "field_distinct",
-      "Abgrenzung bei gleichem Kontaktnamen (optional)",
+      "Distinguishing detail for contacts with the same name (optional)",
     );
   if (k === "sponsorship")
     f +=
-      select("field_claimType", "Forderungsart", [
+      select("field_claimType", "Receivable type", [
         ["sponsor", "Sponsoring"],
-        ["invoice", "Ausgangsrechnung"],
+        ["invoice", "Outgoing invoice"],
       ]) +
       label(
-        "Rechnungspositionen (optional, eine pro Zeile: Menge | Leistung | Einzelpreis)",
+        "Invoice line items (optional, one per line: quantity | description | unit price)",
         '<textarea name="positions"></textarea>',
       ) +
       select(
         "field_pledge",
-        "Zusage",
-        ["Offen", "Zugesagt", "Zurückgezogen"].map((v) => [v, v]),
+        "Pledge",
+        ["Offen", "Zugesagt", "Zurückgezogen"].map((v) => [v, financialLabel(v)]),
       ) +
-      field("field_due", "Fälligkeit", "date") +
-      field("field_service", "Leistungszeitraum") +
-      field("field_paymentRef", "Zahlungsreferenz für Überweisungen");
+      field("field_due", "Due date", "date") +
+      field("field_service", "Service period") +
+      field("field_paymentRef", "Bank transfer reference");
   if (k === "price")
     f +=
-      field("field_guest", "Gästebezeichnung") +
-      field("field_allergens", "Bestätigte Allergene") +
-      field("field_unitA", "Einheit laut erster Quelle (bei Klärung)") +
-      field("field_unitB", "Abweichende Quellenangabe") +
-      field("field_unitReason", "Begründung für die geklärte Ausgabeeinheit");
+      field("field_guest", "Guest-facing name") +
+      field("field_allergens", "Confirmed allergens") +
+      field("field_unitA", "Unit in the first source (when resolving a discrepancy)") +
+      field("field_unitB", "Conflicting source information") +
+      field("field_unitReason", "Reason for the agreed sale unit");
   if (k === "contact") {
     const legacy =
       edit?.Data.Address &&
@@ -1140,29 +1140,29 @@ function formFields(k, countPhase = "") {
       !edit.Data.Fields?.zip;
     f +=
       (legacy
-        ? label("Bisherige Anschrift", '<textarea name="Address"></textarea>')
+        ? label("Previous address", '<textarea name="Address"></textarea>')
         : "") +
-      field("field_street", "Straße und Hausnummer") +
-      field("field_zip", "PLZ") +
-      field("field_town", "Ort") +
-      field("Category", "Person / Firma");
+      field("field_street", "Street and house number") +
+      field("field_zip", "Postal code") +
+      field("field_town", "Town or city") +
+      field("Category", "Person / company");
   }
   if (monetary.has(k) && !["price", "cashback", "skim", "return"].includes(k)) {
     const sourceLabel = walletTopUp
-      ? "Entnommen aus (Quelle)"
-      : "Konto / Quelle";
+      ? "Taken from (source)"
+      : "Account / source";
     if (
       walletTopUp &&
       !s.event.Accounts &&
       rows().filter((r) => r.Kind === "wallet").length > 1
     )
-      f += select("sourceWallet", "Wechselgeldquelle", [
-        ["", "Hauptkassa oder andere Quelle"],
+      f += select("sourceWallet", "Change source", [
+        ["", "Main cashbox or other source"],
         ...choices(["wallet"]).filter(([id]) => id),
       ]);
     if (s.event.Accounts)
       f += refs("Account", sourceLabel, ["account", "wallet"]);
-    else if (simpleBooking) extra += field("Account", "Konto / Quelle");
+    else if (simpleBooking) extra += field("Account", "Account / source");
     else f += field("Account", sourceLabel, "text", walletTopUp);
   }
   if (
@@ -1172,12 +1172,12 @@ function formFields(k, countPhase = "") {
     f += s.event.Accounts
       ? refs(
           "To",
-          k === "cashback" ? "Terminal-Verrechnungskonto" : "Zielkonto",
+          k === "cashback" ? "Terminal clearing account" : "Destination account",
           k === "cashback" ? ["account"] : ["account", "wallet"],
         )
       : field(
           "To",
-          k === "cashback" ? "Terminal-Verrechnungskonto" : "Zielkonto",
+          k === "cashback" ? "Terminal clearing account" : "Destination account",
           "text",
           true,
         );
@@ -1193,10 +1193,10 @@ function formFields(k, countPhase = "") {
       "presale",
     ].includes(k)
   )
-    f += select("Method", "Zahlungsart", [
-      ["Bar", "Bar"],
-      ["Überweisung", "Überweisung"],
-      ["Karte", "Karte"],
+    f += select("Method", "Payment method", [
+      ["Bar", "Cash"],
+      ["Überweisung", "Bank transfer"],
+      ["Karte", "Card"],
     ]);
   if (
     [
@@ -1211,19 +1211,19 @@ function formFields(k, countPhase = "") {
       "return",
     ].includes(k)
   )
-    extra += field("field_matter", "Externe Vorgangskennung");
-  if (k === "payment") f += refs("Reference", "Forderung", ["sponsorship"]);
+    extra += field("field_matter", "External transaction ID");
+  if (k === "payment") f += refs("Reference", "Receivable", ["sponsorship"]);
   else if (k === "reimbursement") {
-    f += refs("Reference", "Einzelne Privatauslage", ["outlay"]);
+    f += refs("Reference", "Individual personal advance", ["outlay"]);
     const debts = rows().filter((r) => r.Kind === "outlay");
     if (debts.length)
       f +=
-        "<details><summary>Sammelerstattung aufteilen</summary>" +
+        "<details><summary>Allocate grouped reimbursement</summary>" +
         debts
           .map((r) =>
             field(
               "alloc_" + r.ID,
-              r.Data.Label + " · maximal " + eur(r.Data.Amount),
+              r.Data.Label + " · maximum " + eur(r.Data.Amount),
             ),
           )
           .join("") +
@@ -1232,60 +1232,60 @@ function formFields(k, countPhase = "") {
     f +=
       refs(
         "Reference",
-        "Zugehöriger Vorgang",
+        "Associated transaction",
         Object.keys(types).filter((n) => n !== "attachment"),
       ) +
       label(
-        "PDF, JPEG oder PNG",
+        "PDF, JPEG or PNG",
         '<input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required>',
       );
   else if (k === "template")
     f += select(
       "Reference",
-      "Ausgabeprofil",
+      "Issuing profile",
       profiles.map((p, i) => [profileID(i), p]),
     );
   else if (k === "price")
     f +=
-      select("Category", "Sortiment", [
-        ["Getränk", "Getränk"],
-        ["Essen", "Essen"],
+      select("Category", "Product range", [
+        ["Getränk", "Drink"],
+        ["Essen", "Food"],
       ]) +
-      field("Unit", "Einheit") +
-      field("Variant", "Variante") +
+      field("Unit", "Unit") +
+      field("Variant", "Variant") +
       select(
         "Status",
-        "Preisstand",
+        "Price version",
         s.role === "Admin"
           ? [
-              ["Entwurf", "Entwurf"],
-              ["Freigegeben", "Freigegeben"],
+              ["Entwurf", "Draft"],
+              ["Freigegeben", "Approved"],
             ]
-          : [["Entwurf", "Entwurf"]],
+          : [["Entwurf", "Draft"]],
       );
   else if (k === "donation")
     f +=
-      field("Reference", "Sammler/in") +
+      field("Reference", "Collector") +
       field(
         "field_reporting",
-        "Meldezeitraum (unabhängig von der Abschlussperiode)",
+        "Reporting period (independent of the accounting period)",
       ) +
-      select("Status", "Spendenart", [
+      select("Status", "Donation type", [
         [
           "Offen",
           eventBooking && !edit?.Data.Contact
-            ? "Spenderangaben offen"
-            : "Namentlich",
+            ? "Donor details pending"
+            : "Named",
         ],
-        ["Anonym", "Anonym"],
+        ["Anonym", "Anonymous"],
       ]);
   else if (simpleBooking)
     extra +=
-      field("Category", "Kategorie") + field("Reference", "Belegreferenz");
+      field("Category", "Category") + field("Reference", "Receipt reference");
   if (k === "count")
-    f += select("Status", "Erfassungsstand", [
-      ["Unbestätigt", "Erfasste Beobachtung"],
-      ["Bestätigt", "Zählung bestätigen"],
+    f += select("Status", "Recording status", [
+      ["Unbestätigt", "Recorded observation"],
+      ["Bestätigt", "Confirm count"],
     ]);
   if (["count", "plan", "reserve", "supply"].includes(k)) {
     if (countPhase)
@@ -1294,13 +1294,13 @@ function formFields(k, countPhase = "") {
       f += select(
         "Phase",
         "Phase",
-        ["Anfang", "Zwischenstand", "Ende"].map((p) => [p, p]),
+        ["Anfang", "Zwischenstand", "Ende"].map((p) => [p, financialLabel(p)]),
       );
     if (k === "count" || k === "supply")
       f +=
         select("field_countMode", "Enter amount", [
-          ["amount", "Gesamtbetrag eingeben"],
-          ["pieces", "Münzen und Scheine zählen"],
+          ["amount", "Enter total amount"],
+          ["pieces", "Count coins and notes"],
         ]) +
         label(
           k === "supply" ? "Amount in EUR" : "Counted amount in EUR",
@@ -1316,7 +1316,7 @@ function formFields(k, countPhase = "") {
               eur(c),
               '<input name="coin' +
                 c +
-                '" aria-label="Stückzahl ' +
+                '" aria-label="Quantity of ' +
                 esc(eur(c)) +
                 '" min="0" max="1000000" inputmode="numeric" type="number" value="0" step="1"><small data-piece="' +
                 c +
@@ -1332,11 +1332,11 @@ function formFields(k, countPhase = "") {
                   c +
                   '" data-step="' +
                   step +
-                  '" aria-label="' +
+                  '" aria-label="Add ' +
                   step +
-                  " Stück zu " +
+                  " units at " +
                   esc(eur(c)) +
-                  ' hinzufügen">+' +
+                  '">+' +
                   step +
                   "</button>",
               )
@@ -1344,20 +1344,20 @@ function formFields(k, countPhase = "") {
             "</div></div>",
         )
         .join("") +
-      '</div><p class="count-total">Gezählter Betrag <output id="count-total" aria-live="polite">' +
+      '</div><p class="count-total">Counted amount <output id="count-total" aria-live="polite">' +
       esc(eur(0)) +
       '</output></p></div><div class="form">';
   }
   if (edit) f += field("Note", "Reason for correction", "text", true);
-  else extra += field("Note", "Notiz / Textbaustein");
+  else extra += field("Note", "Note / text snippet");
   if (extra)
     f +=
       '<details class="record-extra"><summary>' +
       (simpleBooking
         ? edit
-          ? "Zuordnung und Belegdetails"
-          : "Zuordnung, Beleg und Notiz"
-        : "Weitere Angaben") +
+          ? "Allocation and receipt details"
+          : "Allocation, receipt and note"
+        : "More details") +
       '</summary><div class="form">' +
       extra +
       "</div></details>";
@@ -1367,32 +1367,32 @@ function journalFilterFields() {
   const all = rows(),
     labels = new Map(all.map((r) => [r.ID, r.Data.Label]));
   let fields =
-    field("from", "Von", "date", false, journalFilters.from || "") +
-    field("until", "Bis", "date", false, journalFilters.until || "");
+    field("from", "From", "date", false, journalFilters.from || "") +
+    field("until", "To", "date", false, journalFilters.until || "");
   for (const [key, title, values] of [
     [
       "kind",
-      "Vorgangsart",
+      "Transaction type",
       recordKinds(page, !offlineEnabled).map((k) => [k, types[k]]),
     ],
     ...[
-      ["category", "Kategorie", "Category"],
-      ["method", "Zahlungsart", "Method"],
-      ["account", "Konto", "Account"],
+      ["category", "Category", "Category"],
+      ["method", "Payment method", "Method"],
+      ["account", "Account", "Account"],
       ["bar", "Bar", "Bar"],
     ].map(([key, title, attr]) => [
       key,
       title,
       [...new Set(all.map((r) => r.Data[attr]).filter(Boolean))]
         .sort()
-        .map((v) => [v, labels.get(v) || v]),
+        .map((v) => [v, labels.get(v) || (attr === "Method" ? financialLabel(v) : v)]),
     ]),
   ]) {
     fields += label(
       title,
       '<select name="' +
         key +
-        '"><option value="">Alle</option>' +
+        '"><option value="">All</option>' +
         values
           .map(
             ([v, t]) =>
@@ -1427,19 +1427,19 @@ function walletSettlementSummary(entries) {
     if (amount == null)
       return wallet
         ? ""
-        : "<p>Für die Gesamtabrechnung den gemeinsamen Endbestand und den Anfangsbestand erfassen. Der Anfangsbestand kann auch aus den Einzelzählungen aller Börsen stammen.</p>";
+        : "<p>Enter a pooled closing count and an opening balance. The opening balance can also come from individual counts for all wallets.</p>";
     const label = wallet
-      ? esc(wallet.Data.Label) + " · Weitere Sammelbareinnahme"
-      : "Alle Geldtaschen · Sammelbareinnahme";
+      ? esc(wallet.Data.Label) + " · Additional pooled cash income"
+      : "All wallets · Pooled cash income";
     let action = "";
-    if (amount < 0) action = "Zählungen und Geldbewegungen prüfen.";
-    else if (previous?.Data.Amount === amount) action = "Gebucht";
+    if (amount < 0) action = "Review counts and money movements.";
+    else if (previous?.Data.Amount === amount) action = "Posted";
     else if (writableWorkspace()) {
       const title = previous
-        ? "Sammelbetrag berichtigen"
+        ? "Correct pooled amount"
         : wallet
-          ? "Sammelbetrag buchen"
-          : "Gesamtbetrag buchen";
+          ? "Post pooled amount"
+          : "Post total";
       action =
         '<button type="button" data-settle="' +
         esc(wallet?.ID || target) +
@@ -1492,7 +1492,7 @@ function records() {
     detail = [...balances]
       .map(
         ([name, balance]) =>
-          "<p>Anbieterguthaben " + esc(name) + " · " + eur(balance) + "</p>",
+          "<p>Provider balance " + esc(name) + " · " + eur(balance) + "</p>",
       )
       .join("");
   }
@@ -1502,12 +1502,12 @@ function records() {
       const originals = claims.flatMap((c) =>
         c.originals.map((doc) => [
           doc.id,
-          c.claim.Data.Label + " · Nr. " + doc.number,
+          c.claim.Data.Label + " · No. " + doc.number,
         ]),
       );
       detail += panel(
         "Sponsoring",
-        '<div class="list"><table><tr><th>Forderung</th><th>Zusage</th><th>Betrag</th><th>Bezahlt</th><th>Offen</th><th>Belege und Versand</th></tr>' +
+        '<div class="list"><table><tr><th>Receivable</th><th>Pledge</th><th>Amount</th><th>Paid</th><th>Open</th><th>Receipts and delivery</th></tr>' +
           claims
             .map(
               (c) =>
@@ -1523,12 +1523,12 @@ function records() {
                 eur(c.outstanding) +
                 "</td><td>" +
                 (c.originals
-                  .map((o) => "Nr. " + o.number + " · " + esc(o.dispatch))
-                  .join("<br>") || "Kein Original ausgestellt") +
+                  .map((o) => "No. " + o.number + " · " + esc(financialLabel(o.dispatch)))
+                  .join("<br>") || "No original issued") +
                 (page === "Zahlungen"
                   ? ' <button type="button" class="secondary" data-claim-invoice="' +
                     esc(c.claim.ID) +
-                    '">Rechnung öffnen</button>'
+                    '">Open invoice</button>'
                   : "") +
                 "</td></tr>",
             )
@@ -1537,24 +1537,24 @@ function records() {
           (s.role === "Admin" && !s.closed && originals.length
             ? popupForm(
                 "dispatch",
-                "Übergabe dokumentieren",
-                select("original", "Ausgestellter Beleg", originals) +
+                "Record handover",
+                select("original", "Issued receipt", originals) +
                   select(
                     "delivery",
-                    "Extern erfolgte Übergabe",
+                    "External handover",
                     [
                       "Extern übergeben",
                       "Extern versandt",
                       "Vermerk aufgehoben",
-                    ].map((v) => [v, v]),
+                    ].map((v) => [v, financialLabel(v)]),
                   ) +
                   field(
                     "evidence",
-                    "Nachweis oder Korrekturgrund",
+                    "Supporting evidence or reason for correction",
                     "text",
                     true,
                   ),
-                "Übergabe dokumentieren",
+                "Record handover",
               )
             : ""),
       );
@@ -1564,13 +1564,13 @@ function records() {
     detail =
       form(
         "globalPeriod",
-        field("start", "Auswertung von", "date", true, s.event.Starts) +
-          field("end", "bis", "date", true, s.event.Ends) +
-          select("scope", "Auswertung", [
-            ["period", "Aktueller Fachstand"],
-            ["journal-period", "Buchungen einschließlich Storno und Ersatz"],
+        field("start", "Report from", "date", true, s.event.Starts) +
+          field("end", "to", "date", true, s.event.Ends) +
+          select("scope", "Report", [
+            ["period", "Current records"],
+            ["journal-period", "Bookings including reversals and replacements"],
           ]),
-        "Zugewiesene Veranstaltungen auswerten",
+        "Analyze assigned events",
       ) +
       globalRows
         .map(
@@ -1598,23 +1598,23 @@ function records() {
   if (page === "Perioden" && s.role === "Admin" && !s.recovery && !s.closed) {
     detail += popupForm(
       "periodAction",
-      "Periodenstand ändern",
-      refs("id", "Abrechnungsperiode", ["period"]) +
-        select("action", "Vorgang", [
-          ["period-close", "Zeitraum freigeben"],
-          ["period-open", "Zeitraum wieder öffnen"],
+      "Change period status",
+      refs("id", "Accounting period", ["period"]) +
+        select("action", "Transaction", [
+          ["period-close", "Approve period"],
+          ["period-open", "Reopen period"],
         ]) +
-        field("reason", "Begründung für Wiederöffnung"),
-      "Periodenstand bestätigen",
+        field("reason", "Reason for reopening"),
+      "Confirm period status",
     );
   }
   if (page === "Perioden" && s.role === "Admin" && !s.closed)
     detail += popupForm(
       "carry",
-      "Vorperiodenstand übernehmen",
-      refs("period", "Zielperiode", ["period"]) +
-        field("reason", "Begründung bei Austausch eines früheren Übertrags"),
-      "Bestätigten Vorperiodenstand übernehmen",
+      "Carry forward prior balance",
+      refs("period", "Destination period", ["period"]) +
+        field("reason", "Reason for replacing an earlier carry-forward"),
+      "Carry forward the confirmed prior balance",
     );
   if (page === "Geldtaschen") {
     const plan = denominationNeeds(rows()).filter((r) => r.need || r.stock);
@@ -1637,18 +1637,18 @@ function records() {
           ];
     if (needed.length)
       detail += panel(
-        "Wechselgeld vorbereiten",
-        "<p>Benötigter Betrag · <strong>" +
+        "Prepare change",
+        "<p>Required amount · <strong>" +
           eur(needed.reduce((sum, r) => sum + (r.Data.Amount ?? 0), 0)) +
           "</strong></p>" +
           (needed.some((r) => !r.Data.Pieces)
-            ? "<p>Für einen Teilbetrag sind die Stückzahlen offen.</p>"
+            ? "<p>Denomination counts are missing for part of the amount.</p>"
             : ""),
       );
     if (plan.length)
       detail += panel(
-        "Wechselgeld über alle Geldtaschen",
-        "<table><thead><tr><th>Nennwert</th><th>Bedarf</th><th>Verfügbar</th><th>Fehlmenge</th></tr></thead><tbody>" +
+        "Change across all wallets",
+        "<table><thead><tr><th>Denomination</th><th>Required</th><th>Available</th><th>Shortfall</th></tr></thead><tbody>" +
           plan
             .map(
               (r) =>
@@ -1657,9 +1657,9 @@ function records() {
                 "</td><td>" +
                 r.need +
                 "</td><td>" +
-                (r.stock ?? "Offen") +
+                (r.stock ?? "Unknown") +
                 "</td><td>" +
-                (r.missing ?? "Offen") +
+                (r.missing ?? "Unknown") +
                 "</td></tr>",
             )
             .join("") +
@@ -1669,18 +1669,18 @@ function records() {
   if (offlineEnabled && page === "Geldtaschen" && writableWorkspace()) {
     detail += popupForm(
       "handover",
-      "Physische Übergabe dokumentieren",
-      refs("wallet", "Geldtasche", ["wallet"]) +
+      "Record physical handover",
+      refs("wallet", "Wallet", ["wallet"]) +
         select(
           "to",
-          "Empfangendes Gerät",
+          "Receiving device",
           (s.devices || []).filter((d) => !d.Sealed).map((d) => [d.ID, d.Name]),
         ) +
-        select("status", "Übergabe", [
-          ["Angeboten", "Übergabe anbieten"],
-          ["Bestätigt", "Empfang bestätigen"],
+        select("status", "Handover", [
+          ["Angeboten", "Offer handover"],
+          ["Bestätigt", "Confirm receipt"],
         ]),
-      "Übergabe dokumentieren",
+      "Record handover",
     );
   }
   return (
@@ -1690,7 +1690,7 @@ function records() {
     (page === "Geldtaschen" ? walletSettlementSummary(rows()) : "") +
     "<section>" +
     panelHeading(
-      "Einträge",
+      "Entries",
       !offlineEnabled ? button("sync", "Refresh entries", true) : "",
     ) +
     '<details class="filter-box"' +
@@ -1700,12 +1700,12 @@ function records() {
       "filter",
       field(
         "filter",
-        "Bezeichnung oder Kategorie suchen",
+        "Search by description or category",
         "search",
         false,
         filter,
       ) + (isBookingList() ? journalFilterFields() : ""),
-      "Filtern",
+      "Filter",
     ) +
     "</details>" +
     table(set, editableKinds()) +
@@ -1720,9 +1720,9 @@ function recordForm(countPhase = "") {
     edit
       ? "Save correction"
       : offlineEnabled
-        ? "Lokal speichern"
-        : "Speichern",
-    button("cancel", "Abbrechen", true),
+        ? "Save locally"
+        : "Save",
+    button("cancel", "Cancel", true),
   );
 }
 function entryLabel(page) {
@@ -1805,7 +1805,7 @@ function bookingTypeSelector(kinds) {
     ],
   ];
   return label(
-    "Vorgang",
+    "Transaction",
     '<select name="type">' +
       sections
         .map(([title, items]) => {
@@ -1845,21 +1845,21 @@ function openRecord(trigger, item = null) {
         ? bookingTypeSelector(kinds)
         : select(
             "type",
-            "Vorgang",
+            "Transaction",
             kinds.map((k) => [k, types[k]]),
           )
       : "";
   openEditor(
     trigger,
     item
-      ? types[kind] + " berichtigen"
+      ? types[kind] + " correct"
       : walletKind
         ? trigger.textContent
         : entryLabel(page),
     recordForm(countPhase),
     (offlineEnabled
       ? ""
-      : '<p class="booking-target">Buchungsziel <strong>' +
+      : '<p class="booking-target">Booking destination <strong>' +
         esc(workspaceLabel()) +
         "</strong></p>") + selector,
   );
@@ -1910,7 +1910,7 @@ function openRecord(trigger, item = null) {
       (r) => r.Kind === "period" && r.ID === overviewPeriod,
     );
     const fields = entryDialog.querySelector("#record").elements;
-    fields.Label.value = "Anfangsbestand";
+    fields.Label.value = "Opening balance";
     fields.Date.min = period?.Data.Date || s.event.Starts;
     fields.Date.max = period?.Data.To || s.event.Ends;
     fields.Date.value = fields.Date.min;
@@ -1922,9 +1922,9 @@ function openRecord(trigger, item = null) {
 function addYearCarryChoice(manual) {
   manual.insertAdjacentHTML(
     "beforebegin",
-    '<fieldset class="opening-method"><legend>Anfangsbestand</legend>' +
-      '<label><input type="radio" name="openingMethod" value="manual" checked> Händisch erfassen</label>' +
-      '<label><input type="radio" name="openingMethod" value="prior"> Aus Vorjahr übernehmen</label></fieldset>',
+    '<fieldset class="opening-method"><legend>Opening balance</legend>' +
+      '<label><input type="radio" name="openingMethod" value="manual" checked> Enter manually</label>' +
+      '<label><input type="radio" name="openingMethod" value="prior"> Carry forward from prior year</label></fieldset>',
   );
   const choice = manual.previousElementSibling;
   const preview = document.createElement("div");
@@ -1939,21 +1939,21 @@ function addYearCarryChoice(manual) {
     if (!prior || sources || preview.getAttribute("aria-busy") === "true")
       return;
     preview.setAttribute("aria-busy", "true");
-    preview.textContent = "Vorjahresabschluss wird geladen …";
+    preview.textContent = "Loading prior closing balance…";
     try {
       sources = await api("manage", { Action: "year-carry" });
       if (!preview.isConnected) return;
       if (!sources.length) {
         preview.textContent =
-          "Für diesen Arbeitsbereich liegt im vorherigen Geschäftsjahr kein bestätigter Schlussbestand vor. Du kannst den Anfangsbestand händisch erfassen.";
+          "There is no confirmed closing balance for this workspace in the previous fiscal year. Enter the opening balance manually.";
         return;
       }
       const sourceOptions = new Map(
         sources.map((l) => [l.Source, l.Name + " · " + l.Year]),
       );
       preview.innerHTML =
-        select("source", "Quelle im Vorjahr", [
-          ["", "Bitte wählen"],
+        select("source", "Source in prior year", [
+          ["", "Select an option"],
           ...sourceOptions,
         ]) + '<div class="year-carry-preview"></div>';
       const picker = preview.querySelector("select");
@@ -1970,7 +1970,7 @@ function addYearCarryChoice(manual) {
           return;
         }
         box.innerHTML =
-          "<p>Bestätigter Schlussbestand zum " +
+          "<p>Confirmed closing balance as of " +
           dat(lines[0].End) +
           " · <strong>" +
           eur(lines.reduce((sum, l) => sum + l.Amount, 0)) +
@@ -1988,7 +1988,7 @@ function addYearCarryChoice(manual) {
                   workspace.Accounts
                     ? select(
                         "account:" + l.Account,
-                        l.Label + " · " + eur(l.Amount) + " → Zielkonto",
+                        l.Label + " · " + eur(l.Amount) + " → Destination account",
                         targetAccounts,
                       )
                     : lines.length > 1
@@ -1996,11 +1996,11 @@ function addYearCarryChoice(manual) {
                       : "",
                 )
                 .join("") +
-              "<p>Eröffnung zum " +
+              "<p>Opening balance as of " +
               dat(workspace.Starts) +
               "</p>",
-            "Anfangsbestand übernehmen",
-            button("cancel", "Abbrechen", true),
+            "Carry forward opening balance",
+            button("cancel", "Cancel", true),
           );
         for (const account of box.querySelectorAll("select"))
           account.required = true;
@@ -2009,7 +2009,7 @@ function addYearCarryChoice(manual) {
             .querySelector("form")
             .replaceWith(
               document.createTextNode(
-                "Lege unter Abschluss zuerst ein Zielkonto an.",
+                "Create a destination account under Closing first.",
               ),
             );
         }
@@ -2028,8 +2028,8 @@ const donorRequest = (body) => api("donation-reports", body, bearer());
 function donationPanel() {
   if (!offlineEnabled && s.role === "Admin" && !s.donorAccess)
     return panel(
-      "Spendenmeldedaten",
-      button("viewDonors", "Meldedaten für diese Sitzung öffnen", true),
+      "Donation reporting data",
+      button("viewDonors", "Unlock reporting data for this session", true),
     );
   if (s.role !== "Admin" || !s.donorAccess || s.recovery) return "";
   const review = donorReview?.device === s.device ? donorReview : null;
@@ -2037,24 +2037,33 @@ function donationPanel() {
     "donorLoad",
     field(
       "period",
-      "Meldezeitraum",
+      "Reporting period",
       "text",
       true,
       review?.period || String(new Date().getFullYear()),
     ),
-    "Prüfstand online laden",
+    "Load current review status",
   );
-  if (!review) return panel("Spendenmeldedaten", content);
+  if (!review) return panel("Donation reporting data", content);
   const data = review.preview.daten;
   content +=
     "<p>" +
     data.Spenden.length +
-    " meldbare Spenden · " +
+    " reportable donations · " +
     eur(data.SummeCent) +
     " · " +
     data.Ausgeschlossen.length +
-    " ausgeschlossen</p><details><summary>Prüfdaten und Ausschlussgründe ansehen</summary><pre>" +
-    esc(JSON.stringify(data, null, 2)) +
+    " excluded</p><details><summary>View review details and reasons for exclusion</summary><pre>" +
+    esc(JSON.stringify({
+      event: data.Veranstaltung,
+      reportingPeriod: data.Meldezeitraum,
+      totalCents: data.SummeCent,
+      donations: data.Spenden.map(({Vorgang, Datum, BetragCent, Person, Revision}) => ({
+        transaction: Vorgang, date: Datum, amountCents: BetragCent, revision: Revision,
+        firstName: Person.Vorname, lastName: Person.Nachname, birthDate: Person.Geburtsdatum,
+      })),
+      excluded: data.Ausgeschlossen.map(({Vorgang, Grund}) => ({transaction: Vorgang, reason: financialLabel(Grund)})),
+    }, null, 2)) +
     "</pre></details>";
   const latest = review.history.at(-1);
   if (latest)
@@ -2065,7 +2074,7 @@ function donationPanel() {
           (h) =>
             "<li>" +
             esc(
-              h.at + " · " + h.actor + " · " + h.status + " · " + h.evidence,
+              h.at + " · " + h.actor + " · " + financialLabel(h.status) + " · " + h.evidence,
             ) +
             "</li>",
         )
@@ -2082,13 +2091,13 @@ function donationPanel() {
   if (!s.closed)
     content += popupForm(
       "donorDecision",
-      "Prüfvermerk erfassen",
+      "Add review note",
       select(
         "step",
-        "Entscheidung",
-        options.map((v) => [v, v]),
-      ) + field("reason", "Prüfvermerk oder externer Nachweis", "text", true),
-      "Entscheidung dokumentieren",
+        "Decision",
+        options.map((v) => [v, financialLabel(v)]),
+      ) + field("reason", "Review note or external evidence", "text", true),
+      "Record decision",
     );
   const released = review.history.filter((h) => h.status === "Exportiert");
   if (released.length)
@@ -2096,73 +2105,73 @@ function donationPanel() {
       "donorDownload",
       select(
         "report",
-        "Gespeicherter Export",
+        "Saved export",
         released.map((h) => [h.id, h.at + " · " + h.id]),
       ),
-      "Geprüfte Datei herunterladen",
+      "Download verified file",
     );
-  return panel("Spendenmeldedaten", content);
+  return panel("Donation reporting data", content);
 }
 function exchange() {
   const periods = rows().filter((r) => r.Kind === "period");
   return (
     panel(
-      "Auswertungszeitraum",
-      select("reportPeriod", "Zeitraum", [
+      "Reporting period",
+      select("reportPeriod", "Date range", [
         [
           "",
           offlineEnabled
-            ? "Gesamter lokaler Stand"
-            : "Gewählter Arbeitsbereich",
+            ? "Complete local copy"
+            : "Selected workspace",
         ],
         ...periods.map((r) => [
           r.ID,
-          r.Data.Label + " · " + r.Data.Date + " bis " + r.Data.To,
+          r.Data.Label + " · " + r.Data.Date + " to " + r.Data.To,
         ]),
       ]) +
         '<div class="actions">' +
-        button("csv", "Journal als CSV") +
-        button("xlsx", "Journal als Excel") +
-        button("evidence", "Prüfpaket laden") +
+        button("csv", "Export journal as CSV") +
+        button("xlsx", "Export journal as Excel") +
+        button("evidence", "Download review package") +
         (s.donorAccess
           ? field(
               "donorPeriod",
-              "Meldezeitraum Spenden",
+              "Donation reporting period",
               "text",
               true,
               String(new Date().getFullYear()),
-            ) + button("donors", "Spendenliste laden")
+            ) + button("donors", "Download donation list")
           : "") +
         "</div>",
     ) +
     donationPanel() +
     (s.role === "Admin" && writableWorkspace()
       ? panel(
-          "Importvorschau",
+          "Import preview",
           form(
             "preview",
-            select("sourceRole", "Quellenrolle", [
+            select("sourceRole", "Source role", [
               ["Journal", "BONFIRE-Journal"],
-              ["D1", "Historischer Abschluss · D1"],
-              ["D8", "Vorbereitete Folgevorlage · D8"],
+              ["D1", "Historical closing statement · D1"],
+              ["D8", "Prepared follow-up template · D8"],
             ]) +
               field(
                 "year",
-                "Quellenjahr",
+                "Source year",
                 "number",
                 true,
                 String(new Date().getFullYear()),
               ) +
               label(
-                "Journaldatei (CSV oder XLSX)",
+                "Journal file (CSV or XLSX)",
                 '<input type="file" name="file" accept=".xlsx,.csv" required>',
               ),
-            "Datei prüfen",
+            "Review file",
           ) +
             (imported.length
               ? "<p>" +
                 imported.length +
-                ' Quellenzeilen</p><div class="list"><table><tr><th>Quelle</th><th>Blatt / Zeile</th><th>Datum</th><th>Herkunft Datum</th><th>Original</th><th>Bezeichnung</th><th>Art</th><th>Betrag</th><th>Prüfstand</th></tr>' +
+                ' source rows</p><div class="list"><table><tr><th>Source</th><th>Sheet / row</th><th>Date</th><th>Date source</th><th>Original</th><th>Description</th><th>Type</th><th>Amount</th><th>Review status</th></tr>' +
                 imported
                   .map(
                     (r) =>
@@ -2170,22 +2179,22 @@ function exchange() {
                       [
                         importRole,
                         r.sheet ? r.sheet + "!" + r.cell : r.row,
-                        r.date || "Offen",
-                        r.yearOrigin || "Quelldatum",
+                        r.date || "Pending",
+                        r.yearOrigin || "Source date",
                         r.cached != null
                           ? r.raw +
                             " · Cache " +
-                            (r.cached || "fehlt") +
+                            (r.cached || "missing") +
                             (r.calculatedCent != null
-                              ? " · nachgerechnet " + eur(r.calculatedCent)
+                              ? " · Recalculated " + eur(r.calculatedCent)
                               : "") +
                             (r.differenceCent
-                              ? " · Abweichung " + eur(r.differenceCent)
+                              ? " · Difference " + eur(r.differenceCent)
                               : "")
                           : (r.raw ??
-                            (r.amount == null ? "Offen" : String(r.amount))),
+                            (r.amount == null ? "Pending" : String(r.amount))),
                         r.label,
-                        types[r.kind] || "Zuordnung offen",
+                        types[r.kind] || "Allocation pending",
                         eur(r.amount),
                         r.status,
                       ]
@@ -2197,10 +2206,10 @@ function exchange() {
                 "</table></div>" +
                 popupForm(
                   "importRow",
-                  "Importzeile prüfen",
+                  "Review import row",
                   select(
                     "ix",
-                    "Einzeln geprüfte Zeile",
+                    "Individually reviewed row",
                     imported.map((r, i) => [
                       i,
                       (r.sheet ? r.sheet + "!" + r.cell : r.row) +
@@ -2208,14 +2217,14 @@ function exchange() {
                         r.label,
                     ]),
                   ) +
-                    select("kind", "Buchungsart", [
-                      ["income", "Einnahme"],
-                      ["expense", "Ausgabe"],
+                    select("kind", "Booking type", [
+                      ["income", "Income"],
+                      ["expense", "Expense"],
                     ]) +
-                    field("date", "Geprüftes Buchungsdatum", "date", true) +
-                    field("account", "Konto") +
-                    field("reason", "Prüfvermerk / Entscheidung", "text", true),
-                  "Geprüfte Zeile übernehmen",
+                    field("date", "Verified booking date", "date", true) +
+                    field("account", "Account") +
+                    field("reason", "Review note / decision", "text", true),
+                  "Import reviewed row",
                 )
               : ""),
         )
@@ -2241,19 +2250,19 @@ function installStudio() {
   controls.append(options);
   if (editor) controls.append(editor);
   studio.innerHTML =
-    '<div class="proof-tabs"><button type="button" data-act="docInputs">Eingabe</button><button type="button" data-act="docProof">Druckvorschau</button></div>';
+    '<div class="proof-tabs"><button type="button" data-act="docInputs">Input</button><button type="button" data-act="docProof">Print preview</button></div>';
   studio.append(controls);
   const proof = document.createElement("section");
   proof.className = "proof";
   proof.innerHTML =
-    '<h2>Druckvorschau</h2><p id="proof-status">Profil und Fachvorgang wählen, um die Arbeitsfassung zu prüfen.</p><div id="proof-sheet"></div>' +
-    button("docProof", "Vorschau aktualisieren", true);
+    '<h2>Print preview</h2><p id="proof-status">Select a profile and transaction to review the draft.</p><div id="proof-sheet"></div>' +
+    button("docProof", "Refresh preview", true);
   studio.append(proof);
   document
     .querySelector("#export .actions")
     .insertAdjacentHTML(
       "beforeend",
-      button("docProof", "Druckvorschau öffnen", true),
+      button("docProof", "Open print preview", true),
     );
 }
 let proofRevision = 0;
@@ -2264,7 +2273,7 @@ async function proofDocument(editing) {
     status = studio.querySelector("#proof-status");
   studio.classList.add("view-proof");
   host.replaceChildren();
-  status.textContent = "Arbeitsfassung wird lokal aufgebaut …";
+  status.textContent = "Preparing draft locally…";
   try {
     const vals = Object.fromEntries(
       new FormData(document.querySelector("#export")),
@@ -2320,7 +2329,7 @@ async function proofDocument(editing) {
       snap.height +
       " mm · " +
       (vals.version === "draft" ? "Entwurf" : snap.templateVersionID) +
-      " · Word-Arbeitsfassung";
+      " · Word draft";
   } catch (err) {
     if (revision !== proofRevision || !host.isConnected) return;
     status.textContent = err.message;
@@ -2353,7 +2362,7 @@ async function openRecordDocument(trigger) {
     const key = esc(existing.ID);
     openEditor(
       trigger,
-      existing.Data.Label + " · Nr. " + existing.Data.Number,
+      existing.Data.Label + " · No. " + existing.Data.Number,
       '<div class="actions">' +
         ["PDF", "DOCX"]
           .map(
@@ -2363,16 +2372,15 @@ async function openRecordDocument(trigger) {
               '" data-format="' +
               ext +
               '">' +
-              ext +
-              " speichern</button>",
+              "Save " + ext + "</button>",
           )
           .join("") +
         (navigator.canShare?.({
-          files: [new File([""], "Beleg.pdf", { type: "application/pdf" })],
+          files: [new File([""], "Receipt.pdf", { type: "application/pdf" })],
         })
           ? '<button type="button" data-share-original="' +
             key +
-            '">PDF teilen</button>'
+            '">Share PDF</button>'
           : "") +
         "</div>",
     );
@@ -2398,7 +2406,7 @@ async function openRecordDocument(trigger) {
     hidden("profile", i) +
     hidden("version", "active") +
     hidden("format", writableWorkspace() ? "Original" : "PDF") +
-    (i === 12 ? refs("recipient", "Empfänger", ["contact"]) : "") +
+    (i === 12 ? refs("recipient", "Recipient", ["contact"]) : "") +
     '<div class="document-preview" data-receipt-preview></div>';
   openEditor(
     trigger,
@@ -2407,7 +2415,7 @@ async function openRecordDocument(trigger) {
       form(
         "export",
         inputs,
-        writableWorkspace() ? "Original ausstellen" : "PDF-Vorschau speichern",
+        writableWorkspace() ? "Issue original" : "Save PDF preview",
       ),
   );
   const f = entryDialog.querySelector("form");
@@ -2424,7 +2432,7 @@ async function openRecordDocument(trigger) {
   f.addEventListener("change", preview);
   const proof = document.createElement("button");
   proof.type = "button";
-  proof.textContent = "Druckvorschau";
+  proof.textContent = "Print preview";
   const host = document.createElement("div");
   f.querySelector("[data-receipt-preview]").after(proof, host);
   proof.onclick = () =>
@@ -2455,21 +2463,21 @@ async function libraryDialog(trigger) {
         (t.revision ? "Version " + t.revision : "Standard"),
     ]);
   const content =
-    select("release", "Vorlagenstand", opts) +
-    refs("subject", "Fachvorgang für Vorschau", [
+    select("release", "Template version", opts) +
+    refs("subject", "Transaction for preview", [
       "sponsorship",
       "payment",
       "donation",
       "count",
       "plan",
     ]) +
-    "<p>Ziel · " +
+    "<p>Destination · " +
     esc(s.event.Name) +
-    '</p><div class="actions"><button type="button" data-preview-release>Druckvorschau</button></div><div data-library-proof></div>';
+    '</p><div class="actions"><button type="button" data-preview-release>Print preview</button></div><div data-library-proof></div>';
   openEditor(
     trigger,
-    "Vorlagenbibliothek",
-    form("library", content, "Vorlage übernehmen"),
+    "Template library",
+    form("library", content, "Use template"),
   );
   const f = entryDialog.querySelector("form");
   const source = async () => {
@@ -2506,49 +2514,49 @@ function docs() {
   const originals = rows().filter((r) => r.Kind === "original");
   return (
     panel(
-      "Dokument erstellen",
+      "Create document",
       (!offlineEnabled && s.role === "Admin" && writableWorkspace()
         ? '<div class="actions">' +
-          button("library", "Vorlagenbibliothek", true) +
+          button("library", "Template library", true) +
           "</div>"
         : "") +
         form(
           "export",
           select(
             "profile",
-            "Vorlage",
+            "Template",
             profiles.map((p, i) => [i, p]),
           ) +
-            refs("subject", "Fachvorgang (je nach Vorlage)", [
+            refs("subject", "Transaction (depending on template)", [
               "sponsorship",
               "payment",
               "donation",
               "count",
               "plan",
             ]) +
-            refs("bar", "Bar (für Barbericht)", ["bar"]) +
-            refs("period", "Periode (für Journal und Prüfbericht)", [
+            refs("bar", "Bar (for the bar report)", ["bar"]) +
+            refs("period", "Period (for journal and audit report)", [
               "period",
             ]) +
-            select("guestCopies", "Gästepreisliste je Blatt", [
-              ["1", "Ganzes Blatt"],
-              ["2", "Zwei Exemplare"],
+            select("guestCopies", "Guest price lists per sheet", [
+              ["1", "Full page"],
+              ["2", "Two copies"],
             ]) +
-            select("paper", "Gästepreisliste Papier", [
-              ["Profil", "Wie im Vorlagenprofil"],
-              ["Letter", "Letter · Quellenformat"],
-              ["A4", "A4 · alternative Fassung"],
+            select("paper", "Guest price list paper size", [
+              ["Profil", "Use template settings"],
+              ["Letter", "Letter · Source format"],
+              ["A4", "A4 · Alternative version"],
             ]) +
             field(
               "organization",
-              "Organisation",
+              "Organization",
               "text",
               true,
               rows().find((r) => r.Kind === "organization")?.Data.Label || "",
             ) +
             ((s.priceHistory || []).length
-              ? select("priceVersion", "Preisstand für Karten und Gästeliste", [
-                  ["", "Aktuelle freigegebene Preise"],
+              ? select("priceVersion", "Price version for cards and guest lists", [
+                  ["", "Current approved prices"],
                   ...[
                     ...new Map(
                       s.priceHistory.map((p) => [p.Version, p]),
@@ -2557,32 +2565,32 @@ function docs() {
                     .reverse()
                     .map((p) => [
                       String(p.Version),
-                      p.At.slice(0, 19) + " · Stand " + p.Version,
+                      p.At.slice(0, 19) + " · As of " + p.Version,
                     ]),
                 ])
               : "") +
-            select("version", "Vorlagenstand", [
-              ["active", "Freigegebene Fassung"],
-              ["draft", offlineEnabled ? "Lokaler Entwurf" : "Sitzungsentwurf"],
+            select("version", "Template version", [
+              ["active", "Approved version"],
+              ["draft", offlineEnabled ? "Local draft" : "Session draft"],
             ]) +
             (writableWorkspace()
-              ? field("revisionReason", "Korrekturgrund (für Ersatzbeleg)")
+              ? field("revisionReason", "Reason for correction (replacement receipt)")
               : "") +
-            select("format", "Ausgabe", [
-              ["PDF", "PDF-Arbeitsfassung"],
-              ["DOCX", "DOCX-Arbeitsfassung"],
+            select("format", "Expense", [
+              ["PDF", "PDF draft"],
+              ["DOCX", "DOCX draft"],
               ...(writableWorkspace()
                 ? [
-                    ["Original", "Nummeriertes Original archivieren"],
-                    ["Korrektur", "Begründete Korrekturfassung archivieren"],
+                    ["Original", "Archive numbered original"],
+                    ["Korrektur", "Archive corrected version with reason"],
                   ]
                 : []),
             ]),
-          "Dokument erzeugen",
+          "Generate document",
         ),
     ) +
     panel(
-      "Dankesbriefe als Serie",
+      "Thank-you letter mail merge",
       form(
         "letters",
         rows()
@@ -2596,14 +2604,14 @@ function docs() {
             ),
           )
           .join(""),
-        "Ausgewählte Briefe als ZIP laden",
+        "Download selected letters as ZIP",
       ),
     ) +
     panel(
-      "Archiv",
+      "Archive",
       (offlineEnabled
-        ? "<p>Freie Nummern dieses Geräts: "
-        : "<p>Verfügbare Belegnummern: ") +
+        ? "<p>Available numbers on this device: "
+        : "<p>Available receipt numbers: ") +
         availableNumbers(s) +
         "</p>" +
         originals
@@ -2623,84 +2631,84 @@ function docs() {
     ) +
     (writableWorkspace()
       ? panel(
-          "Vorlagen anpassen",
+          "Customize templates",
           button(
             "pinTemplates",
             offlineEnabled
-              ? "Freigegebenen Vorlagenstand für dieses Gerät übernehmen"
-              : "Vorlagen aktualisieren",
+              ? "Use the approved template version on this device"
+              : "Refresh templates",
             true,
           ) +
             form(
               "template",
               select(
                 "Reference",
-                "Profil",
+                "Profile",
                 profiles.map((p, i) => [profileID(i), p]),
               ) +
-                field("Label", "Überschrift", "text", true) +
+                field("Label", "Heading", "text", true) +
                 label(
-                  "Textbaustein",
+                  "Text snippet",
                   '<textarea name="Note">' +
                     esc(s.importedText || "") +
                     "</textarea>",
                 ) +
-                select("font", "Schriftpreset", [
+                select("font", "Font preset", [
                   ["helvetica", "Sans Serif"],
                   ["times", "Serif"],
                   ["courier", "Monospace"],
                 ]) +
-                field("header", "Kartenkopf (optional)") +
+                field("header", "Card heading (optional)") +
                 field(
                   "copies",
-                  "Karten je Blatt (bis 3 Getränke / 7 Essen)",
+                  "Cards per sheet (up to 3 drinks or 7 food items)",
                   "number",
                 ) +
                 field(
                   "firstColumn",
-                  "Kartenbreite erste Spalte in mm (40–75)",
+                  "First column width on cards in mm (40–75)",
                   "number",
                 ) +
-                select("paper", "Gästepreisliste Standardpapier", [
+                select("paper", "Default paper size for guest price lists", [
                   ["Letter", "Letter"],
                   ["A4", "A4"],
                 ]) +
-                field("footer", "Fußzeile") +
-                field("margin", "Seitenrand in mm", "number", true, "15"),
+                field("footer", "Footer") +
+                field("margin", "Page margin in mm", "number", true, "15"),
               offlineEnabled
-                ? "Entwurf lokal speichern"
-                : "Entwurf für diese Sitzung übernehmen",
+                ? "Save draft locally"
+                : "Use draft for this session",
               (s.role === "Admin"
-                ? '<button data-release="true">Fassung freigeben</button>'
-                : "") + button("draftProof", "Änderungen ansehen", true),
+                ? '<button data-release="true">Approve version</button>'
+                : "") + button("draftProof", "View changes", true),
             ) +
             form(
               "wordLayout",
               label(
-                "Word-Layout für Dankesbriefe (A4, DOCX)",
+                "Word layout for thank-you letters (A4, DOCX)",
                 '<input type="file" name="file" accept=".docx" required>',
               ),
-              "Word-Layout als Briefentwurf übernehmen",
+              "Use Word layout as draft letter",
             ) +
             (s.drafts?.[profileID(6)]?.File
-              ? "<p>Word-Layout im Entwurf verfügbar</p>"
+              ? "<p>Word layout available in the draft</p>"
               : "") +
             form(
               "importTemplate",
               label(
-                "DOCX-Textvorlage",
+                "DOCX text template",
                 '<input type="file" name="file" accept=".docx" required>',
               ),
-              "Text und Felder übernehmen",
+              "Use text and fields",
             ) +
             (s.role === "Admin"
               ? form(
                   "lfk",
                   label(
-                    "LFK-Formular als freigegebener Druckhintergrund",
+                    "LFK form as approved print background",
                     '<input type="file" name="file" accept=".pdf" required>',
                   ),
-                  "A6-Formular vorbereiten",
+                  "Prepare A6 form",
                 )
               : ""),
         )
@@ -2709,40 +2717,40 @@ function docs() {
 }
 function preparePanel() {
   return panel(
-    "Veranstaltung vorbereiten",
+    "Prepare event",
     events.some((e) => !e.Closed)
       ? form(
           "prepare",
           select(
             "event",
-            "Veranstaltung",
+            "Event",
             events.filter((e) => !e.Closed).map((e) => [e.ID, e.Name]),
           ) +
-            field("name", "Gerätename", "text", true) +
+            field("name", "Device name", "text", true) +
             (onlineUser?.role === "Read"
               ? '<input name="digitalCount" type="hidden" value="0">'
               : field(
                   "digitalCount",
-                  "Benötigte digitale Belegnummern (0–1000)",
+                  "Digital receipt numbers needed (0–1000)",
                   "number",
                   true,
                   "1000",
                 )) +
-            select("donor", "Meldedaten auf diesem Gerät", [
-              ["", "Standardprofil"],
+            select("donor", "Reporting data on this device", [
+              ["", "Standard profile"],
               ...(onlineUser?.role === "Admin"
-                ? [["ja", "Belegprofil mit sensiblen Daten (Admin)"]]
+                ? [["ja", "Receipt profile with sensitive data (admin)"]]
                 : []),
             ]) +
             field(
               "pass",
-              "Lokales Passwort (mindestens 10 Zeichen)",
+              "Local password (at least 10 characters)",
               "password",
               true,
             ),
-          "Offlineprofil speichern",
+          "Save offline profile",
         )
-      : "<p>Keine offene Veranstaltung zugewiesen.</p>",
+      : "<p>No open event assigned.</p>",
   );
 }
 let years = [],
@@ -2810,7 +2818,7 @@ function yearSetup() {
     (old.length
       ? panel(
           "Existing workspaces",
-          '<button type="button" class="secondary" data-year="unassigned">Open unassigned workspaces</button>' +
+          '<div class="actions"><button type="button" class="secondary" data-year="unassigned">Open unassigned workspaces</button>' +
             (onlineUser.role === "Admin" && years.length
               ? popupForm(
                   "assign-year",
@@ -2827,7 +2835,8 @@ function yearSetup() {
                     ),
                   "Assign fiscal year",
                 )
-              : ""),
+              : "") +
+            "</div>",
         )
       : "")
   );
@@ -3019,13 +3028,13 @@ async function openEventCleanup(trigger, workspace, message = "") {
         page = "Veranstaltungsliste";
         show();
         closeEditor();
-        notice.textContent = workspace.Name + " wurde gelöscht.";
+        notice.textContent = workspace.Name + " was deleted.";
         return;
       }
       const values = Object.fromEntries(new FormData(editor));
       const item = items.find((i) => i.ID === values.Target);
       const removing = values.Destination === "remove";
-      if (!values.Destination) throw Error("Aktion oder Ziel auswählen.");
+      if (!values.Destination) throw Error("Select an action or a destination.");
       await api("events/entries", {
         ...values,
         Event: workspace.ID,
@@ -3041,7 +3050,7 @@ async function openEventCleanup(trigger, workspace, message = "") {
       await openEventCleanup(
         trigger,
         workspace,
-        item.Label + (removing ? " wurde entfernt." : " wurde umgebucht."),
+        item.Label + (removing ? " was removed." : " was moved."),
       );
     });
   });
@@ -3051,34 +3060,34 @@ function closingControls() {
   const year = s.event.General && !!s.event.Year;
   if (!year && s.yearClosed) return "";
   const title = year
-    ? "Geschäftsjahr"
+    ? "Fiscal year"
     : s.event.General
-      ? "Kassenbuch"
-      : "Veranstaltung";
+      ? "Cashbook"
+      : "Event";
   const name = year ? fiscalYear().Name : s.event.Name;
   const closed = year ? s.yearClosed : s.closed;
-  const verb = closed ? "wieder öffnen" : "abschließen";
+  const verb = closed ? "Reopen" : "Close";
   const description = closed
     ? year
-      ? "Das allgemeine Kassenbuch wird zur Bearbeitung freigegeben. Abgeschlossene Veranstaltungen lassen sich anschließend einzeln öffnen."
-      : "Nach der Freigabe sind Buchungen und Berichtigungen wieder möglich."
+      ? "The general cashbook will be unlocked. Closed events can then be reopened individually."
+      : "Reopening allows bookings and corrections again."
     : year
-      ? "Alle Veranstaltungen müssen abgeschlossen sein. Beim Bestätigen werden das allgemeine Kassenbuch geprüft und das Geschäftsjahr für Änderungen gesperrt."
-      : "Bestände und Abrechnung werden geprüft. Nach dem Abschluss ist der Arbeitsbereich schreibgeschützt.";
+      ? "Close all events first. Confirming checks the general cashbook and locks the fiscal year for editing."
+      : "The balances and settlement will be checked. Closing makes the workspace read-only.";
   return (
     (year
-      ? '<button type="button" class="secondary" data-act="yearBalances">Kontenabgleich</button>'
+      ? '<button type="button" class="secondary" data-act="yearBalances">Account reconciliation</button>'
       : "") +
     popupForm(
       "scope-closure",
-      title + " " + verb,
+      verb + " " + title.toLowerCase(),
       "<p>" +
         esc(name) +
         " · " +
         esc(description) +
         "</p>" +
         (closed
-          ? field("reason", "Grund für die Wiederöffnung", "text", true)
+          ? field("reason", "Reason for reopening", "text", true)
           : "") +
         '<input type="hidden" name="workspace" value="' +
         esc(s.event.ID) +
@@ -3092,14 +3101,14 @@ function closingControls() {
             ? "Geschäftsjahr abschließen"
             : "Abschluss") +
         '">',
-      title + " " + verb,
+      verb + " " + title.toLowerCase(),
     ) +
     (year && !closed && s.closed
       ? popupForm(
           "reopen",
-          "Kassenbuch wieder öffnen",
-          field("reason", "Grund für die Wiederöffnung", "text", true),
-          "Kassenbuch wieder öffnen",
+          "Reopen cashbook",
+          field("reason", "Reason for reopening", "text", true),
+          "Reopen cashbook",
         )
       : "")
   );
@@ -3200,13 +3209,13 @@ function defaultLedger(spaces) {
 function workspaceLabel() {
   const label = s.event.General
     ? s.event.Name
-    : "Veranstaltung · " + s.event.Name;
+    : "Event · " + s.event.Name;
   return (
     label +
     " · " +
     (fiscalYear()
-      ? "Geschäftsjahr " + fiscalYear().Name
-      : "Ohne Jahreszuordnung")
+      ? "Fiscal year " + fiscalYear().Name
+      : "No fiscal year assigned")
   );
 }
 function isOnlineEventPage() {
@@ -3227,7 +3236,7 @@ async function selectFiscalWorkspace(yearID, eventID) {
     ? spaces.find((e) => e.ID === eventID)
     : defaultLedger(spaces);
   if (eventID && !chosen)
-    throw Error("Dieser Arbeitsbereich ist im Geschäftsjahr nicht verfügbar.");
+    throw Error("This workspace is unavailable in the selected fiscal year.");
   const out = chosen ? await workspaceRequest(chosen.ID, {}) : null;
   selectedYear = yearID;
   events = spaces;
@@ -3255,94 +3264,94 @@ function onlineAdmin() {
   return (
     (offlineEnabled && onlineUser?.role === "Admin"
       ? panel(
-          "Veranstaltung anlegen",
+          "Create event",
           popupForm(
             "event",
-            "Veranstaltung anlegen",
-            select("General", "Arbeitsbereich", [
-              ["", "Veranstaltung"],
-              ["ja", "Allgemeines Kassenbuch ohne Veranstaltung"],
+            "Create event",
+            select("General", "Workspace", [
+              ["", "Event"],
+              ["ja", "General cashbook outside an event"],
             ]) +
-              field("Name", "Name des Arbeitsbereichs", "text", true) +
-              field("Starts", "Beginn", "date", true, today()) +
-              field("Ends", "Ende", "date", true, today()) +
-              select("Accounts", "Kontozuordnung", [
-                ["", "Aus"],
-                ["ja", "Ein"],
+              field("Name", "Workspace name", "text", true) +
+              field("Starts", "Start", "date", true, today()) +
+              field("Ends", "End", "date", true, today()) +
+              select("Accounts", "Account allocation", [
+                ["", "Off"],
+                ["ja", "On"],
               ]),
-            "Veranstaltung speichern",
+            "Save event",
           ),
         ) +
         panel(
-          "Benutzer zuweisen",
+          "Assign user",
           popupForm(
             "user",
-            "Benutzer anlegen",
-            field("Name", "E-Mail-Adresse oder Benutzername", "text", true) +
-              field("Password", "Startpasswort", "password", true) +
-              select("Role", "Rolle", [
+            "Create user",
+            field("Name", "Email address or username", "text", true) +
+              field("Password", "Initial password", "password", true) +
+              select("Role", "Role", [
                 ["Write", "Write"],
                 ["Read", "Read"],
               ]) +
               select(
                 "Event",
-                "Veranstaltung",
+                "Event",
                 events.map((e) => [e.ID, e.Name]),
               ),
-            "Benutzer anlegen",
+            "Create user",
           ),
         ) +
         panel(
-          "Zugriff ändern",
+          "Change access",
           popupForm(
             "access",
-            "Zugriff ändern",
-            field("Name", "Bestehender Benutzer", "text", true) +
+            "Change access",
+            field("Name", "Existing user", "text", true) +
               select(
                 "Event",
-                "Veranstaltung",
+                "Event",
                 events.map((e) => [e.ID, e.Name]),
               ) +
-              select("Action", "Zugriff", [
-                ["grant", "Zuweisen"],
-                ["revoke", "Entziehen"],
+              select("Action", "Access", [
+                ["grant", "Assign"],
+                ["revoke", "Revoke"],
               ]) +
-              field("Reason", "Begründung", "text", true),
-            "Zuweisung speichern",
+              field("Reason", "Reason", "text", true),
+            "Save assignment",
           ),
         )
       : "") +
     panel(
-      "Persönliches Konto",
-      button("accountSecurity", "Konto und Sicherheit öffnen", true),
+      "Personal account",
+      button("accountSecurity", "Open account and security", true),
     )
   );
 }
 function profileTools() {
   return panel(
-    "Offlineprofile auf diesem Gerät",
+    "Offline profiles on this device",
     '<div class="actions">' +
-      button("newProfile", "Neues Arbeitsprofil", true) +
+      button("newProfile", "New work profile", true) +
       profilesLocal
         .map(
           (k, i) =>
             ' <a href="/?profil=' +
             encodeURIComponent(k) +
-            '">Profil ' +
+            '">Profile ' +
             (i + 1) +
             "</a>",
         )
         .join("") +
       "</div>" +
       (!saved
-        ? "<h3>Gerätesicherung einsehen</h3><p>Öffne eine verschlüsselte Sicherung mit ihrem bisherigen lokalen Passwort. Das Archiv zeigt den gespeicherten Stand. Buchen und Synchronisieren sind im Archiv gesperrt.</p>" +
+        ? "<h3>View device backup</h3><p>Enter the previous local password to open the encrypted backup. It opens as a read-only snapshot.</p>" +
           form(
             "recoverProfile",
             label(
-              "Verschlüsselte Gerätesicherung",
+              "Encrypted device backup",
               '<input type="file" name="file" required>',
-            ) + field("pass", "Bisheriges lokales Passwort", "password", true),
-            "Als Lesearchiv öffnen",
+            ) + field("pass", "Previous local password", "password", true),
+            "Open as read-only archive",
           )
         : ""),
   );
@@ -3355,22 +3364,22 @@ function authSurface() {
   const brand = document.querySelector("#sidebar header").outerHTML;
   let title, content, secondary;
   if (profileHelp) {
-    title = "Offlineprofile und Sicherungen";
+    title = "Offline profiles and backups";
     content = profileTools();
-    secondary = button("backLogin", "Zurück", true);
+    secondary = button("backLogin", "Back", true);
   } else if (saved) {
-    title = "Gerät entsperren";
+    title = "Unlock device";
     content = form(
       "unlock",
       label(
-        "Lokales Passwort",
+        "Local password",
         '<input type="password" name="pass" autocomplete="current-password" required>',
       ),
-      "Entsperren",
+      "Unlock",
     );
     secondary =
-      button("recover", "Gerätesicherung speichern", true) +
-      button("profileHelp", "Weitere Offlineprofile", true);
+      button("recover", "Save device backup", true) +
+      button("profileHelp", "Other offline profiles", true);
   } else if (loginChallenge) {
     title = useRecoveryCode ? "Enter recovery code" : "Verify sign-in";
     content =
@@ -3420,7 +3429,7 @@ function authSurface() {
         ? button("passkeyLogin", "Sign in with a passkey", true)
         : "") +
       (offlineEnabled
-        ? button("profileHelp", "Offlineprofile und Sicherungen", true)
+        ? button("profileHelp", "Offline profiles and backups", true)
         : "");
   }
   return (
@@ -3441,12 +3450,12 @@ let onlineUser = null,
   preferredEvent = "",
   destination = "Übersicht";
 const pageDescriptions = {
-  Journal: "Zahlungen, Belege und Berichtigungen.",
-  Kontakte: "Personen und Firmen für Sponsoring und Spenden.",
-  Spenden: "Spendeneingänge und Meldedaten im gewählten Arbeitsbereich.",
-  Dokumente: "Belege ausstellen, Originale nachdrucken und Vorlagen anpassen.",
-  Perioden: "Abrechnungszeitraum, Istbestände und Freigabe.",
-  Verwaltung: "Organisation, Geschäftsjahre und Zugriffsrechte verwalten.",
+  Journal: "Payments, receipts and corrections.",
+  Kontakte: "People and companies for sponsorship and donations.",
+  Spenden: "Donation receipts and reporting data in the selected workspace.",
+  Dokumente: "Issue receipts, reprint originals and customize templates.",
+  Perioden: "Reporting dates, observed balances and approval.",
+  Verwaltung: "Manage the organization, fiscal years and access permissions.",
 };
 function pageHead(title, description = "", action = "") {
   return (
@@ -3461,11 +3470,11 @@ function pageHead(title, description = "", action = "") {
 function prepareView() {
   return (
     pageHead(
-      "Gerät vorbereiten",
-      "Für lokale Erfassung, Belegausgabe und Arbeiten ohne Netz.",
+      "Prepare device",
+      "For local recording, issuing receipts and working offline.",
     ) +
     preparePanel() +
-    "<details><summary>Weitere Profile und Wiederherstellung</summary>" +
+    "<details><summary>Other profiles and recovery</summary>" +
     profileTools() +
     "</details>"
   );
@@ -3530,7 +3539,7 @@ function paintConnection() {
     icon(online ? "Laptop" : "WifiOff") +
     esc(status) +
     (s && offlineEnabled
-      ? '<span class="connection-queue">' + s.ops.length + " ausstehend</span>"
+      ? '<span class="connection-queue">' + s.ops.length + " pending</span>"
       : "");
 }
 async function checkConnection() {
@@ -3576,13 +3585,13 @@ function shell() {
     "   /   " +
     (active
       ? page === "Einrichtung"
-        ? "Gerät vorbereiten"
+        ? "Prepare device"
         : canOpenConsole(page, who?.role)
-          ? "Verwaltung   /   " + page
+          ? "Administration   /   " + titleOf(page)
           : titleOf(page)
       : saved
-        ? "Entsperren"
-        : "Anmeldung");
+        ? "Unlock"
+        : "Sign-in");
   const mark = document.querySelector("#station");
   mark.innerHTML =
     org?.File || org?.Logo
@@ -3595,7 +3604,7 @@ function shell() {
     logged && !s && events.length
       ? select(
           "workspace",
-          "Arbeitsbereich",
+          "Workspace",
           events.map((e) => [e.ID, e.Name]),
         )
       : "";
@@ -3633,22 +3642,22 @@ function onlineView() {
     page === "Datenaustausch"
   )
     return (
-      pageHead("Verwaltung", pageDescriptions.Verwaltung) +
-      route("Einrichtung", "Gerät vorbereiten", "secondary", "Laptop") +
+      pageHead("Administration", pageDescriptions.Verwaltung) +
+      route("Einrichtung", "Prepare device", "secondary", "Laptop") +
       onlineAdmin() +
-      "<details><summary>Profile und Sicherungen</summary>" +
+      "<details><summary>Profiles and backups</summary>" +
       profileTools() +
       "</details>"
     );
   if (!onlineData)
     return (
       pageHead(
-        "Dein Arbeitsplatz",
-        "Es ist noch kein Arbeitsbereich zugewiesen.",
+        "Your workspace",
+        "No workspace has been assigned yet.",
       ) +
       (onlineUser.role === "Admin"
-        ? route("Verwaltung", "Arbeitsbereich anlegen", "primary", "Plus")
-        : "<p>Ein Admin kann dir eine Veranstaltung oder ein Kassenbuch zuweisen.</p>")
+        ? route("Verwaltung", "Create workspace", "primary", "Plus")
+        : "<p>An administrator can assign you an event or a cashbook.</p>")
     );
   const { event: e, entries: list, pending, conflicts } = onlineData;
   if (onOverview())
@@ -3682,8 +3691,8 @@ function onlineView() {
         : route(
             "Einrichtung",
             onlineUser.role === "Read"
-              ? "Leseprofil vorbereiten"
-              : "Erfassung vorbereiten",
+              ? "Prepare read-only profile"
+              : "Prepare recording",
             "primary",
             "Laptop",
           ),
@@ -3691,12 +3700,12 @@ function onlineView() {
     (isEvent ? tabs(offlineEnabled ? eventTabs : onlineEventTabs, page) : "") +
     panel(
       page === "Dokumente"
-        ? "Vorlagenprofile"
+        ? "Template profiles"
         : isEvent
           ? eventTabs.find(([k]) => k === page)[1]
           : page === "Journal"
-            ? "Buchungen"
-            : "Einträge",
+            ? "Bookings"
+            : "Entries",
       content,
     )
   );
@@ -3717,7 +3726,7 @@ async function openBalances(trigger) {
   );
   openEditor(
     trigger,
-    "Kontenabgleich · " + fiscalYear().Name,
+    "Account reconciliation · " + fiscalYear().Name,
     balanceTable(balanceItems, s.yearClosed),
   );
 }
@@ -3772,7 +3781,7 @@ function show() {
     ).catch((err) => {
       if (host.isConnected)
         notice.textContent =
-          err.message || "Verwaltung konnte nicht geladen werden.";
+          err.message || "Could not load administration.";
     });
     return;
   }
@@ -3799,8 +3808,8 @@ function show() {
         pageHead(
           titleOf(page),
           ledgers.length
-            ? "Kassenbuch auswählen."
-            : "Für diesen Bereich ist kein allgemeines Kassenbuch freigegeben.",
+            ? "Select a cashbook."
+            : "No general cashbook is available for this workspace.",
         ) +
         ledgers
           .map(
@@ -3812,7 +3821,7 @@ function show() {
               "</button>",
           )
           .join(" ") +
-        route("Veranstaltungsliste", "Veranstaltungen öffnen");
+        route("Veranstaltungsliste", "Open events");
       return;
     }
   }
@@ -3830,24 +3839,24 @@ function show() {
     s.event.Name +
     "   /   " +
     (s.closed
-      ? "Abgeschlossen"
+      ? "Closed"
       : s.sealed
-        ? "Erfassung beendet"
+        ? "Recording complete"
         : s.ending
-          ? "Erfassungsende ausstehend"
-          : "Lokaler Arbeitsstand") +
+          ? "Recording still open"
+          : "Local working copy") +
     (s.synced
-      ? " · Letzter Abgleich " + new Date(s.synced).toLocaleString("de-AT")
-      : " · Erster Abgleich offen") +
-    (s.conflicts.length ? " · " + s.conflicts.length + " Klärfälle" : "") +
+      ? " · Last sync " + new Date(s.synced).toLocaleString("en-GB")
+      : " · First sync pending") +
+    (s.conflicts.length ? " · " + s.conflicts.length + " Cases to resolve" : "") +
     "   ·   " +
     s.ops.length +
-    " ausstehend";
+    " pending";
   if (!offlineEnabled)
     state.textContent = s.yearClosed
-      ? "Geschäftsjahr abgeschlossen · Nur Lesen"
+      ? "Fiscal year closed · Read only"
       : s.closed
-        ? "Abgeschlossen · Nur Lesen"
+        ? "Closed · Read only"
         : "";
   const isEvent = isOnlineEventPage() || sectionOf(page) === "Veranstaltungen",
     isAdmin = sectionOf(page) === "Verwaltung";
@@ -3869,7 +3878,7 @@ function show() {
           ? '<div class="actions">' +
             route(
               "Veranstaltungsliste",
-              "Alle Veranstaltungen im Geschäftsjahr",
+              "All events in the fiscal year",
               "secondary",
               "CalendarDays",
             ) +
@@ -3898,9 +3907,9 @@ function show() {
                 offlineEnabled
                   ? adminTabs
                   : [
-                      ["Verwaltung", "Organisation"],
-                      ["Prüfprotokoll", "Prüfprotokoll"],
-                      ["Datenaustausch", "Datenaustausch"],
+                      ["Verwaltung", "Organization"],
+                      ["Prüfprotokoll", "Audit log"],
+                      ["Datenaustausch", "Data exchange"],
                     ],
                 page,
               )
@@ -3917,8 +3926,8 @@ function show() {
           ? !offlineEnabled
             ? onlineAdmin()
             : panel(
-                "Weitere Arbeitsbereiche",
-                button("newProfile", "Anderen Arbeitsbereich öffnen", true),
+                "Other workspaces",
+                button("newProfile", "Open another workspace", true),
               )
           : "") +
         (page === "Spenden"
@@ -3927,14 +3936,14 @@ function show() {
               page === "Zahlungen" &&
               rows().some((r) => r.Kind === "donation") &&
               s.role === "Admin"
-            ? "<details><summary>Spendenmeldedaten</summary>" +
+            ? "<details><summary>Donation reporting data</summary>" +
               donationPanel() +
               "</details>"
             : "") +
         (page === "Preise"
           ? route(
               "Dokumente",
-              "Preisliste und Karten drucken",
+              "Print price list and cards",
               "secondary",
               "Files",
             )
@@ -3993,7 +4002,7 @@ async function action(fn) {
   try {
     await fn();
   } catch (e) {
-    const message = e.message || "Vorgang fehlgeschlagen.";
+    const message = e.message || "Operation failed.";
     if (entryDialog.open) {
       const alert = entryDialog.querySelector(".entry-error");
       alert.textContent = message;
@@ -4043,18 +4052,18 @@ async function submit(f) {
   if (id === "pooled-settlement") {
     canWrite();
     if (f.dataset.event !== s.event.ID)
-      throw Error("Veranstaltung erneut öffnen.");
+      throw Error("Reopen event.");
     const amount = pooledRevenue(rows()),
       end = poolCount(rows(), "Ende");
     if (amount == null || amount < 0 || amount !== Number(f.dataset.amount))
-      throw Error("Zählstand geändert. Abrechnung erneut öffnen.");
+      throw Error("The count changed. Reopen settlement.");
     if (s.event.Accounts && !vals.Account)
-      throw Error("Buchungskonto auswählen.");
+      throw Error("Select a posting account.");
     const previous = rows().find((r) => r.ID === "settlement-total");
     await queue(
       "income",
       {
-        Label: "Barabrechnung aller Geldtaschen",
+        Label: "Cash settlement for all wallets",
         Amount: amount,
         Date: previous?.Data.Date || end.Data.Date,
         Account: vals.Account || "",
@@ -4079,7 +4088,7 @@ async function submit(f) {
           ? "application/pdf"
           : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       ),
-      "Konfliktfassung-" +
+      "Conflicting-version-" +
         out.number +
         "-" +
         vals.operation +
@@ -4102,7 +4111,7 @@ async function submit(f) {
   }
   if (id === "donorDecision" || id === "donorDownload") {
     if (donorReview?.device !== s.device || !s.donorAccess)
-      throw Error("Prüfstand neu laden.");
+      throw Error("Reload review status.");
     const { period, preview, report, history } = donorReview;
     if (id === "donorDecision") {
       const key = JSON.stringify([
@@ -4139,10 +4148,10 @@ async function submit(f) {
         (v) => v.toString(16).padStart(2, "0"),
       ).join("");
       if (digest !== file.sha256)
-        throw Error("Prüfsumme der Exportdatei stimmt nicht.");
+        throw Error("Export file checksum mismatch.");
       download(
         new Blob([bytes], { type: "application/json" }),
-        "Spendenexport-" + vals.report + ".json",
+        "Donation-export-" + vals.report + ".json",
       );
     }
   }
@@ -4243,8 +4252,8 @@ async function submit(f) {
     await api("access", vals);
   }
   if (id === "prepare") {
-    if (vals.pass.length < 10) throw Error("Lokales Passwort zu kurz.");
-    if (!sw) throw Error("Service Worker und sicherer Kontext erforderlich.");
+    if (vals.pass.length < 10) throw Error("Local password is too short.");
+    if (!sw) throw Error("A service worker and a secure context are required.");
     await sw;
     await navigator.storage.persist?.();
     const p = await api("prepare", {
@@ -4338,7 +4347,7 @@ async function submit(f) {
   }
   if (id === "carry") {
     const period = rows().find((r) => r.ID === vals.period);
-    if (!period) throw Error("Zielperiode wählen.");
+    if (!period) throw Error("Select a destination period.");
     const prior = await api(
       "manage",
       { Action: "prior", Target: period.Data.Date },
@@ -4354,13 +4363,13 @@ async function submit(f) {
       )
         continue;
       if (old && !old.Data.Fields?.previous)
-        throw Error("Vorhandene manuelle Eröffnung zuerst fachlich klären.");
+        throw Error("Resolve the existing manual opening balance first.");
       if (old && vals.reason.trim().length < 5)
-        throw Error("Austausch des Vorperiodenübertrags begründen.");
+        throw Error("Enter a reason for replacing the previous carry-forward.");
       await queue(
         "opening",
         {
-          Label: "Übertrag aus Abschluss " + prior.End,
+          Label: "Carry-forward from closing balance " + prior.End,
           Date: period.Data.Date,
           Amount: amount,
           Account: account,
@@ -4374,7 +4383,7 @@ async function submit(f) {
   }
   if (id === "year-carry") {
     if (entryDialog.dataset.recordWorkspace !== s?.event.ID)
-      throw Error("Arbeitsbereich erneut öffnen.");
+      throw Error("Reopen the workspace.");
     const accountMap = Object.fromEntries(
       Object.entries(vals)
         .filter(([k]) => k.startsWith("account:"))
@@ -4418,7 +4427,7 @@ async function submit(f) {
         page = "Veranstaltungen";
       }
     }
-    syncDetail = "Veranstaltungskopie angelegt.";
+    syncDetail = "Event copy created.";
   }
   if (id === "reopen") {
     await api("manage", { Action: "reopen", Reason: vals.reason }, bearer());
@@ -4426,7 +4435,7 @@ async function submit(f) {
   }
   if (id === "scope-closure") {
     if (vals.workspace !== s.event.ID)
-      throw Error("Arbeitsbereich erneut öffnen.");
+      throw Error("Reopen the workspace.");
     if (["reopen", "year-reopen"].includes(vals.action)) {
       await api(
         "manage",
@@ -4444,13 +4453,13 @@ async function submit(f) {
     const wallet = rows().find((r) => r.ID === vals.wallet),
       target = "handover:" + vals.wallet,
       prev = rows().find((r) => r.ID === target);
-    if (!wallet) throw Error("Geldtasche wählen.");
+    if (!wallet) throw Error("Select wallet.");
     if (
       vals.status === "Angeboten" &&
       (vals.to === s.device || prev?.Data.Status === "Angeboten")
     )
       throw Error(
-        "Ein anderes empfangendes Gerät wählen und eine offene Übergabe zuerst bestätigen.",
+        "Select another receiving device and confirm any pending handover first.",
       );
     if (
       vals.status === "Bestätigt" &&
@@ -4458,7 +4467,7 @@ async function submit(f) {
         prev?.Data.To !== s.device ||
         prev.Data.Status !== "Angeboten")
     )
-      throw Error("Keine passende Übergabe an dieses Gerät.");
+      throw Error("No matching handover to this device.");
     await queue(
       "handover",
       {
@@ -4467,7 +4476,7 @@ async function submit(f) {
         Wallet: vals.wallet,
         To: vals.to,
         Status: vals.status,
-        Note: "Übergabe " + vals.status,
+        Note: "Handover " + financialLabel(vals.status),
       },
       target,
       prev?.Revision || 0,
@@ -4491,16 +4500,16 @@ async function submit(f) {
       vals.evidence.trim().length < 3 ||
       (!existing && vals.delivery === "Vermerk aufgehoben")
     )
-      throw Error("Adminrechte, gültigen Übergabestatus und Nachweis angeben.");
+      throw Error("Enter a valid handover status and supporting evidence using an administrator account.");
     const original = rows().find(
       (r) => r.ID === vals.original && r.Kind === "original",
     );
-    if (!original) throw Error("Ausgestellten Beleg wählen.");
+    if (!original) throw Error("Select an issued receipt.");
     await queue(
       "dispatch",
       {
         Date: today(),
-        Label: "Beleg " + original.Data.Number,
+        Label: "Receipt " + original.Data.Number,
         Reference: original.ID,
         Status: vals.delivery,
         Note: vals.evidence,
@@ -4511,21 +4520,21 @@ async function submit(f) {
   }
   if (id === "importRow") {
     if (s.role !== "Admin")
-      throw Error("Importfreigabe durch einen Admin erforderlich.");
+      throw Error("An administrator must approve the import.");
     const r = imported[Number(vals.ix)];
     if (!r || r.blocked || r.amount == null || importRole === "D8")
-      throw Error("Diese Quellenzeile ist für eine Buchung gesperrt.");
+      throw Error("This source row is blocked from posting.");
     if (s.event.Accounts && !vals.account)
-      throw Error("Kontozuordnung erforderlich.");
+      throw Error("Account allocation required.");
     const source = "source:" + r.source,
       target = "import:" + r.source + ":" + (r.key || r.row);
     if (rows().some((x) => x.ID === target))
-      throw Error("Diese Quellenstelle wurde bereits übernommen.");
+      throw Error("This source item was already imported.");
     if (!rows().some((x) => x.ID === source))
       await queue(
         "import-source",
         {
-          Label: "Geprüfte Importquelle",
+          Label: "Verified import source",
           Date: today(),
           Reference: r.source,
           Filename: importFile.name,
@@ -4548,17 +4557,17 @@ async function submit(f) {
           sheet: r.sheet || "Journal",
           original: r.raw ?? String(r.amount),
           sourceColumn: r.column || "",
-          dateOrigin: r.yearOrigin || "Quelldatum",
+          dateOrigin: r.yearOrigin || "Source date",
         },
       },
       target,
     );
-    r.status = "Übernommen";
+    r.status = "Imported";
   }
   if (id === "letters") {
     const selected = new FormData(f).getAll("recipients");
     if (!selected.length)
-      throw Error("Mindestens eine zugeordnete Spende auswählen.");
+      throw Error("Select at least one linked donation.");
     const files = {};
     for (const subject of selected) {
       const snap = snapshot(6, s, rows(), { subject });
@@ -4568,12 +4577,12 @@ async function submit(f) {
     }
     download(
       new Blob([zipSync(files)], { type: "application/zip" }),
-      "Dankesbriefe.zip",
+      "Thank-you-letters.zip",
     );
   }
   if (id === "filter") {
     if (vals.from && vals.until && vals.from > vals.until)
-      throw Error("Datumsbereich prüfen.");
+      throw Error("Check the date range.");
     filter = vals.filter;
     if (isBookingList()) journalFilters = vals;
   }
@@ -4586,7 +4595,7 @@ async function submit(f) {
         (page === "Zahlungen" && s.event.General))
     )
       throw Error(
-        "Das Buchungsziel hat sich geändert. Erfassung schließen und im gewünschten Bereich erneut öffnen.",
+        "The booking destination changed. Close this form and reopen it in the intended workspace.",
       );
     const d = { ...vals };
     if (kind === "cashback") d.Account = d.Wallet;
@@ -4605,10 +4614,10 @@ async function submit(f) {
       const wallet = rows().find(
         (r) => r.Kind === "wallet" && r.ID === d.Wallet,
       );
-      if (!wallet) throw Error("Empfangende Geldtasche auswählen.");
+      if (!wallet) throw Error("Select a receiving wallet.");
       if (d.sourceWallet) {
         if (d.sourceWallet === wallet.ID)
-          throw Error("Zwei verschiedene Geldtaschen auswählen.");
+          throw Error("Select two different wallets.");
         d.Account = d.sourceWallet;
       }
       delete d.sourceWallet;
@@ -4629,20 +4638,20 @@ async function submit(f) {
       !d.field_distinct?.trim()
     )
       throw Error(
-        "Dieser Kontaktname ist vorhanden. Bestehenden Kontakt wählen oder getrennte Person/Firma im Feld Abgrenzung begründen.",
+        "A contact with this name exists. Select it or enter a distinguishing detail for the new person or company.",
       );
     if (monetary.has(kind) && kind !== "supply") d.Amount = cents(vals.amount);
     if (kind === "organization") {
       if (vals.logo?.size) {
         if (vals.logo.type !== "image/png" || vals.logo.size > 300000)
-          throw Error("Organisationslogo als PNG bis 300 kB wählen.");
+          throw Error("Choose a PNG logo of up to 300 kB.");
         d.File = await b64(vals.logo);
       } else d.File = edit?.Data.File || "";
       delete d.logo;
     }
     if (kind === "attachment") {
       if (!vals.file.size || vals.file.size > 4194304)
-        throw Error("Dateigröße maximal 4 MiB.");
+        throw Error("Maximum file size is 4 MiB.");
       const bytes = new Uint8Array(await vals.file.arrayBuffer());
       const signature = [...bytes.slice(0, 8)];
       if (
@@ -4652,7 +4661,7 @@ async function submit(f) {
           [137, 80, 78, 71, 13, 10, 26, 10],
         ].some((m) => m.every((n, i) => signature[i] === n))
       )
-        throw Error("Datei als PDF, JPEG oder PNG auswählen.");
+        throw Error("Select a PDF, JPEG or PNG file.");
       d.Fields = {
         ...d.Fields,
         sha256: Array.from(
@@ -4667,7 +4676,7 @@ async function submit(f) {
     if (d.positions) {
       d.Lines = positions(d.positions);
       if (d.Lines.reduce((sum, l) => sum + lineCents(l), 0) !== d.Amount)
-        throw Error("Positionssumme muss dem Gesamtbetrag entsprechen.");
+        throw Error("Line items must add up to the total.");
     }
     delete d.positions;
     if (kind === "presale") {
@@ -4680,7 +4689,7 @@ async function submit(f) {
         qty * unit !== d.Amount
       )
         throw Error(
-          "Vorverkaufsmenge und Einzelpreis müssen den Erlös ergeben.",
+          "Advance ticket quantity times unit price must match the proceeds.",
         );
       d.field_unitCents = String(unit);
       delete d.unitSale;
@@ -4712,25 +4721,25 @@ async function submit(f) {
         rows().some((r) => r.ID === target)
       )
         throw Error(
-          "Papiernummer außerhalb der Reserve oder bereits registriert.",
+          "The paper receipt number is outside the reserved range or is already registered.",
         );
       if (
         d.Status === "Verworfen"
           ? d.Reference || (d.Note || "").trim().length < 3
           : rows().find((r) => r.ID === d.Reference)?.Data.Method !== "Bar"
       )
-        throw Error("Barzahlung zuordnen oder verworfene Nummer begründen.");
+        throw Error("Select the cash payment or explain why the number was voided.");
     }
     if (
       kind === "price" &&
       d.Status === "Freigegeben" &&
       (!d.Unit?.trim() || !d.Category)
     )
-      throw Error("Einheit und Sortiment vor Freigabe klären.");
+      throw Error("Confirm the unit and product range before approval.");
     if (kind === "cashback" && !d.Fields?.provider?.trim())
-      throw Error("Terminal angeben.");
+      throw Error("Specify the terminal.");
     if (kind === "organization" && s.role !== "Admin")
-      throw Error("Adminrechte erforderlich.");
+      throw Error("Administrator access required.");
     if (kind === "count" && d.Status === "Bestätigt")
       d.Fields = {
         ...d.Fields,
@@ -4751,7 +4760,7 @@ async function submit(f) {
     if (["plan", "count", "reserve"].includes(kind)) {
       const pooled = kind === "count" && d.Fields?.countScope === "all";
       if (kind !== "reserve" && !pooled && !d.Wallet)
-        throw Error("Geldtasche auswählen.");
+        throw Error("Select a wallet.");
       if (pooled) d.Wallet = "";
       if (
         kind === "count" &&
@@ -4759,7 +4768,7 @@ async function submit(f) {
         overlapsCountScope(rows(), pooled, d.Phase)
       )
         throw Error(
-          "Gesamtzählung und Einzelzählungen würden sich überschneiden. Den vorhandenen Zählumfang verwenden.",
+          "A pooled count would overlap with individual counts. Use the existing counting method.",
         );
       let phaseKey = d.Phase;
       if (kind === "count" && d.Phase === "Zwischenstand") {
@@ -4777,16 +4786,16 @@ async function submit(f) {
           : await countID(kind, d.Wallet, phaseKey);
       if (!edit && rows().some((r) => r.ID === target))
         throw Error(
-          "Für diese Phase besteht eine Zählung. Bestehenden Eintrag bearbeiten.",
+          "A count already exists for this phase. Edit the existing entry.",
         );
       if (edit && target !== edit.ID)
         throw Error(
-          "Geldtasche und Phase einer Berichtigung müssen übereinstimmen.",
+          "The correction must use the same wallet and count phase.",
         );
     }
     if (["supply", "skim", "return"].includes(kind)) {
       const wallet = rows().find((r) => r.ID === d.Wallet);
-      if (!wallet) throw Error("Geldtasche auswählen.");
+      if (!wallet) throw Error("Select a wallet.");
     }
     if (
       s.event.Accounts &&
@@ -4803,21 +4812,21 @@ async function submit(f) {
       ].includes(kind) &&
       !d.Account
     )
-      throw Error("Konto auswählen.");
+      throw Error("Select an account.");
     if (
       ["transfer", "payout", "skim", "supply", "return"].includes(kind) &&
       (!d.Account || !d.To || d.Account === d.To)
     )
-      throw Error("Verschiedene Quell- und Zielkonten angeben.");
+      throw Error("Select different source and destination accounts.");
     if (kind === "period" && (!d.To || d.Date > d.To))
-      throw Error("Periodenende prüfen.");
+      throw Error("Check the end date.");
     if (d.Allocations) {
       if (
         d.Reference ||
         Object.values(d.Allocations).reduce((a, n) => a + n, 0) !== d.Amount
       )
         throw Error(
-          "Entweder Einzelbezug oder vollständige Sammelzuordnung wählen.",
+          "Select either one reference or a complete allocation across entries.",
         );
     }
     if (
@@ -4825,12 +4834,12 @@ async function submit(f) {
       !d.Reference &&
       !d.Allocations
     )
-      throw Error("Zugehörigen Vorgang auswählen.");
+      throw Error("Select the associated transaction.");
     await queue(kind, d, target, edit?.Revision || 0);
     edit = null;
   }
   if (id === "lfk") {
-    if (s.role !== "Admin") throw Error("Adminrechte erforderlich.");
+    if (s.role !== "Admin") throw Error("Administrator access required.");
     const id = "template:" + profileID(2),
       old = rows().find((r) => r.ID === id);
     await queue(
@@ -4840,7 +4849,7 @@ async function submit(f) {
         Label: old?.Data.Label || profiles[2],
         Reference: profileID(2),
         Date: today(),
-        Note: old?.Data.Note || "LFK-Druckhintergrund",
+        Note: old?.Data.Note || "LFK print background",
         File: await b64(await background(vals.file)),
       },
       id,
@@ -4872,14 +4881,14 @@ async function submit(f) {
   if (id === "library") {
     canWrite();
     if (f.dataset.event !== s.event.ID)
-      throw Error("Arbeitsbereich hat gewechselt.");
+      throw Error("The selected workspace has changed.");
     const v = await f.librarySource(),
       target = "template:" + v.Reference,
       old = rows().find((r) => r.ID === target);
     await queue("template", v, target, old?.Revision ?? 0);
     await sync();
     if (s.conflicts.some((c) => c.Target === target))
-      throw Error("Vorlagenstand wurde zwischenzeitlich geändert.");
+      throw Error("The template version changed during editing.");
   }
   if (id === "importTemplate") {
     const text = await importTemplate(vals.file);
@@ -4920,7 +4929,7 @@ async function submit(f) {
   if (id === "template") {
     await sync();
     if (s.role !== "Admin")
-      throw Error("Nur ein Admin kann Vorlagen freigeben.");
+      throw Error("Only an administrator can approve templates.");
     const target = "template:" + vals.Reference;
     await queue(
       "template",
@@ -4952,7 +4961,7 @@ async function submit(f) {
     await sync();
     if (s.conflicts.some((c) => c.Target === target))
       throw Error(
-        "Neue Vorlagenfassung ist strittig. Lokaler Entwurf bleibt erhalten.",
+        "The new template version is disputed. The local draft was retained.",
       );
     const released = s.entries.find((r) => r.ID === target);
     if (released) {
@@ -4978,7 +4987,7 @@ async function submit(f) {
   }
   if (id === "export") {
     if (f.dataset.event && f.dataset.event !== s.event.ID)
-      throw Error("Arbeitsbereich hat gewechselt.");
+      throw Error("The selected workspace has changed.");
     const i = Number(vals.profile),
       original = ["Original", "Korrektur"].includes(vals.format);
     let previous;
@@ -4987,16 +4996,16 @@ async function submit(f) {
       if ([2, 12].includes(i) && !s.donorAccess)
         throw Error(
           offlineEnabled
-            ? "Für nummerierte Spendenbelege ist ein vorbereitetes Belegprofil erforderlich."
+            ? "Numbered donation receipts require a prepared receipt profile."
             : s.event.General
-              ? "Öffne zuerst die Meldedaten unter Spenden."
-              : "Öffne zuerst die Spendenmeldedaten unter Zahlungen & Kosten.",
+              ? "Unlock reporting data under Donations first."
+              : "Unlock donation reporting data under Payments and costs first.",
         );
       if (vals.version === "draft")
-        throw Error("Originalausgabe verlangt die freigegebene Fassung.");
+        throw Error("Originals require an approved version.");
       if (![0, 1, 2, 11, 12].includes(i) || !vals.subject)
         throw Error(
-          "Ein Original benötigt eine Rechnung oder einen Spendenbeleg mit Fachvorgang.",
+          "Select an invoice or donation with a linked transaction before issuing an original.",
         );
       const old = rows().find(
         (r) =>
@@ -5006,7 +5015,7 @@ async function submit(f) {
       if (vals.format === "Korrektur") {
         if (!old || vals.revisionReason.trim().length < 3)
           throw Error(
-            "Ausgestelltes Original und Korrekturgrund erforderlich.",
+            "Select an issued original and enter a reason for the correction.",
           );
         previous = rows()
           .filter(
@@ -5025,7 +5034,7 @@ async function submit(f) {
         rows().find((r) => r.ID === vals.subject)?.Device !== s.device ||
         availableNumbers(s) === 0
       )
-        throw Error("Ausstellungsrecht oder Nummernreserve fehlt.");
+        throw Error("Issuing permission or reserved numbers are missing.");
     }
     const snap = snapshot(i, s, rows(), {
       ...vals,
@@ -5035,7 +5044,7 @@ async function submit(f) {
       snap.previousNumber = previous;
       snap.revisionReason = vals.revisionReason;
       const correction =
-        "Ersatz für Beleg " + previous + " · " + vals.revisionReason;
+        "Replacement for receipt " + previous + " · " + vals.revisionReason;
       if (snap.tables) snap.tables.after.push(correction);
       else snap.lines.push(correction);
     }
@@ -5094,7 +5103,7 @@ async function submit(f) {
     download(
       blobs[ext],
       profileID(i) +
-        (snap.number ? "-" + snap.number : "-Arbeitsfassung") +
+        (snap.number ? "-" + snap.number : "-draft") +
         "." +
         ext,
     );
@@ -5161,11 +5170,11 @@ function updateCount(form) {
     form.querySelector('[data-piece="' + coin + '"]').textContent = input
       .validity.valid
       ? eur(coin * count)
-      : "Stückzahl prüfen";
+      : "Check quantity";
   }
   form.querySelector("#count-total").textContent = valid
     ? eur(totalPieces(pieces))
-    : "Stückzahlen prüfen";
+    : "Check quantities";
 }
 document.addEventListener("input", (e) => {
   if (e.target.closest(".admin-console")) return;
@@ -5177,7 +5186,7 @@ document.addEventListener("input", (e) => {
     proofRevision++;
     document.querySelector("#proof-sheet").replaceChildren();
     document.querySelector("#proof-status").textContent =
-      "Eingaben geändert. Vorschau aktualisieren.";
+      "Inputs changed. Refresh the preview.";
   }
   if (!e.target.matches("[data-contact-filter]")) return;
   const query = e.target.value.trim().toLocaleLowerCase("de"),
@@ -5268,30 +5277,30 @@ document.addEventListener("click", (e) => {
           !e.Closed && e.Year && !years.find((y) => y.ID === e.Year)?.Closed,
       );
       if (!spaces.length) {
-        notice.textContent = "Kein offener Arbeitsbereich vorhanden.";
+        notice.textContent = "No workspace is open.";
         return;
       }
       openEditor(
         b,
-        "Feuerwehrkonto zuordnen · " + master.Name,
+        "Link treasury account · " + master.Name,
         form(
           "fire-link",
           select(
             "Event",
-            "Arbeitsbereich",
+            "Workspace",
             spaces.map((e) => [
               e.ID,
               (years.find((y) => y.ID === e.Year)?.Name || "") + " · " + e.Name,
             ]),
-          ) + select("Local", "Lokales Konto", []),
-          "Zuordnen",
+          ) + select("Local", "Local account", []),
+          "Assign",
         ),
       );
       const f = entryDialog.querySelector("form");
       f.dataset.master = id;
       const refresh = () => {
         f.elements.Local.innerHTML =
-          option("", "Neues Arbeitsbereichskonto anlegen") +
+          option("", "Create workspace account") +
           accountCatalog.locals
             .filter((l) => l.Event === f.elements.Event.value && !l.Master)
             .map((l) => option(l.ID, l.Name))
@@ -5302,17 +5311,17 @@ document.addEventListener("click", (e) => {
     } else {
       openEditor(
         b,
-        master ? "Feuerwehrkonto bearbeiten" : "Feuerwehrkonto anlegen",
+        master ? "Edit treasury account" : "Create treasury account",
         form(
           "fire-master",
-          field("Name", "Kontoname", "text", true, master?.Name || "") +
+          field("Name", "Account name", "text", true, master?.Name || "") +
             (master
               ? select("Active", "Status", [
-                  ["true", "Aktiv"],
-                  ["false", "Inaktiv"],
+                  ["true", "Active"],
+                  ["false", "Inactive"],
                 ])
               : ""),
-          "Speichern",
+          "Save",
         ),
       );
       const f = entryDialog.querySelector("form");
@@ -5332,31 +5341,31 @@ document.addEventListener("click", (e) => {
         b,
         v.Name,
         balanceLines(v) +
-          '<button type="button" data-act="yearBalances">Zurück zum Kontenabgleich</button>',
+          '<button type="button" data-act="yearBalances">Back to account reconciliation</button>',
       );
       return;
     }
     const val = (n) => (n == null ? "" : (n / 100).toFixed(2));
     openEditor(
       b,
-      "Jahresbestände · " + v.Name,
+      "Fiscal year balances · " + v.Name,
       form(
         "fire-count",
-        select("Action", "Anfangsbestand", [
-          ["count", "Händisch"],
+        select("Action", "Opening balance", [
+          ["count", "Manual"],
           ...(v.PriorActual != null
-            ? [["carry", "Vorjahresstand übernehmen · " + eur(v.PriorActual)]]
+            ? [["carry", "Carry forward prior balance · " + eur(v.PriorActual)]]
             : []),
         ]) +
-          field("Opening", "Anfang in EUR", "text", false, val(v.Opening)) +
+          field("Opening", "Opening balance in EUR", "text", false, val(v.Opening)) +
           field(
             "Actual",
-            "Gezählter Iststand / Kontoauszug in EUR",
+            "Observed balance or bank statement balance in EUR",
             "text",
             false,
             val(v.Actual),
           ),
-        "Bestände speichern",
+        "Save balances",
       ),
     );
     const f = entryDialog.querySelector("form");
@@ -5373,7 +5382,7 @@ document.addEventListener("click", (e) => {
     if (!input.validity.valid || next > Number(input.max)) {
       input.focus();
       input.setCustomValidity(
-        "Bitte eine gültige Stückzahl bis 1.000.000 eingeben.",
+        "Enter a whole number up to 1,000,000.",
       );
       input.reportValidity();
       input.setCustomValidity("");
@@ -5481,7 +5490,7 @@ document.addEventListener("click", (e) => {
         page = "Zahlungen";
         show();
         if (s.event.General || !writableWorkspace())
-          throw Error("Dieser Arbeitsbereich ist für Buchungen gesperrt.");
+          throw Error("Bookings are locked in this workspace.");
         kind = "income";
         openRecord(article.querySelector('[data-act="focusEntry"]'));
         return;
@@ -5543,11 +5552,11 @@ document.addEventListener("click", (e) => {
       const row = rows().find((r) => r.ID === b.dataset.shareOriginal);
       const file = new File(
         [from64(row.Data.PDF, "application/pdf")],
-        "Beleg-" + row.Data.Number + ".pdf",
+        "Receipt-" + row.Data.Number + ".pdf",
         { type: "application/pdf" },
       );
       if (!navigator.canShare?.({ files: [file] }))
-        throw Error("PDF speichern und als Anhang öffnen.");
+        throw Error("Save the PDF and open it as an attachment.");
       try {
         await navigator.share({ files: [file], title: row.Data.Label });
       } catch (err) {
@@ -5570,7 +5579,7 @@ document.addEventListener("click", (e) => {
     }
     if (b.dataset.edit) {
       const row = rows().find((r) => r.ID === b.dataset.edit);
-      if (!row) throw Error("Der Eintrag ist nicht mehr verfügbar.");
+      if (!row) throw Error("This entry is no longer available.");
       openRecord(b, row);
       return;
     }
@@ -5578,10 +5587,10 @@ document.addEventListener("click", (e) => {
       const row = rows().find((r) => r.ID === b.dataset.lifecycle);
       openReasonEditor(
         b,
-        row.Data.Retired ? "Eintrag wiederherstellen" : "Eintrag archivieren",
+        row.Data.Retired ? "Restore entry" : "Archive entry",
         row.Data.Label,
         async (reason) => {
-          if (reason.length < 3) throw Error("Begründung angeben.");
+          if (reason.length < 3) throw Error("Enter a reason.");
           await queue(
             row.Kind,
             {
@@ -5607,25 +5616,25 @@ document.addEventListener("click", (e) => {
         canWrite();
         const amount = pooledRevenue(rows()),
           previous = rows().find((r) => r.ID === "settlement-total");
-        if (amount == null || amount < 0) throw Error("Zählstand prüfen.");
+        if (amount == null || amount < 0) throw Error("Check count.");
         openEditor(
           b,
-          "Geldtaschen gemeinsam abrechnen",
+          "Settle wallets together",
           "<p>" +
             esc(s.event.Name) +
             " · Sammelbareinnahme <strong>" +
             eur(amount) +
-            "</strong></p><p>Barbuchungen ohne eigene Geldtasche zählen zum gemeinsamen Bestand, sofern kein separates Konto angegeben ist.</p>" +
+            "</strong></p><p>Cash bookings without a wallet count toward pooled cash unless a separate account is specified.</p>" +
             form(
               "pooled-settlement",
               (s.event.Accounts
-                ? refs("Account", "Buchungskonto", ["account"])
+                ? refs("Account", "Posting account", ["account"])
                 : "") +
                 (previous
                   ? field("reason", "Reason for correction", "text", true)
                   : ""),
-              previous ? "Berichtigung buchen" : "Gesamtbetrag buchen",
-              button("cancel", "Abbrechen", true),
+              previous ? "Post correction" : "Post total",
+              button("cancel", "Cancel", true),
             ),
         );
         const f = entryDialog.querySelector("form");
@@ -5643,7 +5652,7 @@ document.addEventListener("click", (e) => {
         wallet.ID,
       );
       if (amount === null || amount < 0)
-        throw Error("Zählungen und zugeordnete Geldbewegungen prüfen.");
+        throw Error("Review counts and their associated transactions.");
       const end = rows().find(
         (r) =>
           r.Kind === "count" &&
@@ -5654,7 +5663,7 @@ document.addEventListener("click", (e) => {
         queue(
           "income",
           {
-            Label: "Barabrechnung " + wallet.Data.Label,
+            Label: "Bar settlement " + wallet.Data.Label,
             Date: previous?.Data.Date || end.Data.Date,
             Note: reason,
             Wallet: wallet.ID,
@@ -5670,7 +5679,7 @@ document.addEventListener("click", (e) => {
       if (previous) {
         openReasonEditor(
           b,
-          "Sammelbetrag berichtigen",
+          "Correct pooled amount",
           wallet.Data.Label + " · " + eur(amount),
           saveSettlement,
         );
@@ -5682,13 +5691,13 @@ document.addEventListener("click", (e) => {
     }
     if (b.dataset.attachment) {
       const v = rows().find((r) => r.ID === b.dataset.attachment)?.Data;
-      if (!v?.File) throw Error("Datei noch nicht vorhanden.");
+      if (!v?.File) throw Error("File pending.");
       const mime = v.File.startsWith("JVBER")
         ? "application/pdf"
         : v.File.startsWith("/9j/")
           ? "image/jpeg"
           : "image/png";
-      download(from64(v.File, mime), v.Filename || "Beleg");
+      download(from64(v.File, mime), v.Filename || "Receipt");
       return;
     }
     if (b.dataset.file) {
@@ -5790,8 +5799,8 @@ document.addEventListener("click", (e) => {
           const organization =
             rows().find((r) => r.Kind === "organization")?.Data.Label || "";
           for (const [i, name] of [
-            [9, "Pruefbericht"],
-            [10, "Belegjournal"],
+            [9, "Review-report"],
+            [10, "Document-register"],
           ]) {
             const snap = snapshot(i, s, rows(), {
               period: chosenPeriod,
@@ -5807,12 +5816,12 @@ document.addEventListener("click", (e) => {
               period: chosenPeriod,
               templates,
             }),
-            "Pruefpaket.zip",
+            "Review-package.zip",
           );
         }
         return;
       case "donors":
-        if (!s.donorAccess) throw Error("Meldedatenprofil erforderlich.");
+        if (!s.donorAccess) throw Error("A reporting data profile is required.");
         download(
           new Blob(
             [
@@ -5827,7 +5836,7 @@ document.addEventListener("click", (e) => {
             ],
             { type: "application/json" },
           ),
-          "Spenden-Pruefliste.json",
+          "Donation-review-list.json",
         );
         return;
       case "conflictFiles":
@@ -5843,9 +5852,9 @@ document.addEventListener("click", (e) => {
           username: x.name,
           action:
             (x.capacity === 0
-              ? "Keine Digitalnummern"
+              ? "No digital numbers"
               : x.first + "–" + x.last) +
-            " · Papier P-" +
+            " · Paper P-" +
             x.first +
             "–P-" +
             x.paper_last +
@@ -5853,7 +5862,7 @@ document.addEventListener("click", (e) => {
             x.status +
             " · Digital: " +
             (x.used || []).join(", ") +
-            " · Papier: " +
+            " · Paper: " +
             (x.paper || []).join(", "),
         }));
         break;
@@ -5877,21 +5886,21 @@ document.addEventListener("click", (e) => {
         const usage = await navigator.storage.estimate();
         readiness = [
           missing.length
-            ? "Offlinepaket unvollständig: " + missing.join(", ")
-            : "App, Renderer, Marke und Icons lokal vorhanden",
+            ? "Offline package incomplete: " + missing.join(", ")
+            : "App, renderer, branding and icons available locally",
           s.synced
-            ? "Fachdaten zuletzt bestätigt: " + s.synced
-            : "Fachdaten noch nicht abgeglichen",
+            ? "Records last confirmed: " + s.synced
+            : "Records have not been synchronized",
           Date.parse(s.expires) > Date.now()
-            ? "Gerätefreigabe gültig"
-            : "Gerätefreigabe abgelaufen",
-          "Freie Belegnummern: " + availableNumbers(s),
-          "Geschätzter freier Speicher: " +
+            ? "Device authorization valid"
+            : "Device authorization expired",
+          "Available receipt numbers: " + availableNumbers(s),
+          "Estimated free space: " +
             Math.floor(((usage.quota || 0) - (usage.usage || 0)) / 1048576) +
             " MiB",
           (await navigator.storage.persisted())
-            ? "Speichererhalt vom Browser gewährt"
-            : "Speichererhalt vom Browser unbestätigt",
+            ? "Browser granted persistent storage"
+            : "Persistent storage unconfirmed",
         ];
         break;
       }
@@ -5916,13 +5925,13 @@ document.addEventListener("click", (e) => {
           show();
           closeEditor();
           notice.textContent =
-            "Serverstand geladen. Prüfe hier, ob der zuletzt erfasste Vorgang vorhanden ist.";
+            "Server records loaded. Check whether your last transaction is present.";
           return;
         }
         break;
       }
       case "seal":
-        if (!confirm("Erfassung dieses Geräts verbindlich beenden?")) return;
+        if (!confirm("Finish recording on this device?")) return;
         await commit({ ...s, ending: true });
         await sync();
         await sync({ Action: "Ende", Last: s.seq });
@@ -5944,7 +5953,7 @@ document.addEventListener("click", (e) => {
             ],
             { type: "application/json" },
           ),
-          "bonfire-geraetesicherung.json",
+          "bonfire-device-backup.json",
         );
         break;
       }
@@ -5971,7 +5980,7 @@ async function tryAutoSync() {
       if (page === "Übersicht") show();
     } catch {
       state.textContent =
-        s.event.Name + " · Lokaler Stand · Serverabgleich ausständig";
+        s.event.Name + " · Local copy, server sync pending";
     }
   })();
   try {

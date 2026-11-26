@@ -20,4 +20,4 @@ try {
   if ([IO.File]::Exists($temp)) { [IO.File]::Delete($temp) }
   [IO.Directory]::Delete($stage)
 }
-Write-Output 'Lokale Zugangsdaten in .env erstellt.'
+Write-Output 'Created local credentials in .env.'

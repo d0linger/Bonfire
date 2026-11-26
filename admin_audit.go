@@ -24,16 +24,16 @@ var processStarted = time.Now()
 var serverBuild = sync.OnceValue(func() string {
 	path, err := os.Executable()
 	if err != nil {
-		return "Unbekannt"
+		return "Unknown"
 	}
 	file, err := os.Open(path) // #nosec G304 -- path came from os.Executable and is used only to hash the running binary.
 	if err != nil {
-		return "Unbekannt"
+		return "Unknown"
 	}
 	defer file.Close()
 	h := sha256.New()
 	if _, err = io.Copy(h, file); err != nil {
-		return "Unbekannt"
+		return "Unknown"
 	}
 	return fmt.Sprintf("%x", h.Sum(nil)[:8])
 })
@@ -64,11 +64,11 @@ func (a *app) registerAdminAudit(mux *http.ServeMux) {
 func (a *app) auditAccess(ctx context.Context, r *http.Request, allowReview bool) (string, string, error) {
 	cookie, err := r.Cookie("bonfire_session")
 	if err != nil || cookie.Value == "" || r.Header.Get("Authorization") != "" {
-		return "", "", problem{401, "Persönliche Anmeldung erforderlich."}
+		return "", "", problem{401, "Sign in with your personal account."}
 	}
 	user, role, err := a.auth(ctx, r)
 	if err == nil && role != roleAdmin && !(allowReview && (role == roleRead || role == roleWrite)) {
-		return "", "", problem{403, "Keine Berechtigung für diesen Bereich."}
+		return "", "", problem{403, "You do not have access to this area."}
 	}
 	return user, role, err
 }
@@ -104,9 +104,14 @@ const auditProjection = `WITH projected AS (
       WHEN a.action LIKE 'grant %' THEN 'Zugriff zugewiesen'
       WHEN a.action LIKE 'revoke %' THEN 'Zugriff entzogen'
       WHEN a.action LIKE 'reopen %' THEN 'Arbeitsbereich wieder geöffnet'
+      WHEN management.prefix IS NOT NULL THEN management.prefix
       ELSE left(split_part(split_part(a.action,' · ',1),': ',1),160) END AS action,
- left(coalesce(o.target,a.subject),256) AS subject, coalesce(e.name,'') AS event, coalesce(y.name,'') AS year,
- CASE WHEN d.online_actor THEN 'Online-Arbeitsplatz' WHEN d.id IS NOT NULL THEN d.name
+ CASE WHEN a.action IN ('Anmeldung erfolgreich','Abmeldung') AND a.subject='Sitzung' THEN 'Session'
+      WHEN a.action='Anmeldung abgewiesen' AND a.subject='Passwort oder zweiter Faktor' THEN 'Password or second factor'
+      WHEN a.action='Anmeldung abgewiesen' AND a.subject='Zweiter Faktor' THEN 'Second factor'
+      WHEN a.action IN ('Passkey eingerichtet','Passkey entfernt') AND a.subject='Konto' THEN 'Account'
+      ELSE left(coalesce(o.target,a.subject),256) END AS subject, coalesce(e.name,'') AS event, coalesce(y.name,'') AS year,
+ CASE WHEN d.online_actor THEN 'Online workspace' WHEN d.id IS NOT NULL THEN d.name
       WHEN a.username='System' THEN 'System' ELSE 'Server' END AS source,
  coalesce(o.kind,'') AS kind,
  CASE WHEN a.action IN ('Übernommen','Konflikt') THEN a.action
@@ -115,7 +120,8 @@ const auditProjection = `WITH projected AS (
       WHEN a.action='Anmeldung abgewiesen' THEN 'Abgewiesen'
       ELSE coalesce(o.outcome,'') END AS outcome, o.base,
  o.local_time, a.event AS event_id,e.fiscal_year AS year_id,o.id AS op_id,
- CASE WHEN a.action LIKE ANY(ARRAY['Eintrag entfernt · %','Buchung storniert · %','Eintrag umgebucht · %','Umbuchung aus Veranstaltung · %'])
+ CASE WHEN management.prefix IS NOT NULL THEN substr(a.action,length(management.prefix)+2)
+      WHEN a.action LIKE ANY(ARRAY['Eintrag entfernt · %','Buchung storniert · %','Eintrag umgebucht · %','Umbuchung aus Veranstaltung · %'])
       THEN substr(a.action,strpos(a.action,' · ')+3)
       WHEN a.action LIKE 'Storno und Ersatz · %' THEN substr(a.action,length('Storno und Ersatz · ')+1)
       WHEN a.action LIKE 'beibehalten: %' OR a.action LIKE 'übernehmen: %' OR a.action LIKE 'Periode wieder geöffnet: %' THEN substr(a.action,strpos(a.action,': ')+2)
@@ -123,18 +129,26 @@ const auditProjection = `WITH projected AS (
       WHEN a.action LIKE 'grant %' OR a.action LIKE 'revoke %' OR a.action LIKE 'reopen %' THEN substr(a.action,strpos(a.action,' ')+1)
       ELSE '' END AS reason
  ` + auditJoins + `
+ LEFT JOIN LATERAL (
+   SELECT prefix FROM unnest(ARRAY['Arbeitsbereich wieder geöffnet','Geschäftsjahr wieder geöffnet',
+     'Kontozuordnung aktiviert','Kontozuordnung deaktiviert']) AS actions(prefix)
+   WHERE starts_with(a.action,prefix || ' ')
+ ) management ON true
  WHERE ($1='Admin' OR EXISTS (SELECT 1 FROM grants_event g WHERE g.event=a.event AND g.username=$2))
  AND ($3='' OR e.fiscal_year=nullif($3,'')::uuid) AND ($4='' OR a.event=nullif($4,'')::uuid)
  AND ($5='' OR a.username=$5)
  AND ($6='' OR a.at >= (nullif($6,'')::date::timestamp AT TIME ZONE 'Europe/Vienna'))
  AND ($7='' OR a.at < ((nullif($7,'')::date+1)::timestamp AT TIME ZONE 'Europe/Vienna'))
  AND ($8::bigint=0 OR a.id<$8)
+), localized AS (
+ SELECT projected.*,coalesce($13::jsonb->>action,action) AS action_label,
+    coalesce($13::jsonb->>outcome,outcome) AS outcome_label FROM projected
 ), page AS (
- SELECT * FROM projected WHERE ($9='' OR ('#' || id::text)=$9 OR strpos(lower(concat_ws(' ',action,subject,event,year,"user",kind,outcome,id::text)),lower($9))>0)
- AND ($10='' OR strpos(lower(action),lower($10))>0)
- AND ($11='' OR outcome=$11)
+ SELECT * FROM localized WHERE ($9='' OR ('#' || id::text)=$9 OR strpos(lower(concat_ws(' ',action,action_label,subject,event,year,"user",kind,outcome,outcome_label,id::text)),lower($9))>0)
+ AND ($10='' OR strpos(lower(action),lower($10))>0 OR strpos(lower(action_label),lower($10))>0)
+ AND ($11='' OR outcome=$11 OR outcome_label=$11)
  ORDER BY id DESC LIMIT $12)
- SELECT p.id,p.at,p."user",p.action,p.subject,p.event,p.year,p.source,p.kind,p.outcome,p.base,
+ SELECT p.id,p.at,p."user",p.action_label,p.subject,p.event,p.year,p.source,p.kind,p.outcome_label,p.base,
  after.revision, (prior.data->>'Amount')::bigint AS previous_cents,(after.data->>'Amount')::bigint AS cents,p.local_time,
  coalesce(src.data->>'Label',after.data->>'Account','') AS origin,
  coalesce(dst.data->>'Label',after.data->>'To','') AS destination, left(p.reason,500) AS reason
@@ -144,7 +158,7 @@ const auditProjection = `WITH projected AS (
  LEFT JOIN entries dst ON dst.event=p.event_id AND dst.id=after.data->>'To' AND dst.kind IN ('wallet','account')
  ORDER BY p.id DESC`
 
-var sensitiveReason = regexp.MustCompile(`(?i)(passwor[dt]|kennwort|secret|token|otp|recovery|wiederherstellungscode|geburt|iban|[a-z]{2}[0-9]{2}[ ]?[0-9]{4}|[\w.+-]+@[\w.-]+\.[a-z]{2,})`)
+var sensitiveReason = regexp.MustCompile(`(?i)(passwor[dt]|kennwort|secret|token|otp|recovery|wiederherstellungscode|geburt|date of birth|birthdate|iban|[a-z]{2}[0-9]{2}[ ]?[0-9]{4}|[\w.+-]+@[\w.-]+\.[a-z]{2,})`)
 
 func (a *app) adminAudit(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
 	user, role, err := a.auditAccess(ctx, r, true)
@@ -161,25 +175,25 @@ func (a *app) adminAudit(ctx context.Context, w http.ResponseWriter, r *http.Req
 	if !export && q.Get("before") != "" {
 		before, err = strconv.ParseInt(q.Get("before"), 10, 64)
 		if err != nil || before < 1 {
-			return nil, fail("Seitengrenze ungültig.")
+			return nil, fail("Invalid page boundary.")
 		}
 	}
 	for _, name := range []string{"year", "event"} {
 		if val := q.Get(name); val != "" && !idPattern.MatchString(val) {
-			return nil, fail("Arbeitsbereich oder Geschäftsjahr ungültig.")
+			return nil, fail("Invalid workspace or fiscal year.")
 		}
 	}
 	for _, name := range []string{"from", "until"} {
 		if v := q.Get(name); v != "" && !date(v) {
-			return nil, fail("Ungültiges Datum.")
+			return nil, fail("Invalid date.")
 		}
 	}
 	if q.Get("until") != "" && q.Get("from") > q.Get("until") {
-		return nil, fail("Datumsbereich prüfen.")
+		return nil, fail("Check the date range.")
 	}
 	for _, k := range []string{"q", "user", "action", "outcome"} {
 		if len(q.Get(k)) > 256 {
-			return nil, fail("Suchtext zu lang.")
+			return nil, fail("The search text is too long.")
 		}
 	}
 	tx, err := a.db.Begin(ctx)
@@ -188,7 +202,7 @@ func (a *app) adminAudit(ctx context.Context, w http.ResponseWriter, r *http.Req
 	}
 	defer tx.Rollback(ctx)
 	rows, err := tx.Query(ctx, auditProjection, role, user, q.Get("year"), q.Get("event"), q.Get("user"),
-		q.Get("from"), q.Get("until"), before, strings.TrimSpace(q.Get("q")), q.Get("action"), q.Get("outcome"), limit+1)
+		q.Get("from"), q.Get("until"), before, strings.TrimSpace(q.Get("q")), q.Get("action"), q.Get("outcome"), limit+1, auditLabels)
 	if err != nil {
 		return nil, err
 	}
@@ -200,20 +214,20 @@ func (a *app) adminAudit(ctx context.Context, w http.ResponseWriter, r *http.Req
 		if item.Kind == "donation" || sensitiveReason.MatchString(item.Reason) {
 			items[i].Reason = ""
 			if item.Reason != "" {
-				items[i].Reason = "Sensible Angabe ausgeblendet."
+				items[i].Reason = "Sensitive detail withheld."
 			}
 		}
 	}
 	more := len(items) > limit
 	if export {
 		if more {
-			return nil, fail("Export auf 10.000 Einträge begrenzt. Zeitraum oder Filter eingrenzen.")
+			return nil, fail("Exports are limited to 10,000 entries. Narrow the date range or filters.")
 		}
 		out, err := auditCSV(items)
 		if err != nil {
 			return nil, err
 		}
-		_, err = tx.Exec(ctx, "INSERT INTO audit(username,action,subject) VALUES($1,'Audit-CSV exportiert',$2)", user, fmt.Sprintf("%d Einträge", len(items)))
+		_, err = tx.Exec(ctx, "INSERT INTO audit(username,action,subject) VALUES($1,'Audit-CSV exportiert',$2)", user, fmt.Sprintf("%d entries", len(items)))
 		if err != nil {
 			return nil, err
 		}
@@ -239,7 +253,7 @@ func auditCSV(items []auditEntry) (string, error) {
 	w := csv.NewWriter(&b)
 	w.Comma = ';'
 	w.UseCRLF = true
-	err := w.Write([]string{"Ereignis", "Serverzeit (UTC)", "Benutzer", "Aktion", "Geschäftsjahr", "Arbeitsbereich", "Objekt", "Herkunft", "Art", "Ergebnis", "Ausgangsrevision", "Zielrevision", "Vorher (Cent)", "Nachher (Cent)", "Quellkonto", "Zielkonto", "Begründung", "Lokale Zeit (UTC)"})
+	err := w.Write([]string{"Event", "Server time (UTC)", "User", "Action", "Fiscal year", "Workspace", "Object", "Source", "Type", "Outcome", "Previous revision", "New revision", "Before (cents)", "After (cents)", "Source account", "Destination account", "Reason", "Local time (UTC)"})
 	num := func(n *int64) string {
 		if n == nil {
 			return ""
@@ -277,7 +291,7 @@ func (a *app) chainChecks(ctx context.Context) ([]auditChainCheck, error) {
 	rows, err := a.db.Query(ctx, `WITH links AS(
 	  SELECT s.*,lag(s.digest,1,''::bytea) OVER(PARTITION BY s.lane ORDER BY s.position) AS previous,
 	    row_number() OVER(PARTITION BY s.lane ORDER BY s.position) AS expected FROM audit_seals s)
-	  SELECT h.lane,h.position,
+	  SELECT CASE h.lane WHEN 'Betrieb' THEN 'Operations' WHEN 'Finanzen' THEN 'Finance' ELSE h.lane END,h.position,
 	    h.position=count(l.audit_id) AND coalesce(bool_and(l.position=l.expected AND
 	     l.digest=audit_row_hash(l.previous,l.lane,l.position,a,l.history_limit,l.has_operation) AND
 	     l.lane=CASE WHEN a.event IS NULL THEN 'Betrieb' ELSE 'Finanzen' END),true)

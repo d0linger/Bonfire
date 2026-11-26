@@ -23,28 +23,28 @@ for index in range(1, 12):
         expected_fields = {
             1: ("Musterplatz 8", "Übungsbanner", "€ 40,00", "Already paid: € 20,00", "Outstanding amount: € 20,00", "Due on 2026-12-01", "TESTKONTO", "Testweg 1", "Payment reference: SPONSOR-UEBUNG-42"),
             2: ("Musterplatz 8", "Übungsbanner", "€ 40,00", "Cash received on", "Outstanding amount: € 20,00", "Cash wallet: Kasse Blau", "Testweg 1"),
-            3: ("Anonym", "Testspende", "Testweg 1", "€ 5,50"),
+            3: ("Anonymous", "Testspende", "Testweg 1", "€ 5,50"),
             7: ("Thank-you letter", "€ 5,50", "Yours sincerely"),
         }[index]
         for field in expected_fields:
-            assert field in pdf_text and field in docx_text, (index, "Abweichung in einem Fachfeld")
+            assert field in pdf_text and field in docx_text, (index, "Business field mismatch")
         if index in (1, 2):
             recipient = r"Übungsfirma [0-9a-f]{8}"
             assert re.findall(recipient, pdf_text) == re.findall(recipient, docx_text) != [], index
         assert re.findall(r"€ [\d.,]+", pdf_text) == re.findall(r"€ [\d.,]+", docx_text), index
-    print(f"T{index}: PDF {len(pdf.pages)} Seite(n), {expected}, DOCX geoeffnet")
+    print(f"T{index}: PDF {len(pdf.pages)} page(s), {expected}, DOCX opened")
 
 # The synthetic imported letter contains the original colored flame in a Word image run.
 journal = PdfReader(root / "Journal-lang.pdf")
 assert len(journal.pages) > 2
 for page in journal.pages:
     text = page.extract_text()
-    assert "Zahlungsdatum" in text and "Fiktive Prüffußzeile" in text
+    assert "Payment method" in text and "Fiktive Prüffußzeile" in text
 assert "Prüfzeile 160" in journal.pages[-1].extract_text()
 print(f"Journal-Langtest: {len(journal.pages)} Seiten mit Spaltenkopf und Fußzeile")
 letter = PdfReader(root / "Brief-Layout.pdf")
 raster = letter.pages[0].images[0].image.convert("RGB")
 colors = raster.getcolors(raster.width * raster.height)
 brand_pixels = sum(count for count, (r, g, b) in colors if r - g > 30 and r - b > 30)
-assert brand_pixels > 20, "Eingebettetes Bild fehlt im PDF der Word-Vorlage"
-print(f"Brief-Layout: {brand_pixels} farbige Markenpixel im PDF")
+assert brand_pixels > 20, "Embedded Word image missing from PDF"
+print(f"Letter layout: {brand_pixels} coloured brand pixels in PDF")

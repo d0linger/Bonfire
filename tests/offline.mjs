@@ -130,12 +130,12 @@ async function ready(p, name) {
   await p.waitForFunction(
     () => !document.querySelector('article[aria-busy="true"]'),
   );
-  await press(p, "Erfassung vorbereiten");
+  await press(p, "Prepare recording");
   await by(p, "event").selectOption(eventID);
   await by(p, "name").fill(name);
   await by(p, "digitalCount").fill(name === "Nord" ? "2" : "0");
   await p.locator("#prepare [name=pass]").fill(pin);
-  await press(p, "Offlineprofil speichern");
+  await press(p, "Save offline profile");
   await p
     .getByRole("heading", { name: "Financial overview", exact: true })
     .waitFor();
@@ -208,19 +208,19 @@ async function record(p, group, type, label, values = {}) {
       ),
     );
   }
-  await press(p, "Lokal speichern");
+  await press(p, "Save locally");
   await p.getByRole("cell", { name: label, exact: true }).first().waitFor();
 }
 async function sync(p) {
-  await press(p, "Verwaltung");
-  await press(p, "Gerät & Sync");
+  await press(p, "Administration");
+  await press(p, "Device and sync");
   const completed = p.waitForResponse(
     (r) =>
       r.ok() &&
       r.url().endsWith("/api/sync") &&
       Array.isArray(r.request().postDataJSON()?.Prints),
   );
-  await press(p, "Jetzt abgleichen");
+  await press(p, "Sync now");
   await completed;
   await p.waitForFunction(
     () =>
@@ -229,7 +229,7 @@ async function sync(p) {
   );
 }
 async function artifact(p, profile, subject, format, version = "active") {
-  await press(p, "Dokumente");
+  await press(p, "Documents");
   await by(p, "profile").selectOption(String(profile));
   if (subject) await by(p, "subject").selectOption({ label: subject });
   await by(p, "version").selectOption(version);
@@ -239,9 +239,9 @@ async function artifact(p, profile, subject, format, version = "active") {
   const dl = p.waitForEvent("download");
   if (format === "Original")
     await p
-      .getByRole("button", { name: "Dokument erzeugen", exact: true })
+      .getByRole("button", { name: "Generate document", exact: true })
       .dblclick();
-  else await press(p, "Dokument erzeugen");
+  else await press(p, "Generate document");
   const path = await (await dl).path();
   return readFile(path);
 }
@@ -294,22 +294,22 @@ try {
   await record(b.p, "Journal", "income", "Eintritt Sammelbetrag", {
     amount: "14,25",
   });
-  await press(a.p, "Dokumente");
+  await press(a.p, "Documents");
   await by(a.p, "profile").selectOption("0");
   await by(a.p, "subject").selectOption({ label: "Übungsbanner" });
   await by(a.p, "format").selectOption("Original");
   await by(a.p, "version").selectOption("active");
-  await press(a.p, "Druckvorschau öffnen");
+  await press(a.p, "Open print preview");
   await a.p
     .locator("#proof-status")
-    .filter({ hasText: "Word-Arbeitsfassung" })
+    .filter({ hasText: "Word draft" })
     .waitFor();
   await a.p
     .frameLocator("#proof-sheet iframe")
     .getByText("Übungsbanner", { exact: true })
     .first()
     .waitFor();
-  assert.ok((await a.p.locator("#state").innerText()).includes("ausstehend"));
+  assert.ok((await a.p.locator("#state").innerText()).includes("pending"));
   await a.p.screenshot({ path: "test-results/ansichten-dokumente.png" });
   const before = await a.p.locator("#state").innerText();
   let outputs = 0;
@@ -322,10 +322,10 @@ try {
         value: async () => ({ quota: 1, usage: 1 }),
       });
     });
-    await press(a.p, "Dokument erzeugen");
+    await press(a.p, "Generate document");
     await a.p
       .getByRole("alert")
-      .filter({ hasText: /Speichergrenze/ })
+      .filter({ hasText: /storage limit/ })
       .waitFor();
     assert.equal(await a.p.locator("#state").innerText(), before);
     assert.equal(outputs, 0);
@@ -335,7 +335,7 @@ try {
   }
   const pdf = await artifact(a.p, 0, "Übungsbanner", "Original");
   console.log(
-    "PASS Speichergrenze vor Offlineausgabe sichtbar, keine Ausgabe oder Änderung der Warteschlange, ursprüngliches Original nach Freigabe erzeugt",
+    "PASS storage exhaustion before offline issue leaves the queue unchanged; retry issues the original",
   );
   assert.equal(pdf.subarray(0, 5).toString(), "%PDF-");
   const dl = a.p.waitForEvent("download");
@@ -346,8 +346,8 @@ try {
   contexts.delete(a.ctx);
   a = await start("A", true);
   await by(a.p, "pass").fill(pin);
-  await press(a.p, "Entsperren");
-  await press(a.p, "Dokumente");
+  await press(a.p, "Unlock");
+  await press(a.p, "Documents");
   const repeat = a.p.waitForEvent("download");
   await press(a.p, "PDF");
   assert.deepEqual(await readFile(await (await repeat).path()), pdf);
@@ -355,16 +355,16 @@ try {
     dropOriginalAck = resolve;
   });
   connected = true;
-  await press(a.p, "Verwaltung");
-  await press(a.p, "Gerät & Sync");
-  await press(a.p, "Jetzt abgleichen");
+  await press(a.p, "Administration");
+  await press(a.p, "Device and sync");
+  await press(a.p, "Sync now");
   let timer;
   try {
     await Promise.race([
       lost,
       new Promise((_, reject) => {
         timer = setTimeout(
-          () => reject(Error("Original-Sync ohne erwartete Bestätigung")),
+          () => reject(Error("Original sync did not return the expected acknowledgement")),
           30000,
         );
       }),
@@ -376,25 +376,25 @@ try {
   contexts.delete(a.ctx);
   a = await start("A", true);
   await by(a.p, "pass").fill(pin);
-  await press(a.p, "Entsperren");
-  await press(a.p, "Dokumente");
+  await press(a.p, "Unlock");
+  await press(a.p, "Documents");
   const afterLoss = a.p.waitForEvent("download");
   await press(a.p, "PDF");
   assert.deepEqual(await readFile(await (await afterLoss).path()), pdf);
   connected = true;
   await sync(a.p);
   await sync(b.p);
-  await b.p.getByRole("heading", { name: "Konflikt · Südzählung" }).waitFor();
+  await b.p.getByRole("heading", { name: "Conflict · Südzählung" }).waitFor();
   console.log(
-    "PASS Original serverseitig gespeichert, Bestätigung gezielt unterbrochen, Kaltstart und bytegleicher Nachdruck vor erfolgreicher Wiederholung",
+    "PASS the original survives an interrupted acknowledgement and cold restart for an identical reprint",
   );
   await b.p
-    .getByRole("textbox", { name: "Begründung", exact: true })
+    .getByRole("textbox", { name: "Reason", exact: true })
     .fill("Gegenzählung des Übungsteams");
-  await press(b.p, "Klärung speichern");
+  await press(b.p, "Save resolution");
   await b.p.waitForFunction(() => !document.querySelector("[id^=resolve-]"));
   await sync(a.p);
-  await press(a.p, "Kassenbuch");
+  await press(a.p, "Cashbook");
   await a.p.getByRole("cell", { name: "Eintritt Sammelbetrag" }).waitFor();
   connected = false;
   await record(a.p, "Kontakte & Preise", "payment", "Zahlung Übungsbanner", {
@@ -407,23 +407,23 @@ try {
     amount: "5,50",
   });
   await record(a.p, "Kontakte & Preise", "price", "Apfelsaft", {
-    Category: "Getränk",
+    Category: "Drink",
     Unit: "Glas",
-    Status: "Freigegeben",
+    Status: "Approved",
     amount: "2,90",
   });
   await record(a.p, "Kontakte & Preise", "price", "Brot", {
-    Category: "Essen",
+    Category: "Food",
     Unit: "Stück",
-    Status: "Freigegeben",
+    Status: "Approved",
     amount: "3,40",
   });
   await mkdir("test-results/exports", { recursive: true });
   async function currentJournal() {
-    await press(a.p, "Verwaltung");
-    await press(a.p, "Datenaustausch");
+    await press(a.p, "Administration");
+    await press(a.p, "Data exchange");
     const file = a.p.waitForEvent("download");
-    await press(a.p, "Journal als CSV");
+    await press(a.p, "Export journal as CSV");
     return readFile(await (await file).path());
   }
   const journalBeforeExports = await currentJournal();
@@ -482,16 +482,16 @@ try {
       },
     ],
   });
-  await press(a.p, "Dokumente");
+  await press(a.p, "Documents");
   await a.p.locator("#wordLayout input").setInputFiles({
     name: "Fiktiver-Brief.docx",
     mimeType:
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     buffer: await Packer.toBuffer(template),
   });
-  await press(a.p, "Word-Layout als Briefentwurf übernehmen");
+  await press(a.p, "Use Word layout as draft letter");
   await a.p
-    .getByText("Word-Layout im Entwurf verfügbar", { exact: true })
+    .getByText("Word layout available in the draft", { exact: true })
     .waitFor();
   const layoutPDF = await artifact(a.p, 6, "Testspende", "PDF", "draft");
   const layoutDOCX = await artifact(a.p, 6, "Testspende", "DOCX", "draft");
@@ -509,25 +509,25 @@ try {
   console.log(
     "PASS: offline imported Word layout with table, image, header, footer and split tokens in PDF/DOCX",
   );
-  await press(a.p, "Veranstaltungen");
-  await press(a.p, "Sponsoren & Rechnungen");
+  await press(a.p, "Events");
+  await press(a.p, "Sponsors and invoices");
   await a.p
-    .getByText(/Nr\. \d+ · Ohne Versandvermerk/)
+    .getByText(/No\. \d+ · No dispatch record/)
     .first()
     .waitFor();
-  await press(a.p, "Übergabe dokumentieren");
+  await press(a.p, "Record handover");
   await by(a.p, "delivery").selectOption("Extern übergeben");
   await by(a.p, "evidence").fill("Fiktive Übergabebestätigung");
   await a.p
     .getByRole("dialog")
-    .getByRole("button", { name: "Übergabe dokumentieren" })
+    .getByRole("button", { name: "Record handover" })
     .click();
   await a.p
-    .getByText(/Nr\. \d+ · Extern übergeben/)
+    .getByText(/No\. \d+ · Handed over externally/)
     .first()
     .waitFor();
   connected = true;
-  await press(a.p, "Dokumente");
+  await press(a.p, "Documents");
   const templateForm = a.p.locator("#template");
   await templateForm
     .locator("[name=Reference]")
@@ -545,7 +545,7 @@ try {
         .postDataJSON()
         ?.Ops?.some((op) => op.Kind === "template"),
   );
-  await templateForm.getByRole("button", { name: "Fassung freigeben" }).click();
+  await templateForm.getByRole("button", { name: "Approve version" }).click();
   await published;
   await a.p.waitForFunction(
     () => !document.querySelector('[aria-busy="true"]'),
@@ -582,23 +582,23 @@ try {
     );
   }
   console.log(
-    "PASS Vorlagenfreigabe, bytegleicher Nachdruck des früheren Originals und neue Vorlagen-/Rendernachweise im Korrekturbeleg",
+    "PASS template approval preserves the original and records the replacement template and renderer versions",
   );
-  await press(b.p, "Veranstaltungen");
-  await press(b.p, "Sponsoren & Rechnungen");
+  await press(b.p, "Events");
+  await press(b.p, "Sponsors and invoices");
   const sponsorRow = b.p
     .getByRole("row")
-    .filter({ hasText: "Extern übergeben" });
-  await sponsorRow.getByText(/Ohne Versandvermerk/).waitFor();
+    .filter({ hasText: "Handed over externally" });
+  await sponsorRow.getByText(/No dispatch record/).waitFor();
   assert.ok((await sponsorRow.innerText()).includes("20,00"));
-  await press(b.p, "Dokumente");
+  await press(b.p, "Documents");
   assert.equal(
     await b.p.getByRole("button", { name: "PDF", exact: true }).count(),
     2,
   );
-  await press(b.p, "Dokumente");
+  await press(b.p, "Documents");
   await b.p
-    .getByText("Freie Nummern dieses Geräts: 0", { exact: true })
+    .getByText("Available numbers on this device: 0", { exact: true })
     .waitFor();
   await record(
     a.p,
@@ -610,18 +610,18 @@ try {
       Contact: "Übungsfirma " + eventID.slice(0, 8) + " · Musterplatz 8",
     },
   );
-  await press(a.p, "Dokumente");
+  await press(a.p, "Documents");
   await a.p
-    .getByText("Freie Nummern dieses Geräts: 0", { exact: true })
+    .getByText("Available numbers on this device: 0", { exact: true })
     .waitFor();
   await by(a.p, "profile").selectOption("0");
   await by(a.p, "subject").selectOption({
     label: "Test ohne weitere Digitalnummer",
   });
   await by(a.p, "format").selectOption("Original");
-  await press(a.p, "Dokument erzeugen");
+  await press(a.p, "Generate document");
   await a.p
-    .getByText("Ausstellungsrecht oder Nummernreserve fehlt.", { exact: true })
+    .getByText("Issuing permission or reserved numbers are missing.", { exact: true })
     .waitFor();
   const draft = await artifact(
     a.p,
@@ -643,18 +643,18 @@ try {
     Phase: "Anfang",
     coin200: "2",
   });
-  await press(a.p, "Veranstaltungen");
-  await press(a.p, "Geldtaschen");
+  await press(a.p, "Events");
+  await press(a.p, "Wallets");
   await a.p
     .getByRole("cell", { name: "Gezählte Abschöpfung", exact: true })
     .waitFor();
-  await press(a.p, "Sammelbetrag buchen");
+  await press(a.p, "Post pooled amount");
   await a.p.waitForFunction(
     () => !document.querySelector('[aria-busy="true"]'),
   );
-  await press(a.p, "Kassenbuch");
+  await press(a.p, "Cashbook");
   await a.p
-    .getByRole("cell", { name: "Barabrechnung Kasse Blau", exact: true })
+    .getByRole("cell", { name: "Bar settlement Kasse Blau", exact: true })
     .waitFor();
   await a.p
     .getByRole("cell", { name: "Gezählte Abschöpfung", exact: true })
@@ -664,7 +664,7 @@ try {
     "Kontakte & Preise",
     "payment",
     "Restzahlung Übungsbanner",
-    { Reference: "Übungsbanner", Method: "Überweisung", amount: "20,00" },
+    { Reference: "Übungsbanner", Method: "Bank transfer", amount: "20,00" },
   );
   await record(
     a.p,
@@ -673,7 +673,7 @@ try {
     "Zahlung zur zweiten Forderung",
     {
       Reference: "Test ohne weitere Digitalnummer",
-      Method: "Überweisung",
+      Method: "Bank transfer",
       amount: "3,00",
     },
   );
@@ -697,17 +697,17 @@ try {
   for (const p of [a.p, b.p]) {
     await sync(p);
     p.once("dialog", (dialog) => dialog.accept());
-    await press(p, "Mein Erfassungsende bestätigen");
-    await p.getByText("Erfassungsende bestätigt", { exact: true }).waitFor();
+    await press(p, "Confirm end of recording");
+    await p.getByText("Recording complete", { exact: true }).waitFor();
   }
   const closed = await review({ Action: "Abschluss" });
   assert.equal(closed.closed, true);
   assert.equal(closed.pending, 0);
   assert.equal(closed.conflicts.length, 0);
   await sync(a.p);
-  await press(a.p, "Datenaustausch");
+  await press(a.p, "Data exchange");
   const packageReady = a.p.waitForEvent("download");
-  await press(a.p, "Prüfpaket laden");
+  await press(a.p, "Download review package");
   const archive = await readFile(await (await packageReady).path());
   const contents = unzipSync(archive);
   const manifest = JSON.parse(
@@ -716,7 +716,7 @@ try {
   assert.equal(manifest.freigegeben, true);
   assert.equal(manifest.veranstaltung, eventID);
   assert.equal(
-    manifest.vorlagenstaende.Pruefbericht,
+    manifest.vorlagenstaende["Review-report"],
     "closing_review_a4_new@standard",
   );
   assert.deepEqual(manifest.fehlendeDateien, []);
@@ -732,10 +732,10 @@ try {
   assert.equal(manifest.konflikte, 0);
   assert.equal(manifest.ausstehend, 0);
   for (const f of [
-    "Pruefbericht.pdf",
-    "Pruefbericht.docx",
-    "Belegjournal.pdf",
-    "Belegjournal.docx",
+    "Review-report.pdf",
+    "Review-report.docx",
+    "Document-register.pdf",
+    "Document-register.docx",
     "Journal.xlsx",
     "Journal.csv",
   ])
@@ -750,7 +750,7 @@ try {
     }),
   );
   console.log(
-    "PASS derselbe Offline-Gesamtfall mit Rollenprüfung, manueller Istzählung, Gerätesiegeln, bestätigtem Abschluss und Prüfpaket",
+    "PASS offline role checks, actual counts, device seals, confirmed closing and evidence package",
   );
   console.log(
     "PASS Doppelklick vergibt ein Original; zwei reservierte Nummern verbraucht, Nullreserve sichtbar, weiterer PDF-Entwurf ohne neue Nummer",

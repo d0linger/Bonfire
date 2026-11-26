@@ -1,4 +1,5 @@
 # Encrypted round trip against an S3-compatible server on a disposable Docker network.
+param([switch]$CollectCoverage)
 $ErrorActionPreference = 'Stop'
 $project = 'bonfire-s3-' + [guid]::NewGuid().ToString('N')
 $saved = @{}
@@ -9,6 +10,7 @@ $originalUrl = $env:BONFIRE_URL
 $originalMode = $env:BONFIRE_S3_TEST
 Push-Location (Join-Path $PSScriptRoot '..')
 $stack = @('compose', '-p', $project, '-f', 'compose.yaml', '-f', 'tests/compose.s3.yaml')
+if ($CollectCoverage) { $stack += @('-f','tests/compose.coverage.yaml') }
 try {
   $env:BONFIRE_DISPOSABLE_TEST = '1'
   $env:COMPOSE_PROJECT_NAME = $project
@@ -16,15 +18,15 @@ try {
     [Environment]::SetEnvironmentVariable($key,[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24)),'Process')
   }
   docker @stack up -d --build --wait
-  if ($LASTEXITCODE) { throw 'Start der S3-Prüfinstallation fehlgeschlagen.' }
+  if ($LASTEXITCODE) { throw 'S3 test installation failed to start.' }
   $address = (docker @stack port app 8080).Trim()
-  if ($address -notmatch '^127\.0\.0\.1:[0-9]+$') { throw 'Lokaler Prüfport fehlt.' }
+  if ($address -notmatch '^127\.0\.0\.1:[0-9]+$') { throw 'Local test port is missing.' }
   $env:BONFIRE_URL = 'http://' + $address
   $env:BONFIRE_S3_TEST = 'isolated'
   node tests/seed-retry.mjs
   if ($LASTEXITCODE) { throw "Seed recovery exercise failed." }
   node tests/admin-s3.mjs
-  if ($LASTEXITCODE) { throw 'S3-Prüfung fehlgeschlagen.' }
+  if ($LASTEXITCODE) { throw 'S3 acceptance failed.' }
 } finally {
   docker @stack down -v
   $env:BONFIRE_URL = $originalUrl

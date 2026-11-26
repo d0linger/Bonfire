@@ -13,11 +13,11 @@ type position struct {
 func amountPositions(lines []position) (int64, error) {
 	var total int64
 	if len(lines) > 200 {
-		return 0, fail("Zu viele Positionen.")
+		return 0, fail("Too many line items.")
 	}
 	for _, l := range lines {
 		if l.Description == "" || len(l.Description) > 200 || l.QuantityMilli < 1 || l.QuantityMilli > 10000000 || l.UnitCents < 0 || l.UnitCents > 999999999 {
-			return 0, fail("Ungültige Rechnungsposition.")
+			return 0, fail("Invalid invoice line item.")
 		}
 		total += (l.QuantityMilli*l.UnitCents + 500) / 1000
 	}
@@ -34,7 +34,7 @@ func checkReimbursements(ctx context.Context, tx pgx.Tx, d device, o op) (bool, 
 	var total int64
 	for id, n := range alloc {
 		if !key.MatchString(id) || n <= 0 || n > 999999999999 {
-			return false, fail("Ungültige Teilzuordnung.")
+			return false, fail("Invalid partial allocation.")
 		}
 		var limit, paid int64
 		err := tx.QueryRow(ctx, "SELECT (data->>'Amount')::bigint FROM entries WHERE event=$1 AND id=$2 AND kind='outlay'", d.Event, id).Scan(&limit)

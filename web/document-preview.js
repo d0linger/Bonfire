@@ -1,7 +1,7 @@
 // Render the generated Word file inside the local renderer's isolated document.
 export async function displayProof(host, blob) {
   const frame = document.createElement("iframe");
-  frame.title = "Druckvorschau der Arbeitsfassung";
+  frame.title = "Draft print preview";
   const bytes = new Uint8Array(await blob.arrayBuffer());
   const id = crypto.randomUUID();
   await new Promise((resolve, reject) => {
@@ -23,7 +23,7 @@ export async function displayProof(host, blob) {
       finish(event.data.error);
     };
     const timer = setTimeout(
-      () => finish("Druckvorschau konnte nicht geladen werden."),
+      () => finish("Could not load the print preview."),
       30000,
     );
     addEventListener("message", receive);

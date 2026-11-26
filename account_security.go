@@ -120,7 +120,7 @@ func (a *app) accountSecurity(ctx context.Context, w http.ResponseWriter, r *htt
 	if err = tx.QueryRow(ctx, "SELECT count(*) FROM recovery_codes WHERE username=$1", u.ID).Scan(&remaining); err != nil {
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, `SELECT public_id::text,public_id=$2,coalesce(nullif(browser,''),'Unbekannter Browser'),started_at,expires
+	rows, err := tx.Query(ctx, `SELECT public_id::text,public_id=$2,coalesce(nullif(browser,''),'Unknown browser'),started_at,expires
 		FROM sessions WHERE username=$1 AND expires>now() ORDER BY (public_id=$2) DESC,started_at DESC`, u.ID, u.SessionID)
 	if err != nil {
 		return nil, err

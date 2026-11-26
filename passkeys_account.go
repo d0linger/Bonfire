@@ -59,7 +59,7 @@ func (a *app) beginPasskeyRegistration(ctx context.Context, w http.ResponseWrite
 	}
 	q.Name = strings.TrimSpace(q.Name)
 	if q.Name == "" || utf8.RuneCountInString(q.Name) > 80 {
-		return nil, fail("Für den Passkey einen Namen mit maximal 80 Zeichen angeben.")
+		return nil, fail("Enter a passkey name of up to 80 characters.")
 	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
@@ -78,7 +78,7 @@ func (a *app) beginPasskeyRegistration(ctx context.Context, w http.ResponseWrite
 		return nil, err
 	}
 	if len(u.credentials) >= 20 {
-		return nil, problem{409, "Das Konto hat bereits 20 Passkeys."}
+		return nil, problem{409, "This account already has 20 passkeys."}
 	}
 	excluded := make([]protocol.CredentialDescriptor, 0, len(u.credentials))
 	for _, c := range u.credentials {
@@ -121,13 +121,13 @@ func (a *app) finishPasskeyRegistration(ctx context.Context, w http.ResponseWrit
 	r.Body = http.MaxBytesReader(w, r.Body, 128<<10)
 	credential, err := p.FinishRegistration(u, c.Session, r)
 	if err != nil {
-		return nil, fail("Der Passkey konnte nicht bestätigt werden. Bitte erneut einrichten.")
+		return nil, fail("Could not verify this passkey. Set it up again.")
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO passkeys(username,rp_id,name,credential_id,credential)
 		VALUES($1,$2,$3,$4,$5)`, user.ID, p.Config.RPID, c.Label, credential.ID, credential)
 	var dbErr *pgconn.PgError
 	if errors.As(err, &dbErr) && dbErr.Code == "23505" {
-		return nil, problem{409, "Dieser Passkey ist bereits eingerichtet."}
+		return nil, problem{409, "This passkey is already registered."}
 	}
 	if err != nil {
 		return nil, err
@@ -159,7 +159,7 @@ func (a *app) removePasskey(ctx context.Context, w http.ResponseWriter, r *http.
 		return nil, err
 	}
 	if tag.RowsAffected() != 1 {
-		return nil, problem{404, "Passkey nicht gefunden."}
+		return nil, problem{404, "Passkey not found."}
 	}
 	return true, commitPasskeyChange(ctx, tx, user.ID, "Passkey entfernt")
 }

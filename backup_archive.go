@@ -83,7 +83,7 @@ func sealBackup(src io.Reader, dst io.Writer, key []byte, m backupManifest) erro
 		n, err := src.Read(buf)
 		total += int64(n)
 		if total > archiveLimit {
-			return errors.New("Archiv überschreitet die Speichergrenze")
+			return errors.New("The archive exceeds the storage limit.")
 		}
 		if n > 0 {
 			if werr := put(buf[:n]); werr != nil {
@@ -102,7 +102,7 @@ func sealBackup(src io.Reader, dst io.Writer, key []byte, m backupManifest) erro
 func unsealBackup(src io.Reader, dst io.Writer, key []byte) (backupManifest, error) {
 	var m backupManifest
 	head := make([]byte, 8)
-	invalid := errors.New("Sicherungsdatei unvollständig, unlesbar oder mit einem anderen Schlüssel verschlüsselt")
+	invalid := errors.New("The backup is incomplete, unreadable or encrypted with another key.")
 	if _, err := io.ReadFull(src, head); err != nil {
 		return m, invalid
 	}
@@ -115,7 +115,7 @@ func unsealBackup(src io.Reader, dst io.Writer, key []byte) (backupManifest, err
 		const oldLimit = 128 << 20
 		raw, err := io.ReadAll(io.LimitReader(src, oldLimit+1))
 		if err != nil || len(raw) > oldLimit {
-			return m, errors.New("Legacy-Archiv größer als 128 MiB oder unlesbar; externen Restore verwenden")
+			return m, errors.New("Legacy archive unreadable or larger than 128 MiB. Use the external restore procedure.")
 		}
 		block, err := aes.NewCipher(key)
 		if err != nil {
@@ -193,12 +193,22 @@ func unsealBackup(src io.Reader, dst io.Writer, key []byte) (backupManifest, err
 
 var errBackupStatePublished = errors.New("backup state renamed but directory sync failed")
 
-func saveBackupJSON(path string, v any) error {
-	f, err := os.CreateTemp(backupHome, ".state-")
+func (b *backupWorker) saveBackupJSON(name string, v any) error {
+	if name != "state.json" && name != ".swap.json" {
+		return errors.New("unknown backup state file")
+	}
+	root, err := os.OpenRoot(b.storageRoot())
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
+	defer root.Close()
+	// Create, rename and sync within the same pinned directory even if its path moves.
+	tmp := ".state-" + rand.Text()
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	defer root.Remove(tmp)
 	if err = json.NewEncoder(f).Encode(v); err == nil {
 		err = f.Sync()
 	}
@@ -209,10 +219,10 @@ func saveBackupJSON(path string, v any) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	if err = os.Rename(f.Name(), path); err != nil {
+	if err = root.Rename(tmp, name); err != nil {
 		return err
 	}
-	dir, err := os.Open(backupHome)
+	dir, err := root.Open(".")
 	if err != nil {
 		return errors.Join(errBackupStatePublished, err)
 	}

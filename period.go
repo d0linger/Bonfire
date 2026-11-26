@@ -35,20 +35,20 @@ func applyUpgrade(ctx context.Context, tx pgx.Tx, version int, path string) erro
 		return err
 	}
 	if saved != sum && saved != migrationHash(sql, true) {
-		return errors.New("Abweichende Migrationsprüfsumme")
+		return errors.New("Migration checksum mismatch")
 	}
 	return nil
 }
 
 func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, error) {
 	if d.Role != roleAdmin {
-		return "", problem{403, "Adminrecht erforderlich."}
+		return "", problem{403, "Administrator access required."}
 	}
 	var start, end string
 	var year *string
 	err := tx.QueryRow(ctx, "SELECT j.data->>'Date',j.data->>'To',e.fiscal_year::text FROM entries j JOIN events e ON e.id=j.event WHERE j.event=$1 AND j.id=$2 AND j.kind='period'", d.Event, id).Scan(&start, &end, &year)
 	if err != nil {
-		return "", fail("Periode fehlt.")
+		return "", fail("The accounting period is missing.")
 	}
 	// Preparation, sync and settings hold the shared counterpart. The exclusive lock
 	// serializes the final snapshot with every write which could change its scope.
@@ -58,7 +58,7 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 		return "", err
 	}
 	if overlap {
-		return "", fail("Zeitraum überschneidet sich mit freigegebenem Abschluss.")
+		return "", fail("The period overlaps an approved closing.")
 	}
 	const scope = `SELECT e.id FROM events e WHERE ($3::uuid IS NULL OR e.fiscal_year=$3)
 		AND ((e.starts<=$2::date AND e.ends>=$1::date) OR EXISTS(
@@ -69,7 +69,7 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 		return "", err
 	}
 	if missing {
-		return "", fail("Offene Geräte oder ungeklärte Konflikte.")
+		return "", fail("Devices are still open or conflicts remain unresolved.")
 	}
 	var accountMode, allAccounts bool
 	err = tx.QueryRow(ctx, "SELECT coalesce(bool_or(accounts),false),coalesce(bool_and(accounts),false) FROM events WHERE id IN ("+scope+")", start, end, year).Scan(&accountMode, &allAccounts)
@@ -77,7 +77,7 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 		return "", err
 	}
 	if accountMode != allAccounts {
-		return "", fail("Unterschiedliche Kontozuordnungen zuerst abstimmen.")
+		return "", fail("Reconcile the differing account assignments first.")
 	}
 	rows, err := tx.Query(ctx, "SELECT event::text,id,kind,device::text,revision,data FROM settlement_entries WHERE event IN ("+scope+") AND ((data->>'Date')::date BETWEEN $1 AND $2 OR (kind IN ('account','wallet') AND (data->>'Date')::date<=$2)) ORDER BY id", start, end, year)
 	if err != nil {
@@ -147,12 +147,12 @@ func periodAction(ctx context.Context, tx pgx.Tx, d device, action, id, reason s
 		return result, tx.Commit(ctx)
 	}
 	if d.Role != roleAdmin || len(strings.TrimSpace(reason)) < 5 {
-		return nil, fail("Adminrecht und Begründung erforderlich.")
+		return nil, fail("Administrator access and a reason are required.")
 	}
 	var source string
 	err := tx.QueryRow(ctx, `SELECT p.id::text FROM period_closures p WHERE p.source_event=$1 AND p.period_id=$2 AND p.reopened_at IS NULL`, d.Event, id).Scan(&source)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fail("Kein aktiver Periodenabschluss in diesem Arbeitsbereich.")
+		return nil, fail("This workspace has no active period closing.")
 	}
 	if err != nil {
 		return nil, err
@@ -165,14 +165,14 @@ func periodAction(ctx context.Context, tx pgx.Tx, d device, action, id, reason s
 		return nil, err
 	}
 	if downstream {
-		return nil, fail("Zuerst den abhängigen Folgeabschluss mit Begründung wieder öffnen.")
+		return nil, fail("Reopen the dependent subsequent closing first and give a reason.")
 	}
 	tag, err := tx.Exec(ctx, "UPDATE period_closures SET reopened_by=$1,reopened_reason=$2,reopened_at=now() WHERE id=$3 AND reopened_at IS NULL", d.User, reason, source)
 	if err != nil {
 		return nil, err
 	}
 	if tag.RowsAffected() != 1 {
-		return nil, fail("Kein aktiver Periodenabschluss vorhanden.")
+		return nil, fail("There is no active period closing.")
 	}
 	if err = audit(ctx, tx, d.Event, d.User, "Periode wieder geöffnet: "+reason, id); err != nil {
 		return nil, err

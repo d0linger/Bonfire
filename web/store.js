@@ -8,11 +8,11 @@ function profileState(state, readOnly = false) {
     };
   else if (state.schemaVersion !== vaultSchema)
     throw Error(
-      "Dieses Profil benötigt eine andere BONFIRE-Version. Verschlüsseltes Archiv sichern.",
+      "This profile requires a different BONFIRE version. Save an encrypted archive.",
     );
   if (!Array.isArray(state.ops) || !Number.isSafeInteger(state.seq))
     throw Error(
-      "Profil oder Warteschlange unvollständig. Verschlüsseltes Archiv sichern.",
+      "The profile or queue is incomplete. Save an encrypted archive.",
     );
   if (
     !readOnly &&
@@ -20,7 +20,7 @@ function profileState(state, readOnly = false) {
     state.preparedOrigin !== location.origin
   )
     throw Error(
-      "Abweichende Serveradresse. Ursprünglichen Zugang oder Lesearchiv verwenden.",
+      "The server address differs. Use the original address or open the read-only archive.",
     );
   return {
     ...state,
@@ -55,10 +55,10 @@ export async function slots() {
   });
 }
 export async function recoverReadOnly(file, pass) {
-  if (file.size > 100 << 20) throw Error("Sicherung zu groß.");
+  if (file.size > 100 << 20) throw Error("The backup is too large.");
   const v = JSON.parse(await file.text());
   if (v.version !== 1 || v.iv?.length !== 12 || v.salt?.length !== 16)
-    throw Error("Sicherungsformat ungültig.");
+    throw Error("Invalid backup format.");
   const k = await derive(pass, new Uint8Array(v.salt));
   const bytes = Uint8Array.from(atob(v.ciphertext), (c) => c.charCodeAt(0));
   const plain = await crypto.subtle.decrypt(
@@ -104,7 +104,7 @@ async function derive(pass, s) {
 }
 export async function createVault(pass, state) {
   if (pass.length < 10)
-    throw Error("Mindestens zehn Zeichen für das lokale Passwort.");
+    throw Error("Use at least ten characters for the local password.");
   salt = crypto.getRandomValues(new Uint8Array(16));
   key = await derive(pass, salt);
   await save(state);
@@ -121,7 +121,7 @@ export async function unlock(pass) {
       v.bytes,
     );
   } catch {
-    throw Error("Lokales Passwort ungültig.");
+    throw Error("Invalid local password.");
   }
   rev = v.rev;
   return profileState(JSON.parse(new TextDecoder().decode(plain)));
@@ -144,7 +144,7 @@ export async function save(state) {
   const capacity = await navigator.storage?.estimate?.().catch(() => null);
   if (capacity?.quota && bytes.byteLength > capacity.quota)
     throw Error(
-      "Das verschlüsselte Profil übersteigt die Speichergrenze des Browsers. Der letzte Stand bleibt erhalten.",
+      "The encrypted profile exceeds the browser storage limit. The last saved version is still available.",
     );
   await new Promise((ok, no) => {
     const tx = db.transaction("vault", "readwrite", { durability: "strict" });
@@ -167,10 +167,10 @@ export async function save(state) {
       no(
         Error(
           stale
-            ? "Das Profil wurde in einem anderen Tab geändert. Den aktuellen Stand neu öffnen."
+            ? "This profile changed in another tab. Reopen the latest version."
             : tx.error?.name === "QuotaExceededError"
-              ? "Speichergrenze erreicht. Der letzte gespeicherte Stand bleibt erhalten. Speicherplatz freigeben und erneut versuchen."
-              : "Speichern fehlgeschlagen. Der letzte gespeicherte Stand bleibt erhalten. Vorgang erneut versuchen.",
+              ? "Storage is full. Your last saved version is still available. Free up space and try again."
+              : "Could not save the profile. Your last saved version is still available. Try again.",
         ),
       );
   });

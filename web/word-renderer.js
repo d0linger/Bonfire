@@ -38,7 +38,7 @@ addEventListener(
       }
       const pages = [...root.querySelectorAll("section.docx")];
       if (!pages.length || pages.length > 50)
-        throw Error("Das Word-Layout benötigt 1 bis 50 Seiten.");
+        throw Error("The Word layout must contain between 1 and 50 pages.");
       if (e.data.mode === "preview") {
         const sheetWidth = Math.max(
           ...pages.map((page) => page.getBoundingClientRect().width),
@@ -68,7 +68,7 @@ addEventListener(
           Math.abs((rect.height * 25.4) / 96 - 297) > 4
         )
           throw Error(
-            "Dankesbrief benötigt A4 hoch. Bei Überlauf einen Seitenumbruch setzen.",
+            "Use A4 portrait for the thank-you letter. Insert a page break if the content overflows.",
           );
         const image = await html2canvas(page, {
           scale: 1.6,
@@ -79,7 +79,7 @@ addEventListener(
         for (const picture of page.querySelectorAll("img")) {
           const b = picture.getBoundingClientRect();
           if (!picture.naturalWidth || b.width <= 0 || b.height <= 0)
-            throw Error("Eingebettetes Bild ist nicht darstellbar.");
+            throw Error("The embedded image could not be rendered.");
           const sx = image.width / rect.width,
             sy = image.height / rect.height;
           context.drawImage(
@@ -99,7 +99,7 @@ addEventListener(
       parent.postMessage(
         {
           id: e.data.id,
-          error: error.message || "Word-Layout nicht darstellbar.",
+          error: error.message || "The Word layout could not be rendered.",
         },
         e.origin,
       );

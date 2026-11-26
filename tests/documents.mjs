@@ -178,7 +178,7 @@ try {
           Data: { Date: "2026-07-15", Label: "Ausstehende Kopie" },
         },
       ],
-      { "Pruefbericht.pdf": new Blob(["TEST"]) },
+      { "Review-report.pdf": new Blob(["TEST"]) },
     );
     const zip = b.unzipSync(new Uint8Array(await evidence.arrayBuffer()));
     return {
@@ -196,14 +196,14 @@ try {
       runs,
       rejected,
       manifest: JSON.parse(b.strFromU8(zip["manifest.json"])),
-      report: !!zip["Pruefbericht.pdf"],
+      report: !!zip["Review-report.pdf"],
     };
   });
   const expected = [
     305,
     'Übung; zwei "Gläser"',
     "2026-07-15",
-    "Mögliche Dublette",
+    "Possible duplicate",
   ];
   assert.deepEqual(result.journal, [expected, expected]);
   assert.deepEqual(result.extraColumn, expected);
@@ -214,9 +214,9 @@ try {
   assert.equal(result.allD8, true);
   assert.deepEqual(result.comparison, [305, 515, "8.2"]);
   assert.deepEqual(result.variant, [
-    ["C2", "expense", 0, false, "Excel-Datum"],
-    ["C3", "expense", null, true, "Datum prüfen"],
-    ["C4", "expense", 1250, true, "Datum prüfen"],
+    ["C2", "expense", 0, false, "Excel date"],
+    ["C3", "expense", null, true, "Check the date"],
+    ["C4", "expense", 1250, true, "Check the date"],
   ]);
   assert.equal(result.runs, "{{organization.name}}\nSecond line\tValue");
   assert.ok(result.rejected && result.report);
@@ -229,7 +229,7 @@ try {
     { id: "fehlende-kopie", format: "PDF" },
     { id: "fehlende-kopie", format: "DOCX" },
   ]);
-  assert.ok(result.manifest.fehlendeBerichte.includes("Belegjournal.pdf"));
+  assert.ok(result.manifest.fehlendeBerichte.includes("Document-register.pdf"));
   console.log(
     "PASS: typed XLSX/quoted CSV roundtrip, duplicate review, manual source year, formula versus cached sum, blocked D8, split Word tokens and evidence package",
   );

@@ -6,12 +6,12 @@ services:
     environment:
       GOCOVERDIR: /coverage
     volumes:
-      - ./test-results/integration-counters:/coverage
+      - ${BONFIRE_COVERAGE_DIR:-./test-results/integration-counters}:/coverage
   app:
     environment:
       GOCOVERDIR: /coverage
     volumes:
-      - ./test-results/integration-counters:/coverage
+      - ${BONFIRE_COVERAGE_DIR:-./test-results/integration-counters}:/coverage
   backup:
     build:
       args:
@@ -19,4 +19,4 @@ services:
     environment:
       GOCOVERDIR: /coverage
     volumes:
-      - ./test-results/integration-counters:/coverage
+      - ${BONFIRE_COVERAGE_DIR:-./test-results/integration-counters}:/coverage

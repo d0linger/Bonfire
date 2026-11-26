@@ -21,7 +21,7 @@ func projectData(v *data, kind string, d device) {
 	}
 	var snapshot struct{ Profile string }
 	if json.Unmarshal([]byte(v.Note), &snapshot) != nil || strings.Contains(snapshot.Profile, "donation") {
-		v.Note = "Zugriff auf Original erfordert ein Belegprofil."
+		v.Note = "A document profile is required to access this original."
 		v.PDF = ""
 		v.DOCX = ""
 	}

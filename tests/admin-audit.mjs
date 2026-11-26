@@ -58,14 +58,14 @@ const filtered = await api(
   "admin/audit?event=" + e.ID + "&q=" + operation.Target,
   manager,
 );
-const diff = filtered.rows.find((r) => r.Action === "Geldbewegung berichtigt");
+const diff = filtered.rows.find((r) => r.Action === "Financial transaction corrected");
 const accepted = await api(
   "admin/audit?event=" + e.ID + "&outcome=Übernommen",
   manager,
 );
 assert.ok(
   accepted.rows.length &&
-    accepted.rows.every((row) => row.Outcome === "Übernommen"),
+    accepted.rows.every((row) => row.Outcome === "Accepted"),
 );
 assert.equal(
   (await api("admin/audit?event=" + e.ID + "&outcome=Konflikt", manager)).rows
@@ -77,7 +77,7 @@ assert.equal(diff.Cents, 5000);
 assert.equal(diff.Base, 1);
 assert.equal(diff.Revision, 2);
 assert.equal(diff.Reason, correction.Data.Note);
-assert.equal(diff.Source, "Online-Arbeitsplatz");
+assert.equal(diff.Source, "Online workspace");
 const exported = await api(
   "admin/audit/export?event=" + e.ID + "&action=berichtigt",
   manager,
@@ -85,6 +85,12 @@ const exported = await api(
 );
 assert.ok(exported.csv.includes("Zählbeleg abgeglichen."));
 assert.ok(exported.csv.includes("4000;5000"));
+const localizedExport = await api(
+  "admin/audit/export?event=" + e.ID + "&action=corrected&outcome=Accepted",
+  manager,
+  {},
+);
+assert.equal(localizedExport.csv, exported.csv);
 const sensitive = "Passwort: fiktives-Testgeheimnis";
 await send({
   ...correction,
@@ -94,7 +100,7 @@ await send({
 });
 const safe = await api("admin/audit/export?event=" + e.ID, manager, {});
 assert.ok(!safe.csv.includes(sensitive));
-assert.ok(safe.csv.includes("Sensible Angabe ausgeblendet"));
+assert.ok(safe.csv.includes("Sensitive detail withheld"));
 // Historical conflict decisions are retained when an installation switches to online mode.
 const donation = { ...operation, Kind: "donation", ID: randomUUID(), Target: randomUUID() };
 await send(donation);
@@ -104,6 +110,31 @@ const legacyReason = "Synthetic private donor detail";
 execFileSync("docker", ["compose", "-p", project, "exec", "-T", "db", "psql", "-X", "-v", "ON_ERROR_STOP=1",
   "-U", "bonfire", "-d", "bonfire", "-v", "event=" + e.ID, "-v", "operation=" + donation.ID, "-v", "reason=" + legacyReason],
   { input: "INSERT INTO audit(event,username,action,subject) SELECT :'event'::uuid,'leitung',decision || ': ' || :'reason',:'operation' FROM unnest(ARRAY['beibehalten','übernehmen']) AS decision;" });
+// Older installations store management reasons as a space-delimited suffix.
+const managementActions = {
+  "Arbeitsbereich wieder geöffnet": "Workspace reopened",
+  "Geschäftsjahr wieder geöffnet": "Fiscal year reopened",
+  "Kontozuordnung aktiviert": "Account assignment enabled",
+  "Kontozuordnung deaktiviert": "Account assignment disabled",
+};
+const reason = "Correct closing date · verified";
+const managementSubject = "management-" + randomUUID();
+execFileSync("docker", ["compose", "-p", project, "exec", "-T", "db", "psql", "-X", "-v", "ON_ERROR_STOP=1",
+  "-U", "bonfire", "-d", "bonfire", "-v", "event=" + e.ID, "-v", "prefixes=" + JSON.stringify(Object.keys(managementActions)),
+  "-v", "subject=" + managementSubject, "-v", "reason=" + reason], {
+  input: `INSERT INTO audit(event,username,action,subject)
+    SELECT :'event'::uuid,'leitung',prefix || suffix,:'subject'
+    FROM jsonb_array_elements_text(:'prefixes'::jsonb) AS actions(prefix)
+    CROSS JOIN (VALUES (''),(' '),(' ' || :'reason')) AS reasons(suffix);`,
+});
+const managementFilter = "?event=" + e.ID + "&q=" + managementSubject;
+const managementRows = (await api("admin/audit" + managementFilter, manager)).rows;
+const managementCSV = (await api("admin/audit/export" + managementFilter, manager, {})).csv;
+for (const label of Object.values(managementActions)) {
+  const matches = managementRows.filter(row => row.Action === label);
+  assert.deepEqual(matches.map(row => row.Reason).sort(), ["", "", reason]);
+  assert.ok(managementCSV.split("\n").some(line => line.includes(label) && line.includes(reason)));
+}
 const otherExport = await api("admin/audit/export?event=" + other.ID, manager, {});
 assert.ok(otherExport.csv.includes(other.Name));
 for (const Role of ["Read", "Write"]) {
@@ -116,9 +147,9 @@ for (const Role of ["Read", "Write"]) {
   const allowedExport = await api("admin/audit/export?event=" + e.ID, cookie, {});
   assert.ok(allowedExport.csv.includes(e.Name));
   assert.ok(!allowedExport.csv.includes(legacyReason));
-  const decisions = (await api("admin/audit?event=" + e.ID, cookie)).rows.filter(r => ["beibehalten","übernehmen"].includes(r.Action));
+  const decisions = (await api("admin/audit?event=" + e.ID, cookie)).rows.filter(r => ["Kept existing version","Accepted incoming version"].includes(r.Action));
   assert.equal(decisions.length, 2);
-  assert.ok(decisions.every(r => r.Kind === "donation" && r.Reason === "Sensible Angabe ausgeblendet."));
+  assert.ok(decisions.every(r => r.Kind === "donation" && r.Reason === "Sensitive detail withheld."));
   const scoped = await api("admin/audit", cookie);
   assert.ok(scoped.rows.length);
   assert.ok(scoped.rows.every((row) => row.Event === e.Name));
@@ -142,5 +173,5 @@ assert.ok(state.schema >= 20);
 await api("logout", manager, {});
 await api("admin/audit", manager, undefined, 401);
 console.log(
-  "PASS Finanzrevision vorher/nachher, Filter und CSV, sensible Angaben, Rollensicht, Sitzungen, beide Prüfketten und echte Statusdaten.",
+  "PASS financial revisions, bilingual audit filters, CSV, sensitive data, role visibility, sessions, both audit chains and live status.",
 );
