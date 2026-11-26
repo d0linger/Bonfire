@@ -52,6 +52,18 @@ try {
     colorScheme: "dark",
   });
   const page = await context.newPage();
+  // New events require a year. Include an example of the older response shape
+  // so installations with no legacy records still exercise both fiscal-year actions.
+  await page.route(new URL("/api/events", url).href, async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const response = await route.fetch();
+    if (!response.ok()) return route.fulfill({ response });
+    const events = await response.json();
+    if (!events.some((item) => !item.Year)) {
+      events.push({ ...event, ID: randomUUID(), Year: "", Name: "Unassigned layout fixture" });
+    }
+    await route.fulfill({ response, json: events });
+  });
   page.setDefaultTimeout(10000);
   const failures = [];
   let views = 0;
@@ -671,6 +683,8 @@ try {
   }
   await page.locator("#fiscal-switch summary").click();
   await page.locator('#fiscal-switch [data-fiscal=""]').click();
+  await page.getByRole("button", { name: "Open unassigned workspaces" }).waitFor();
+  await page.getByRole("button", { name: "Assign fiscal year" }).waitFor();
   await check("Fiscal years");
   await page.getByRole("button", { name: "Create fiscal year" }).click();
   await check("Create fiscal year", page.getByRole("dialog"));

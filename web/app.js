@@ -2818,7 +2818,7 @@ function yearSetup() {
     (old.length
       ? panel(
           "Existing workspaces",
-          '<button type="button" class="secondary" data-year="unassigned">Open unassigned workspaces</button>' +
+          '<div class="actions"><button type="button" class="secondary" data-year="unassigned">Open unassigned workspaces</button>' +
             (onlineUser.role === "Admin" && years.length
               ? popupForm(
                   "assign-year",
@@ -2835,7 +2835,8 @@ function yearSetup() {
                     ),
                   "Assign fiscal year",
                 )
-              : ""),
+              : "") +
+            "</div>",
         )
       : "")
   );
