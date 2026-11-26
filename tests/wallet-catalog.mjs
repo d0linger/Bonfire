@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { admin, api, basic, onlineClient } from "./local-api.mjs";
 
+const entriesByID = rows => new Map(rows.map(row => [row.ID, row]));
 const manager = await onlineClient();
 const day = "2814-07-01";
 const suffix = randomUUID().slice(0, 8);
@@ -60,6 +61,7 @@ await post(manager, first, [bar]);
 await assign(manager, ledger, [id], {}, 409);
 await assign(manager, first, [id, id], {}, 422);
 assert.equal(walletEntries((await state(manager, first)).entries).length, 0);
+const beforeAssignment = (await state(manager, first)).entries;
 const initial = await assign(writer, first, [id, spare.ID]);
 assert.equal(initial.assigned.length, 2);
 assert.equal(new Set(initial.assigned).size, 2);
@@ -68,7 +70,13 @@ const repeat = await assign(manager, first, [spare.ID, id]);
 assert.deepEqual(repeat.assigned, []);
 assert.deepEqual([...repeat.existing].sort(), [...initial.assigned].sort());
 const firstState = await state(manager, first);
-assert.equal(firstState.entries.length, 3, "assignment creates only the wallet records alongside the existing bar");
+const assignedEntries = firstState.entries.filter(row => initial.assigned.includes(row.ID));
+assert.deepEqual(assignedEntries.map(row => row.Kind), ["wallet", "wallet"]);
+assert.deepEqual(
+  entriesByID(firstState.entries.filter(row => !initial.assigned.includes(row.ID))),
+  entriesByID(beforeAssignment),
+  "assignment must preserve all preceding event entries and directory contacts and create no financial entries",
+);
 const local = walletEntries(firstState.entries).find(row => row.Data.Label === "Main wallet " + suffix);
 assert.ok(local);
 assert.equal(local.Data.Bar, bar.Target);

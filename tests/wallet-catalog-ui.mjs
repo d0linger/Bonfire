@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { chromium } from "playwright";
 import { admin, onlineClient } from "./local-api.mjs";
 
+const entriesByID = rows => new Map(rows.map(row => [row.ID, row]));
 const manager = await onlineClient();
 const suffix = randomUUID().slice(0, 8);
 const day = "2816-08-01";
@@ -46,11 +47,15 @@ try {
   await dialog.getByRole("checkbox", { name: new RegExp(first) }).check();
   await dialog.getByRole("checkbox", { name: new RegExp(second) }).check();
   assert.ok(await dialog.evaluate(el => el.getBoundingClientRect().right <= innerWidth + 1));
+  const eventState = () => manager("online?event=" + event.ID, {});
+  const beforeAssignment = (await eventState()).entries;
+  const previousIDs = new Set(beforeAssignment.map(row => row.ID));
   await button(dialog, "Add selected wallets").click();
   await dialog.waitFor({ state: "hidden" });
 
-  const eventState = () => manager("online?event=" + event.ID, {});
-  const assigned = (await eventState()).entries;
+  const afterAssignment = (await eventState()).entries;
+  assert.deepEqual(entriesByID(afterAssignment.filter(row => previousIDs.has(row.ID))), entriesByID(beforeAssignment));
+  const assigned = afterAssignment.filter(row => !previousIDs.has(row.ID));
   assert.deepEqual(assigned.map(row => row.Kind), ["wallet", "wallet"]);
   const local = assigned.find(row => row.Data.Label === first);
   assert.ok(local);
@@ -67,7 +72,7 @@ try {
   await dialog.locator('[name="field_countMode"]').selectOption("amount");
   assert.equal(await dialog.locator('[name="amount"]').inputValue(), "");
   await page.keyboard.press("Escape");
-  assert.equal((await eventState()).entries.length, 2, "viewing a float suggestion must not post cash");
+  assert.deepEqual(entriesByID((await eventState()).entries), entriesByID(afterAssignment), "viewing a float suggestion must not change the ledger");
   console.log("PASS create reusable wallets on desktop, select several on mobile, identify assigned wallets and view the suggested opening float");
 } finally {
   await browser.close();
