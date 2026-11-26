@@ -159,8 +159,9 @@ test("closing comparisons require a current, unambiguous observation per account
   const a = "10000000-0000-4000-8000-000000000001";
   const b = "10000000-0000-4000-8000-000000000002";
   const day = "2026-06-05";
+  let order = 0;
   const posting = (kind, account, amount, date = day) =>
-    row(kind, { Account: account, Amount: amount, Date: date });
+    row(kind, { Account: account, Amount: amount, Date: date, BalanceOrder: String(++order) });
   const rows = [row("account", { Label: "Bank" }, a), row("account", { Label: "Cash" }, b),
     posting("opening", a, 100), posting("opening", b, 0), posting("actual", a, 100), posting("actual", b, 0)];
   for (const extra of [posting("income", a, 50, "2026-06-06"), posting("actual", a, 200)]) {
@@ -174,4 +175,14 @@ test("closing comparisons require a current, unambiguous observation per account
       assert.equal(closing.account_lines.find((line) => line.account_id === b).difference_cents, 0);
     }
   }
+});
+
+test("equal and opposite postings require a new same-day observation", () => {
+  const movement=(k,n,order)=>row(k,{Date:"2026-06-11",Amount:n,BalanceOrder:order});
+  const values=[movement("opening",100,"1"),movement("actual",100,"2"),movement("income",25,"3"),movement("expense",25,"4")];
+  assert.equal(closure(values,false,true)["report.review"].status,"preparation");
+  values[1].Data.BalanceOrder="5";
+  assert.equal(closure(values,false,true)["report.review"].status,"approved");
+  delete values[2].Data.BalanceOrder;
+  assert.equal(closure(values,false,true)["report.review"].status,"preparation");
 });
