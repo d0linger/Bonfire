@@ -19,10 +19,10 @@ async function run() {
   }
   if (!["encrypt", "decrypt"].includes(mode) || !target || !keyPath || !source)
     throw Error(
-      "Aufruf: keygen Schlüssel | encrypt/decrypt Schlüssel Quelle Ziel",
+      "Usage: keygen KEY | encrypt KEY SOURCE TARGET | decrypt KEY SOURCE TARGET",
     );
   const key = await readFile(keyPath);
-  if (key.length !== 32) throw Error("Schlüsseldatei muss 32 Bytes enthalten.");
+  if (key.length !== 32) throw Error("The key file must contain 32 bytes.");
   const input = await open(source, "r");
   const tmp = resolve(target) + "." + randomBytes(16).toString("hex") + ".part";
   let staged = false;
@@ -48,13 +48,13 @@ async function run() {
         );
         await out.write(cipher.getAuthTag(), 0, 16, head.length + bytes);
       } else {
-        if (bytes < 36) throw Error("Sicherung unvollständig.");
+        if (bytes < 36) throw Error("The backup file is incomplete.");
         const head = Buffer.alloc(20),
           tag = Buffer.alloc(16);
         await input.read(head, 0, 20, 0);
         await input.read(tag, 0, 16, bytes - 16);
         if (!head.subarray(0, 8).equals(magic))
-          throw Error("Unbekanntes Dateiformat.");
+          throw Error("Unrecognized backup file format.");
         const decipher = createDecipheriv("aes-256-gcm", key, head.subarray(8));
         decipher.setAAD(head);
         decipher.setAuthTag(tag);
@@ -85,6 +85,6 @@ async function run() {
 try {
   await run();
 } catch (error) {
-  console.error("Sicherungsdatei:", error.message);
+  console.error("Backup file:", error.message);
   process.exitCode = 1;
 }
