@@ -14,6 +14,7 @@ jobs:
       matrix:
         engine: [chromium, firefox, webkit]
     env:
+      BONFIRE_DISPOSABLE_TEST: '1'
       BONFIRE_ENGINE: ${{ matrix.engine }}
       BONFIRE_PORT: '0'
     steps:

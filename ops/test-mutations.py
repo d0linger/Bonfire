@@ -48,7 +48,7 @@ def main():
         replace_once(root / "finance.go", "if err != nil || duplicate {", "if err != nil {")
         env = os.environ.copy()
         env.update(COMPOSE_PROJECT_NAME="bonfire-mutant-" + secrets.token_hex(6),
-                   COMPOSE_FILE="compose.yaml", BONFIRE_PORT="0",
+                   BONFIRE_DISPOSABLE_TEST="1", COMPOSE_FILE="compose.yaml", BONFIRE_PORT="0",
                    BONFIRE_ADMIN_PASSWORD=secrets.token_hex(24),
                    BONFIRE_RUNTIME_PASSWORD=secrets.token_hex(24),
                    BONFIRE_DB_PASSWORD=secrets.token_hex(24))

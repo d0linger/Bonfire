@@ -39,11 +39,13 @@ if($LASTEXITCODE -or (Compare-Object $expectedReports $restoredReports)){throw '
 foreach($line in $restoredReports){$fields=$line.Split('|');if($fields[1] -ne $fields[2]){throw 'Prüfsumme eines Spendenexports ungültig.'}}
 Write-Output ("Wiederhergestellte Statusschritte mit geprüftem Spendenexport: "+$restoredReports.Count)
 $name='bonfire-restore-'+[guid]::NewGuid().ToString('N')
+$previousMode=$env:BONFIRE_DISPOSABLE_TEST
 $previousURL=$env:BONFIRE_URL
 docker compose run -d --no-deps --name $name -p 127.0.0.1::8080 -e "BONFIRE_TEST_DB=$restored" --entrypoint sh app -c 'export DATABASE_URL="${DATABASE_URL%/bonfire*}/${BONFIRE_TEST_DB}?sslmode=disable"; exec /app/bonfire'
 if($LASTEXITCODE -ne 0){throw 'Isolierte App konnte nicht starten.'}
 try {
   $port=(docker port $name 8080/tcp).Split(':')[-1]
+  $env:BONFIRE_DISPOSABLE_TEST='1'
   $env:BONFIRE_URL='http://127.0.0.1:'+$port
   $ready=$false
   for($i=0;$i -lt 30;$i++){try{Invoke-RestMethod -Uri ($env:BONFIRE_URL+'/health') -ErrorAction Stop | Out-Null;$ready=$true;break}catch{Start-Sleep -Milliseconds 300}}
@@ -58,5 +60,6 @@ try {
 } finally {
   docker stop $name | Out-Null
   docker rm $name | Out-Null
+  $env:BONFIRE_DISPOSABLE_TEST=$previousMode
   $env:BONFIRE_URL=$previousURL
 }

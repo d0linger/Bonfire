@@ -2,7 +2,7 @@
 $ErrorActionPreference = 'Stop'
 $project = 'bonfire-s3-' + [guid]::NewGuid().ToString('N')
 $saved = @{}
-foreach ($key in 'COMPOSE_PROJECT_NAME','BONFIRE_DB_PASSWORD','BONFIRE_RUNTIME_PASSWORD','BONFIRE_ADMIN_PASSWORD') {
+foreach ($key in 'BONFIRE_DISPOSABLE_TEST','COMPOSE_PROJECT_NAME','BONFIRE_DB_PASSWORD','BONFIRE_RUNTIME_PASSWORD','BONFIRE_ADMIN_PASSWORD') {
   $saved[$key] = [Environment]::GetEnvironmentVariable($key,'Process')
 }
 $originalUrl = $env:BONFIRE_URL
@@ -10,6 +10,7 @@ $originalMode = $env:BONFIRE_S3_TEST
 Push-Location (Join-Path $PSScriptRoot '..')
 $stack = @('compose', '-p', $project, '-f', 'compose.yaml', '-f', 'tests/compose.s3.yaml')
 try {
+  $env:BONFIRE_DISPOSABLE_TEST = '1'
   $env:COMPOSE_PROJECT_NAME = $project
   foreach ($key in 'BONFIRE_ADMIN_PASSWORD','BONFIRE_DB_PASSWORD','BONFIRE_RUNTIME_PASSWORD') {
     [Environment]::SetEnvironmentVariable($key,[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24)),'Process')

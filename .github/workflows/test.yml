@@ -48,7 +48,7 @@ jobs:
           go tool covdata textfmt -i=test-results/integration-counters -o=test-results/integration.cover
           go tool cover -func=test-results/integration.cover | tee test-results/integration-functions.txt
           go tool cover -html=test-results/integration.cover -o test-results/integration.html
-          go test -covermode=set -count=1 -coverprofile=test-results/unit.cover ./...
+          go test -covermode=set -count=1 -coverprofile=test-results/unit.cover .
           python3 ops/check-coverage.py test-results/unit.cover test-results/integration.cover test-results/combined.cover
           go tool cover -html=test-results/combined.cover -o test-results/combined.html
           grep -Eq 'login[[:space:]]+[1-9][0-9]*([.][0-9]+)?%' test-results/integration-functions.txt
