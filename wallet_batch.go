@@ -76,7 +76,7 @@ func walletBatchOperationID(request, wallet string) string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-func (a *app) walletBatch(ctx context.Context, _ http.ResponseWriter, r *http.Request) (any, error) {
+func (a *app) walletBatch(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
 	var q walletBatchCommand
 	if err := read(r, &q); err != nil {
 		return nil, err
@@ -124,6 +124,9 @@ func (a *app) walletBatch(ctx context.Context, _ http.ResponseWriter, r *http.Re
 			return nil, err
 		}
 		if !own || !bytes.Equal(previous, digest[:]) {
+			if own {
+				w.Header().Set("X-Bonfire-Wallet-Batch", "committed")
+			}
 			return nil, problem{409, "The request identifier has already been used with different details."}
 		}
 		return result, tx.Commit(ctx)

@@ -1,8 +1,11 @@
 package main
 
 import (
-	"errors"
+	"bytes"
+	"encoding/json"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 )
@@ -57,13 +60,19 @@ func (f *transactionFixture) checkWalletBatches(year, day string) {
 	post := func(q walletBatchCommand) walletBatchResult {
 		return f.atomic(a.walletBatch, path, q).(walletBatchResult)
 	}
-	reject := func(q walletBatchCommand, code int) {
+	reject := func(q walletBatchCommand, code int, marker, cookie string) {
 		t.Helper()
 		before := f.snapshot()
-		_, err := f.request(t.Context(), a.walletBatch, path, q)
-		var p problem
-		if !errors.As(err, &p) || p.code != code || !maps.Equal(before, f.snapshot()) {
-			t.Fatalf("Rejected wallet batch changed data or returned the wrong status: %v", err)
+		body, err := json.Marshal(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, bytes.NewReader(body))
+		r.AddCookie(&http.Cookie{Name: "bonfire_session", Value: cookie})
+		w := httptest.NewRecorder()
+		route(a.walletBatch)(w, r)
+		if w.Code != code || w.Header().Get("X-Bonfire-Wallet-Batch") != marker || !maps.Equal(before, f.snapshot()) {
+			t.Fatalf("Rejected wallet batch: HTTP %d, receipt marker %q, body %q", w.Code, w.Header().Get("X-Bonfire-Wallet-Batch"), w.Body.String())
 		}
 	}
 	open := walletBatchCommand{Event: e.ID, Request: uuid(), Mode: "opening", Date: day, Wallets: []string{"till-c", "till-b"}, Pieces: map[string]int64{"500": 3, "20": 2}}
@@ -79,7 +88,7 @@ func (f *transactionFixture) checkWalletBatches(year, day string) {
 	replacement := open
 	replacement.Request = uuid()
 	replacement.Wallets = []string{"till-a", "till-b"}
-	reject(replacement, 409)
+	reject(replacement, 409, "", f.cookie)
 	topUp := walletBatchCommand{Event: e.ID, Request: uuid(), Mode: "topup", Date: day, Source: "till-a", Wallets: open.Wallets, Amount: amount(285)}
 	topUpResult := post(topUp)
 	if topUpResult != (walletBatchResult{2, 285, 570}) {
@@ -94,13 +103,22 @@ func (f *transactionFixture) checkWalletBatches(year, day string) {
 	}
 	changed := topUp
 	changed.Amount = amount(300)
-	reject(changed, 409)
+	reject(changed, 409, "committed", f.cookie)
+	otherEvent := f.atomic(a.events, "/api/events", event{Name: "Other event", Year: year, Starts: day, Ends: day}).(event)
+	other := changed
+	other.Event = otherEvent.ID
+	reject(other, 409, "", f.cookie)
+	const cashier = "batch-cashier@example.invalid"
+	f.atomic(a.editAdminUser, "/api/admin/users/edit", changeAccount{Action: "create", Login: cashier, Label: "Second cashier", Role: roleWrite, Password: secret(), Events: []string{e.ID}, Reason: "Cashier shift"})
+	otherCookie := secret()
+	f.value("INSERT INTO sessions(token,username,expires) VALUES($1,$2,now()+interval '1 hour') RETURNING username", hash(otherCookie), cashier)
+	reject(changed, 409, "", otherCookie)
 	changed.Request = uuid()
 	changed.Source = "absent-till"
-	reject(changed, 422)
+	reject(changed, 422, "", f.cookie)
 	changed.Source = "main-cashbox"
 	changed.Wallets = []string{"till-b", "outside-event"}
-	reject(changed, 422)
+	reject(changed, 422, "", f.cookie)
 	changed.Wallets = []string{"till-b"}
 	post(changed)
 }
