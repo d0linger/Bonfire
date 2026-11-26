@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/list"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -10,14 +11,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/maphash"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,7 +35,7 @@ type app struct {
 	db                *pgxpool.Pool
 	mu                sync.Mutex
 	attempts          map[string]int
-	overflowAttempts  bool
+	passwordAttempts  passwordWindows
 	verificationSlots chan struct{}
 	reset             time.Time
 }
@@ -115,24 +114,61 @@ func loginSource(r *http.Request) string {
 	return host
 }
 
-const exactLoginCounters = 16384
+// Each namespace evicts its least recently used identity independently. A new
+// identity never inherits another identity's failures when a window is full.
+const loginWindowCapacity = 4096
 
-var loginHashSeed = maphash.MakeSeed()
-
-// Once exact storage fills, new keys share fixed, process-keyed buckets until expiry.
-// Separate namespaces keep source pressure independent of account and pair limits.
-func (a *app) counterKey(group, identity string) string {
-	key := group + "|" + identity
-	if _, exists := a.attempts[key]; exists || !a.overflowAttempts {
-		return key
-	}
-	bucket := maphash.String(loginHashSeed, key) % 4096
-	return "bucket|" + group + "|" + strconv.FormatUint(bucket, 10)
+type attemptCounter struct {
+	key   string
+	count int
+}
+type passwordWindows struct {
+	pairs, sources, accounts attemptWindow
 }
 
-func (a *app) passwordCounters(r *http.Request, name string) (string, string, string) {
-	source := loginSource(r)
-	return a.counterKey("pair", source+"|"+name), a.counterKey("source", source), a.counterKey("account", name)
+type attemptWindow struct {
+	recent  list.List
+	entries map[string]*list.Element
+}
+
+func (w *attemptWindow) count(key string) int {
+	if e := w.entries[key]; e != nil {
+		w.recent.MoveToFront(e)
+		return e.Value.(*attemptCounter).count
+	}
+	return 0
+}
+func (w *attemptWindow) add(key string, delta int) {
+	if e := w.entries[key]; e != nil {
+		item := e.Value.(*attemptCounter)
+		item.count += delta
+		if item.count <= 0 {
+			delete(w.entries, key)
+			w.recent.Remove(e)
+		} else {
+			w.recent.MoveToFront(e)
+		}
+		return
+	}
+	if delta <= 0 {
+		return
+	}
+	if w.entries == nil {
+		w.entries = make(map[string]*list.Element)
+	}
+	if len(w.entries) == loginWindowCapacity {
+		oldest := w.recent.Back()
+		delete(w.entries, oldest.Value.(*attemptCounter).key)
+		w.recent.Remove(oldest)
+	}
+	w.entries[key] = w.recent.PushFront(&attemptCounter{key: key, count: delta})
+}
+func (a *app) resetAttemptWindow() {
+	if time.Now().After(a.reset) {
+		clear(a.attempts)
+		a.passwordAttempts = passwordWindows{}
+		a.reset = time.Now().Add(time.Minute)
+	}
 }
 
 // A distributed burst tightens the per-source allowance on this account.
@@ -140,47 +176,32 @@ func (a *app) passwordCounters(r *http.Request, name string) (string, string, st
 func (a *app) reservePasswordAttempt(r *http.Request, name string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if time.Now().After(a.reset) {
-		clear(a.attempts)
-		a.overflowAttempts = false
-		a.reset = time.Now().Add(time.Minute)
-	}
-	if len(a.attempts)+3 > exactLoginCounters {
-		a.overflowAttempts = true
-	}
-	pair, source, account := a.passwordCounters(r, name)
+	a.resetAttemptWindow()
+	source := loginSource(r)
+	pair := source + "|" + name
+	pairs, sources, accounts := &a.passwordAttempts.pairs, &a.passwordAttempts.sources, &a.passwordAttempts.accounts
 	limit := 12
-	if a.attempts[account] >= 36 {
+	if accounts.count(name) >= 36 {
 		limit = 2
 	}
-	if a.attempts[pair] >= limit || a.attempts[source] >= 60 {
+	if pairs.count(pair) >= limit || sources.count(source) >= 60 {
 		return false
 	}
-	a.attempts[pair]++
-	a.attempts[source]++
-	a.attempts[account]++
+	pairs.add(pair, 1)
+	sources.add(source, 1)
+	accounts.add(name, 1)
 	return true
 }
 
 func (a *app) clearPasswordAttempts(r *http.Request, name string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	pair, source, account := a.passwordCounters(r, name)
-	n := a.attempts[pair]
-	if strings.HasPrefix(pair, "bucket|") && n > 1 {
-		// Refund only this successful check in a shared bucket.
-		a.attempts[pair]--
-		n = 1
-	} else {
-		delete(a.attempts, pair)
-	}
-	for _, key := range []string{source, account} {
-		if a.attempts[key] <= n {
-			delete(a.attempts, key)
-		} else {
-			a.attempts[key] -= n
-		}
-	}
+	source := loginSource(r)
+	pair := source + "|" + name
+	n := a.passwordAttempts.pairs.count(pair)
+	a.passwordAttempts.pairs.add(pair, -n)
+	a.passwordAttempts.sources.add(source, -1)
+	a.passwordAttempts.accounts.add(name, -1)
 }
 
 func (a *app) authenticate(ctx context.Context, db authDB, r *http.Request) (string, string, error) {

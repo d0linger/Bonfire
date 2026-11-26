@@ -136,11 +136,7 @@ func (a *app) accountSecurity(ctx context.Context, w http.ResponseWriter, r *htt
 func (a *app) reserveSecurityAttempt(key string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if time.Now().After(a.reset) {
-		clear(a.attempts)
-		a.overflowAttempts = false
-		a.reset = time.Now().Add(time.Minute)
-	}
+	a.resetAttemptWindow()
 	if a.attempts[key] >= 8 {
 		return problem{429, "Too many attempts. Try again in one minute."}
 	}
