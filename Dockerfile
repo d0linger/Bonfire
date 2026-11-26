@@ -1,4 +1,4 @@
-FROM node:22-alpine AS assets
+FROM node:26-alpine AS assets
 WORKDIR /src
 COPY package*.json ./
 RUN npm ci --no-audit --no-fund
