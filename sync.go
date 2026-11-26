@@ -19,6 +19,7 @@ import (
 )
 
 type data struct {
+	PostingOrder                                                                                                                             int64             `json:",string,omitempty"`
 	Retired                                                                                                                                  bool              `json:",omitempty"`
 	Lines                                                                                                                                    []position        `json:",omitempty"`
 	Allocations                                                                                                                              map[string]int64  `json:",omitempty"`
@@ -627,7 +628,7 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	if _, err = tx.Exec(ctx, "UPDATE devices SET last_seq=$1,sealed=$2,last_seen=now() WHERE id=$3", d.Last, d.Sealed, d.ID); err != nil {
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, "SELECT j.id,j.kind,j.device::text,j.revision,CASE WHEN a.active IS FALSE THEN j.data||jsonb_build_object('Fields',coalesce(nullif(j.data->'Fields','null'::jsonb),'{}'::jsonb)||jsonb_build_object('masterInactive','ja')) ELSE j.data END FROM entries j LEFT JOIN fire_account_links l ON (j.event,j.id)=(l.event,l.local_id) LEFT JOIN fire_accounts a ON a.id=l.account WHERE j.event=$1 AND j.kind<>'contact' UNION ALL SELECT id,'contact',device::text,revision,data FROM directory c WHERE $2='Admin' OR EXISTS(SELECT 1 FROM devices d WHERE d.id=c.device AND d.event=$1) OR EXISTS(SELECT 1 FROM entries j WHERE j.event=$1 AND j.data->>'Contact'=c.id) ORDER BY id", d.Event, d.Role)
+	rows, err := tx.Query(ctx, "SELECT j.id,j.kind,j.device::text,j.revision,CASE WHEN a.active IS FALSE THEN j.data||jsonb_build_object('Fields',coalesce(nullif(j.data->'Fields','null'::jsonb),'{}'::jsonb)||jsonb_build_object('masterInactive','ja')) ELSE j.data END FROM settlement_entries j LEFT JOIN fire_account_links l ON (j.event,j.id)=(l.event,l.local_id) LEFT JOIN fire_accounts a ON a.id=l.account WHERE j.event=$1 AND j.kind<>'contact' UNION ALL SELECT id,'contact',device::text,revision,data FROM directory c WHERE $2='Admin' OR EXISTS(SELECT 1 FROM devices d WHERE d.id=c.device AND d.event=$1) OR EXISTS(SELECT 1 FROM entries j WHERE j.event=$1 AND j.data->>'Contact'=c.id) ORDER BY id", d.Event, d.Role)
 	if err != nil {
 		return nil, err
 	}
