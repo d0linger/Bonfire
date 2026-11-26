@@ -5,15 +5,15 @@ import { createServer } from "node:https";
 import { request } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { admin, onlineClient, practiceEvent } from "./local-api.mjs";
+import { admin, auditFixture } from "./local-api.mjs";
 
-await practiceEvent(await onlineClient(), "Audit navigation fixture", "2746-05-02");
 const url = new URL(process.env.BONFIRE_URL);
 assert.equal(url.hostname, "127.0.0.1");
 assert.ok(url.port && url.port !== "8137", "Use a disposable test stack");
 const engines = { chromium, firefox, webkit };
 const engine = process.env.BONFIRE_ENGINE || "chromium";
 assert.ok(Object.hasOwn(engines, engine), "Unsupported browser engine");
+await auditFixture({ chromium: "2746-05-02", firefox: "2746-05-03", webkit: "2746-05-04" }[engine]);
 // All engines exercise Secure session cookies over a real TLS connection.
 const proxy = createServer({
   key: await readFile(join(process.env.RUNNER_TEMP, "browser.key")),

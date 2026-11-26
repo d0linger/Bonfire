@@ -7,16 +7,16 @@ const letters = /^word\/(document|header\d+|footer\d+)\.xml$/;
 const wordNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 function xml(bytes) {
   const text = strFromU8(bytes);
-  if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw Error("Ungültige Vorlagen-XML.");
+  if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw Error("The template contains a blocked XML declaration.");
   const doc = new DOMParser().parseFromString(text, "application/xml");
-  if (doc.querySelector("parsererror")) throw Error("Unlesbares Vorlagen-XML.");
+  if (doc.querySelector("parsererror")) throw Error("The template XML could not be read.");
   return doc;
 }
 function trustedParts(input) {
-  if (input.length > 2 << 20) throw Error("Word-Layout maximal 2 MiB.");
+  if (input.length > 2 << 20) throw Error("Choose a Word layout of 2 MiB or less.");
   const files = officeFiles(input);
   if (!files["word/document.xml"] || !files["[Content_Types].xml"])
-    throw Error("Kein vollständiges DOCX.");
+    throw Error("The DOCX file is incomplete.");
   const bad = Object.keys(files).find(
     (p) =>
       !(
@@ -25,7 +25,7 @@ function trustedParts(input) {
         ) || p.endsWith("/")
       ),
   );
-  if (bad) throw Error("Nicht unterstützter Word-Bestandteil: " + bad);
+  if (bad) throw Error("Unsupported Word component: " + bad);
   for (const [name, bytes] of Object.entries(files)) {
     if (name.endsWith(".rels")) {
       for (const node of xml(bytes).getElementsByTagNameNS(
@@ -37,7 +37,7 @@ function trustedParts(input) {
           node.getAttribute("TargetMode")?.toLowerCase() === "external" ||
           /^[a-z]+:|^\/\/|\\|(^|\/)\.\.(\/|$)/i.test(target)
         )
-          throw Error("Externe oder unsichere Word-Verknüpfung.");
+          throw Error("The Word document contains an external or unsafe link.");
       }
     }
     if (!letters.test(name)) continue;
@@ -59,7 +59,7 @@ function trustedParts(input) {
       "txbxContent",
     ]) {
       if (doc.getElementsByTagNameNS(wordNS, tag).length)
-        throw Error("Nicht unterstützte Word-Funktion: " + tag);
+        throw Error("Unsupported Word feature: " + tag);
     }
   }
   return files;
@@ -81,15 +81,15 @@ export function mergeWord(input, values) {
       }
       const matches = [...text.matchAll(/\{\{([^{}]+)\}\}/g)];
       if (/[{}]{2}/.test(text.replace(/\{\{[^{}]+\}\}/g, "")))
-        throw Error("Unvollständiges Vorlagenfeld.");
+        throw Error("The template contains an incomplete field.");
       for (const match of matches.reverse()) {
         const key = match[1];
-        if (!fields.has(key)) throw Error("Unbekanntes Vorlagenfeld: " + key);
+        if (!fields.has(key)) throw Error("Unknown template field: " + key);
         tokens.add(key);
         if (!values) continue;
         const value = values[key];
         if (value == null || typeof value === "object")
-          throw Error("Fehlender oder nicht druckbarer Vorlagenwert: " + key);
+          throw Error("Missing or unprintable template value: " + key);
         const formatted =
           key.endsWith("_cents") && typeof value === "number"
             ? eur(value)
@@ -111,7 +111,7 @@ export function mergeWord(input, values) {
     files[name] = strToU8(new XMLSerializer().serializeToString(doc));
   }
   if (!tokens.size)
-    throw Error("Das Word-Layout enthält keine BONFIRE-Felder.");
+    throw Error("Add at least one BONFIRE field to the Word layout.");
   return { bytes: zipSync(files), tokens: [...tokens] };
 }
 export async function wordFiles(encoded, context) {
