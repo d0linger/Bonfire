@@ -1,5 +1,5 @@
 "Kriterium";"Anforderung";"Stand";"Nachweis und Restprüfung"
-"BAS-01";"Quellen und aktueller Auftrag";"GEPRÜFT";"44 Paketpositionen und geprüfte Referenzen in docs/REFERENZEN.md"
+"BAS-01";"Quellen und aktueller Auftrag";"GEPRÜFT";"49 tracked work packages and reference evidence in docs/REFERENZEN.md"
 "BAS-02";"Reproduzierbarer Entwicklungsstart";"GEPRÜFT";"Compose-Start, Health und API-Suite"
 "BAS-03";"Umfang und erlaubte Umgebung";"GEPRÜFT";"Nur lokale synthetische Testdaten. Checkout und Paket separat"
 "BAS-04";"Vorläufige Markenentscheidung";"GEPRÜFT";"Build prüft die SHA-256 der lokal gebündelten Lucide-Flamme aus der Designübergabe und erzeugt daraus die Icons. Die HTML-Wortmarke und das konfigurierbare Organisationslogo sind getrennte Assets."

@@ -16,8 +16,10 @@ export function closure(rows, accounts, approved) {
   const ambiguous = new Set(), openings = new Set(), lastPosting = new Map(), observedOn = new Map();
   const configured = accounts ? rows.filter((r) => ["account", "wallet"].includes(r.Kind)).map((r) => r.ID) : [];
   let date = null;
-  function recordDate(id, day) {
-    if (day && (!lastPosting.has(id) || day > lastPosting.get(id))) lastPosting.set(id, day);
+  function recordDate(id, data) {
+    const postings = lastPosting.get(id) || [];
+    postings.push(data);
+    lastPosting.set(id, postings);
   }
   for (const { Kind: k, Data: d } of rows) {
     if (d.Amount == null) continue;
@@ -28,7 +30,7 @@ export function closure(rows, accounts, approved) {
     }
     if (k === "actual") {
       if (observed.has(id)) ambiguous.add(id);
-      observedOn.set(id, d.Date);
+      observedOn.set(id, d);
       observed.set(id, d.Amount);
       if (!date || d.Date > date) date = d.Date;
       continue;
@@ -54,7 +56,7 @@ export function closure(rows, accounts, approved) {
         : 0;
     if (sign) {
       expected.set(id, (expected.get(id) || 0) + d.Amount * sign);
-      recordDate(id, d.Date);
+      recordDate(id, d);
     }
     if (
       accounts &&
@@ -62,13 +64,15 @@ export function closure(rows, accounts, approved) {
     ) {
       expected.set(id, (expected.get(id) || 0) - d.Amount);
       expected.set(d.To, (expected.get(d.To) || 0) + d.Amount);
-      recordDate(id, d.Date);
-      recordDate(d.To, d.Date);
+      recordDate(id, d);
+      recordDate(d.To, d);
     }
   }
   const ids = new Set([...configured, ...expected.keys(), ...observed.keys()]);
-  for (const [id, day] of observedOn) {
-    if (lastPosting.get(id) > day) ambiguous.add(id);
+  for (const [id, actual] of observedOn) {
+    if (lastPosting.get(id)?.some(posting => posting.Date > actual.Date ||
+      (posting.Date && posting.Date === actual.Date && (!posting.BalanceOrder || !actual.BalanceOrder ||
+        BigInt(posting.BalanceOrder) >= BigInt(actual.BalanceOrder))))) ambiguous.add(id);
   }
   const complete =
     accounts &&
