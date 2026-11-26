@@ -17,7 +17,7 @@ The Compose acceptance commands create a disposable database and set `BONFIRE_DI
 
 Run npm ci, install Chromium with npx playwright install chromium and initialize local configuration using ./ops/init.ps1 before integration testing. A failing suite reports its name. The script removes its own disposable volumes. Keep generated keys and archives outside Git.
 
-The acceptance workflow instruments the migration, web server and backup worker processes. It merges the resulting statement counts with unit coverage for the same source blocks. On commit 667382a, Compose alone exercised 62.2% of Go statements and the combined run exercised 63.6%. The required job checks that login and backup worker code ran, enforces a 63% application minimum and requires 90% for each of ten core finance functions. The 80% target for handwritten application code remains open. Physical printing and testing on actual mobile devices require separate evidence. [Measured results](https://github.com/d0linger/bonfire/actions/runs/45785910196/job/139792492770)
+The acceptance workflow instruments the migration, web server and backup worker processes. It merges the resulting statement counts with unit coverage for the same source blocks. On commit 31f981c, Compose alone exercised 66.4% of Go statements and the combined run exercised 67.7%. The required job checks that login and backup worker code ran, enforces a 67% application minimum and requires 90% for each of ten core finance functions. The 80% target for handwritten application code remains open. Physical printing and testing on actual mobile devices require separate evidence. [Measured results](https://github.com/d0linger/bonfire/actions/runs/45793568451/job/139818573656)
 
 ## GitHub checks
 
