@@ -595,8 +595,71 @@ assert.equal((await call(ledgerPath, cash, {})).closed, false);
 await manage(event.ID, cash, "reopen", "Beleg aus Festabrechnung", 200);
 assert.equal((await send({})).closed, false);
 await call(path, writeSession, { Ops: [make("income", "Nach Freigabe", 10)] });
+// Two independent signed-in cashiers observe the same version before either submits.
+async function raceEntries(left, right) {
+  const attempts = await Promise.all([cash, writeSession].map(async (cookie, i) => {
+    const op = [left, right][i];
+    const response = await fetch(base + "/api/" + path, {
+      method: "POST",
+      headers: { Cookie: cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ Ops: [op] }),
+    });
+    return response.status;
+  }));
+  assert.deepEqual([...attempts].sort(), [200, 409]);
+  return attempts[0] === 200 ? left : right;
+}
+const sharedContact = make("contact", "Concurrent contact " + suffix);
+await send({ Ops: [sharedContact] });
+const edits = ["North entrance", "South entrance"].map((Address) => ({
+  ...sharedContact, ID: randomUUID(), Base: 1,
+  Data: { ...sharedContact.Data, Address, Note: "Address correction" },
+}));
+const acceptedContact = await raceEntries(...edits);
+const savedContact = (await send({})).entries.find((r) => r.ID === sharedContact.Target);
+assert.equal(savedContact.Revision, 2);
+assert.equal(savedContact.Data.Address, acceptedContact.Data.Address);
+
+const wallet = make("wallet", "Second shift");
+await send({ Ops: [wallet] });
+const openingCount = (amount) => {
+  const op = make("count", "Opening count", amount);
+  op.Target = "count:" + createHash("sha256").update(wallet.Target + "|Anfang").digest("hex").slice(0, 32);
+  Object.assign(op.Data, { Wallet: wallet.Target, Phase: "Anfang", Fields: { countMode: "amount", countScope: "wallet" } });
+  return op;
+};
+const acceptedCount = await raceEntries(openingCount(4800), openingCount(5100));
+const counts = (await send({})).entries.filter((r) => r.ID === acceptedCount.Target);
+assert.equal(counts.length, 1);
+assert.equal(counts[0].Data.Amount, acceptedCount.Data.Amount);
+
+const independent = [make("income", "Cashier A", 320), make("income", "Cashier B", 320)];
+await Promise.all(independent.map((op, i) => call(path, [cash, writeSession][i], { Ops: [op] })));
+const postedIDs = (await send({})).entries.map((row) => row.ID);
+for (const op of independent) assert.equal(postedIDs.filter((id) => id === op.Target).length, 1);
+const newBill = make("sponsorship", "Shared invoice request", 730);
+await send({ Ops: [newBill] });
+const issuers = await Promise.all([cash, writeSession].map((cookie) => call(path, cookie, {})));
+const originals = issuers.map(({ nextNumber }) => ({
+  ...original, ID: randomUUID(), Target: "original:" + newBill.Target,
+  Data: { ...original.Data, Number: nextNumber, Reference: newBill.Target,
+    Note: JSON.stringify({ profile: "invoice_transfer_a4", subject: newBill.Target, number: nextNumber, date }) },
+}));
+assert.notEqual(issuers[0].nextNumber, issuers[1].nextNumber);
+const [issued, otherStatus] = await Promise.all([
+  send({ Ops: [originals[0]] }),
+  fetch(base + "/api/" + path, {
+    method: "POST", headers: { Cookie: writeSession, "Content-Type": "application/json" },
+    body: JSON.stringify({ Ops: [originals[1]] }),
+  }).then((response) => response.status),
+]);
+assert.ok([409, 422].includes(otherStatus));
+const issuedRows = issued.entries.filter((r) => r.ID === originals[0].Target);
+assert.equal(issuedRows.length, 1);
+assert.equal(issuedRows[0].Data.Number, issuers[0].nextNumber);
+assert.equal(issuedRows[0].Data.PDF, original.Data.PDF);
+assert.equal(issuedRows[0].Data.DOCX, original.Data.DOCX);
+assert.equal((await call(path, writeSession, {})).nextNumber, issuers[1].nextNumber);
 await call("logout", cash, {});
 await send({}, 401);
-console.log(
-  "PASS Onlinebuchungen mit erneutem Senden, parallelen Tabs, atomarer Konfliktbehandlung, Originalnummer, Audit, Rollen und Abschluss ohne Gerätevorbereitung",
-);
+console.log("PASS concurrent online bookings, contact revisions, wallet counts, issuance, access control and closing");
