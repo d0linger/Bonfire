@@ -1,4 +1,4 @@
-import { unzipSync, strFromU8 } from "fflate";
+import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate";
 import { chromium } from "playwright";
 import { build } from "esbuild";
 import {
@@ -96,6 +96,30 @@ try {
   assert.equal(Buffer.from(bytes).subarray(0, 5).toString(), "%PDF-");
   await mkdir("test-results/exports", { recursive: true });
   await writeFile("test-results/exports/Word-Pruefung.pdf", Buffer.from(bytes));
+  const parts = unzipSync(file);
+  const body = strFromU8(parts["word/document.xml"]);
+  const shape = '<w:p><w:r><w:pict><v:rect xmlns:v="urn:schemas-microsoft-com:vml" style="width:72px;height:36px" fillcolor="red"/></w:pict></w:r></w:p>';
+  parts["word/document.xml"] = strToU8(body.replace("<w:sectPr", shape + "<w:sectPr"));
+  await page.goto(new URL("/word-renderer.html", url).href);
+  await page.evaluate((docx) => {
+    // Keep the embedded image pending beyond the first frame, like a large Word document.
+    const read = FileReader.prototype.readAsDataURL;
+    FileReader.prototype.readAsDataURL = function (blob) {
+      requestAnimationFrame(() => requestAnimationFrame(() => read.call(this, blob)));
+    };
+    window.addEventListener("message", (event) => {
+      if (event.origin !== location.origin || event.source !== window) return;
+      if (event.data.id === "vml-test" && !event.data.docx) {
+        document.documentElement.dataset.preview = event.data.error || String(event.data.pages);
+      }
+    });
+    window.postMessage({ id: "vml-test", mode: "preview", docx: Uint8Array.from(docx) }, location.origin);
+  }, [...zipSync(parts)]);
+  await page.locator("html[data-preview]").waitFor({ state: "attached" });
+  assert.equal(await page.locator("html").getAttribute("data-preview"), "1");
+  const graphic = page.locator("#pages section.docx svg").filter({ has: page.locator("rect") });
+  assert.equal(await graphic.getAttribute("width"), "72");
+  assert.equal(await graphic.getAttribute("height"), "36");
   console.log("PASS: local Word rendering under application CSP");
 } finally {
   await browser.close();
