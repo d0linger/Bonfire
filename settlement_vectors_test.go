@@ -132,3 +132,30 @@ func TestWalletTransferBetweenOpeningCounts(t *testing.T) {
 		t.Fatalf("wallet settlement %d (%t)", got, known)
 	}
 }
+
+func TestUnknownPostingOrderRequiresReconciliation(t *testing.T) {
+	amount := int64(100)
+	for _, day := range []string{"2026-05-01", "2026-05-03"} {
+		start := row{Kind: "count", Data: data{Wallet: "w", Phase: "Anfang", Date: "2026-05-01", PostingOrder: 1, Amount: &amount}}
+		end := row{Kind: "count", Data: data{Wallet: "w", Phase: "Ende", Date: "2026-05-03", PostingOrder: 3, Amount: &amount}}
+		supply := row{Kind: "supply", Data: data{Wallet: "w", Date: day, Amount: &amount}}
+		rows := []row{{Kind: "wallet", ID: "w"}, start, end, supply}
+		if _, ok := walletRevenue(rows, "w"); ok {
+			t.Fatalf("unknown order %s on individual settlement", day)
+		}
+		rows[2].Data.Wallet = ""
+		rows[2].Data.Fields = map[string]string{"countScope": "all"}
+		if _, ok := pooledRevenue(rows); ok {
+			t.Fatalf("unknown order %s with separate openings", day)
+		}
+		rows[1].Data.Wallet = ""
+		rows[1].Data.Fields = map[string]string{"countScope": "all"}
+		if _, ok := pooledRevenue(rows); ok {
+			t.Fatalf("unknown order %s on pooled settlement", day)
+		}
+		rows[3].Data.Date = "2026-05-02"
+		if got, ok := pooledRevenue(rows); !ok || got != -amount {
+			t.Fatal("distinct posting dates have a known order")
+		}
+	}
+}
