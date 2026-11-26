@@ -150,11 +150,16 @@ func (f *transactionFixture) request(ctx context.Context, fn endpoint, path stri
 // A failed booking or access change must leave all persisted state intact.
 func (f *transactionFixture) atomic(fn endpoint, path string, body any) any {
 	f.t.Helper()
+	return f.atomicWithBody(fn, path, func() any { return body })
+}
+
+func (f *transactionFixture) atomicWithBody(fn endpoint, path string, body func() any) any {
+	f.t.Helper()
 	before := f.snapshot()
 	for boundary := 1; boundary < 300; boundary++ {
 		plan := &interruptedQuery{at: boundary}
 		ctx := context.WithValue(f.t.Context(), interruptionKey{}, plan)
-		result, err := f.request(ctx, fn, path, body)
+		result, err := f.request(ctx, fn, path, body())
 		if !plan.interrupted {
 			if err != nil {
 				f.t.Fatalf("%s failed after %d verified rollback boundaries: %v", path, boundary-1, err)
