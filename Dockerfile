@@ -12,7 +12,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go ./
 COPY migrations ./migrations
-RUN CGO_ENABLED=0 go build -trimpath -o /bonfire .
+ARG BONFIRE_COVER=false
+RUN CGO_ENABLED=0 go build -cover=$BONFIRE_COVER -trimpath -o /bonfire .
 
 FROM alpine:3.24 AS backup-worker
 RUN apk add --no-cache postgresql18-client tzdata ca-certificates
