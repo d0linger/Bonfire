@@ -5,7 +5,7 @@ check: lint test test-integration test-security
 lint:
 	@test -z "$$(gofmt -l *.go)" || { gofmt -l *.go; exit 1; }
 	go vet ./...
-	@for f in web/*.js tests/*.mjs ops/*.mjs build.mjs; do node --check "$$f" || exit 1; done
+	npm run lint
 
 test:
 	go test -race -cover ./...

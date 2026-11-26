@@ -4,7 +4,7 @@ Run tests with synthetic fixtures, PostgreSQL, Docker Compose, PowerShell 7, Nod
 
 | Command | Scope |
 | --- | --- |
-| make lint | Go formatting, go vet and JavaScript syntax checks. |
+| make lint | Go formatting, go vet and ESLint's recommended rules for browser code, Node scripts and tests. |
 | make test | Go race detection and statement coverage, then the Node unit tests. The race detector requires a C compiler. |
 | make test-finance | Financial invariants and independently derived amounts. Go and JavaScript both consume tests/cash-vectors.json. |
 | make test-integration | A fresh PostgreSQL/Compose stack exercises the HTTP API, Chromium workflows, year boundaries, roles, audit and encrypted restoration. |
