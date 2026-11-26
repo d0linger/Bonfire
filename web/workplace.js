@@ -502,8 +502,8 @@ function eventCounts(rows, device, pending, conflicts, online) {
   return (
     '<section class="event-counts">' +
     head("Zählstand der Geldtaschen") +
-    phase("Anfang", "Anfangszählung") +
-    phase("Ende", "Endzählung") +
+    phase("Anfang", "Opening count") +
+    phase("Ende", "Closing count") +
     (online
       ? ""
       : line("RefreshCw", "Geräte mit offenem Erfassungsende", pending)) +
@@ -514,7 +514,7 @@ function eventCounts(rows, device, pending, conflicts, online) {
     icon("RefreshCw") +
     (device && !online
       ? "Jetzt synchronisieren"
-      : "Serverstand aktualisieren") +
+      : "Refresh entries") +
     "</button>" +
     route("Perioden", "Abschluss prüfen", "secondary", "ClipboardCheck") +
     "</div></section>"
@@ -573,8 +573,8 @@ export function overview(
     : opening.length
       ? "Mehrere Eröffnungen · Zeitraum prüfen"
       : canAddOpening
-        ? '<button type="button" class="opening-action" data-act="focusEntry" aria-haspopup="dialog">Anfangsbestand fehlt</button>'
-        : "Anfangsbestand fehlt";
+        ? '<button type="button" class="opening-action" data-act="focusEntry" aria-haspopup="dialog">Opening balance missing</button>'
+        : "Opening balance missing";
   const setupAction =
     role === "Read" ? "Leseprofil vorbereiten" : "Erfassung vorbereiten";
   const balance = uniqueOpening
