@@ -10,16 +10,20 @@ if (!base || !["localhost", "127.0.0.1"].includes(new URL(base).hostname))
   throw Error("Lokale Prüfadresse erforderlich.");
 const user = "kassa+" + randomUUID().slice(0, 8) + "@example.test";
 const pw = randomUUID();
-const event = await api("events", admin, {
-  Name: "Anmeldeprüfung",
-  Starts: "2030-01-01",
-  Ends: "2030-01-02",
+const setup = await fetch(base + "/api/login", { method: "POST", headers: { Authorization: admin } });
+assert.equal(setup.status, 200);
+const cookie = setup.headers.getSetCookie()[0].split(";")[0];
+const yearResponse = await fetch(base + "/api/years", {
+  method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json" },
+  body: JSON.stringify({ Name: "Sign-in test", Starts: "2603-03-01", Ends: "2603-03-31" }),
 });
+assert.equal(yearResponse.status, 200);
+const year = await yearResponse.json();
+const workspaces = await fetch(base + "/api/events?year=" + year.ID, { headers: { Cookie: cookie } });
+assert.equal(workspaces.status, 200);
+const ledger = (await workspaces.json()).find((e) => e.General);
 await api("users", admin, {
-  Name: user.toUpperCase(),
-  Password: pw,
-  Role: "Write",
-  Event: event.ID,
+  Name: user.toUpperCase(), Password: pw, Role: "Write", Event: ledger.ID,
 });
 const browser = await chromium.launch({
   executablePath: process.env.BONFIRE_BROWSER || undefined,
@@ -41,9 +45,8 @@ try {
   await mkdir("test-results/ansichten", { recursive: true });
   await page.screenshot({ path: "test-results/ansichten/login-desktop.png" });
   assert.equal(await page.locator("[name=otp],#recoverProfile").count(), 0);
-  assert.equal(await page.locator("#recoverProfile").count(), 0);
   await login();
-  await page.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
+  await page.getByRole("heading", { name: "Financial overview" }).waitFor();
   const { secret } = await api("mfa", basic(user, pw), {});
   const recovery = await api("mfa", basic(user, pw), {
     Secret: secret,
@@ -51,7 +54,7 @@ try {
   });
   await click("Sign out");
   await login(pw + "x");
-  await page.getByText("Anmeldung fehlgeschlagen.", { exact: true }).waitFor();
+  await page.getByText("Sign-in failed.", { exact: true }).waitFor();
   assert.equal(await page.locator("[name=otp]").count(), 0);
   await login();
   const factor = page.locator("#loginFactor input");
@@ -66,24 +69,24 @@ try {
     ),
   );
   await factor.fill(code(secret, 1));
-  await click("Bestätigen");
-  await page.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
+  await click("Verify");
+  await page.getByRole("heading", { name: "Financial overview" }).waitFor();
   await page.setViewportSize({ width: 1280, height: 800 });
   await click("Sign out");
   await login();
-  await click("Recoverycode verwenden");
+  await click("Use a recovery code");
   await factor.fill("keinRecoverycode");
-  await click("Bestätigen");
+  await click("Verify");
   await page
-    .getByText("Zweiter Faktor ungültig oder bereits verwendet.", {
+    .getByText("The code is invalid or has already been used.", {
       exact: true,
     })
     .waitFor();
   await factor.fill(recovery[0]);
-  await click("Bestätigen");
-  await page.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
+  await click("Verify");
+  await page.getByRole("heading", { name: "Financial overview" }).waitFor();
   console.log(
-    "PASS E-Mail-Anmeldung, archivierte Profile, Passwortprüfung vor MFA, TOTP, Recoverycode nach Fehleingabe, Sitzungsgrenze und mobiler Login.",
+    "PASS email sign-in, password verification before MFA, TOTP, recovery code retry and mobile sign-in.",
   );
 } finally {
   await browser.close();

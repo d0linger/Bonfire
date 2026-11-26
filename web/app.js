@@ -3372,7 +3372,7 @@ function authSurface() {
       button("recover", "Gerätesicherung speichern", true) +
       button("profileHelp", "Weitere Offlineprofile", true);
   } else if (loginChallenge) {
-    title = useRecoveryCode ? "Recoverycode eingeben" : "Anmeldung bestätigen";
+    title = useRecoveryCode ? "Enter recovery code" : "Verify sign-in";
     content =
       '<p class="auth-hint">' +
       esc(loginIdentity) +
@@ -3381,24 +3381,24 @@ function authSurface() {
         "loginFactor",
         label(
           useRecoveryCode
-            ? "Recoverycode"
-            : "Code aus deiner Authenticator-App",
+            ? "Recovery code"
+            : "Code from your authenticator app",
           '<input name="otp" type="text" autocomplete="one-time-code" autocapitalize="none" spellcheck="false" required ' +
             (useRecoveryCode
               ? 'maxlength="16"'
               : 'inputmode="numeric" pattern="[0-9]{6}" maxlength="6"') +
             ">",
         ),
-        "Bestätigen",
+        "Verify",
       );
     secondary =
       button(
         "changeFactor",
         useRecoveryCode
-          ? "Authenticator-Code verwenden"
-          : "Recoverycode verwenden",
+          ? "Use an authenticator code"
+          : "Use a recovery code",
         true,
-      ) + button("backLogin", "Zurück zur Anmeldung", true);
+      ) + button("backLogin", "Back to sign-in", true);
   } else {
     title = "Sign in";
     content = form(
@@ -3521,10 +3521,10 @@ function paintConnection() {
   const status = !navigator.onLine
     ? "Offline"
     : serverReachable === null
-      ? "Verbindung wird geprüft"
+      ? "Checking connection"
       : online
-        ? "Server erreichbar"
-        : "Server nicht erreichbar";
+        ? "Server online"
+        : "Server unavailable";
   const network = document.querySelector("#connection");
   network.innerHTML =
     icon(online ? "Laptop" : "WifiOff") +

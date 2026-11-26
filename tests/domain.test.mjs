@@ -91,7 +91,7 @@ test("Börsen einer Bar ergeben nur bei vollständiger Zählung eine Barsumme", 
       Data: { Phase: "Ende", Amount: 21200, Fields: { countScope: "all" } },
     },
   );
-  assert.match(barRow(entries), /Nur gesamt erfasst/);
+  assert.match(barRow(entries), /Combined count only/);
   assert.doesNotMatch(barRow(entries), /212,00/);
   assert.equal(pooledRevenue(entries), 15700);
 });

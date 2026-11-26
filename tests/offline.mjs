@@ -125,7 +125,7 @@ async function ready(p, name) {
   await by(p, "user").fill("leitung");
   await p.locator("#login [name=pass]").fill(password);
   await press(p, "Sign in");
-  await p.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
+  await p.getByRole("heading", { name: "Financial overview" }).waitFor();
   await by(p, "workspace").selectOption(eventID);
   await p.waitForFunction(
     () => !document.querySelector('article[aria-busy="true"]'),
@@ -137,7 +137,7 @@ async function ready(p, name) {
   await p.locator("#prepare [name=pass]").fill(pin);
   await press(p, "Offlineprofil speichern");
   await p
-    .getByRole("heading", { name: "Finanzen im Überblick", exact: true })
+    .getByRole("heading", { name: "Financial overview", exact: true })
     .waitFor();
 }
 async function record(p, group, type, label, values = {}) {

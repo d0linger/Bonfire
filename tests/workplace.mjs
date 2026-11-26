@@ -75,8 +75,8 @@ try {
   await page.locator("#login [name=user]").fill(user);
   await page.locator("#login [name=pass]").fill(pass);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await page.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
-  await page.getByText("Server erreichbar", { exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Financial overview" }).waitFor();
+  await page.getByText("Server online", { exact: true }).waitFor();
   const main = page.locator("article");
   assert.ok((await main.innerText()).includes("3.236,50"));
   assert.equal(await page.locator("nav button[data-page]").count(), 9);
@@ -84,7 +84,7 @@ try {
     path: "test-results/ansichten/arbeitsplatz-desktop.png",
   });
   await page.reload();
-  await main.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
+  await main.getByRole("heading", { name: "Financial overview" }).waitFor();
   for (const route of ["Kassenbuch","Veranstaltungen","Kontakte","Spenden","Dokumente","Perioden","Verwaltung","Übersicht"]) {
     if (route === "Verwaltung") await page.locator("#admin-navigation summary").click();
     await page.locator('nav [data-page="' + route + '"]').click();
@@ -111,7 +111,7 @@ try {
   await page.context().setOffline(true);
   await page.getByText("Offline", { exact: true }).waitFor();
   await page.context().setOffline(false);
-  await page.getByText("Server erreichbar", { exact: true }).waitFor();
+  await page.getByText("Server online", { exact: true }).waitFor();
   await page.emulateMedia({ colorScheme: "dark" });
   await page.waitForFunction(()=>document.documentElement.dataset.theme==="dark");
   assert.notEqual(
