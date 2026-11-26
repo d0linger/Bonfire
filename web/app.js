@@ -1,0 +1,6039 @@
+import { fiscalPicker } from "./fiscal-picker.js";
+import { fireDirectory, balanceTable, balanceLines } from "./fire-accounts.js";
+import { mountAccountSecurity } from "./account-security.js";
+import { supportsPasskeys, usePasskey } from "./personal-passkeys.js";
+import { canOpenConsole } from "./workplace.js";
+import { mountBackup } from "./admin-backup.js";
+import { mountUsers, mountPasswordChange } from "./admin-users.js";
+import { mountAudit, mountStatus } from "./admin-audit.js";
+import contracts from "./contracts.json" with { type: "json" };
+import { displayProof } from "./document-preview.js";
+import {
+  icon,
+  esc,
+  flowAmount,
+  moduleList,
+  panelHeading,
+  titleOf,
+  sectionOf,
+  route,
+  navigation,
+  tabs,
+  eventTabs,
+  onlineEventTabs,
+  adminTabs,
+  recordKinds,
+  overview,
+  bookings,
+  walletTable,
+  ledger,
+  dat,
+} from "./workplace.js";
+import { sponsorshipStatus } from "./sponsorship.js";
+import { festivalPanel } from "./festabrechnung.js";
+import { denominationNeeds } from "./domain.js";
+import { zipSync } from "fflate";
+import { historyPreview } from "./historical.js";
+import { positions, lineCents } from "./positions.js";
+import { background } from "./lfk.js";
+import { mergeWord } from "./word-profile.js";
+import { importTemplate } from "./templates.js";
+import { preview, csv, workbook, evidence } from "./exchange.js";
+import {
+  createVault,
+  readVault,
+  unlock,
+  save,
+  slots,
+  recoverReadOnly,
+  download,
+  b64,
+  from64,
+} from "./store.js";
+import {
+  types,
+  denom,
+  monetary,
+  cents,
+  totalPieces,
+  visible,
+  counted,
+  poolCount,
+  pooledRevenue,
+  availableNumbers,
+  journalMatches,
+  countID,
+  today,
+  eur,
+} from "./domain.js";
+import {
+  profiles,
+  profileID,
+  snapshot,
+  render as renderDocument,
+} from "./export.js";
+const article = document.querySelector("article"),
+  nav = document.querySelector("nav"),
+  notice = document.querySelector("#notice"),
+  state = document.querySelector("#state");
+const option = (v, t) =>
+  '<option value="' + esc(v) + '">' + esc(t) + "</option>";
+const label = (t, c) => "<label>" + esc(t) + c + "</label>";
+const field = (n, t, type = "text", req = false, value = "") =>
+  label(
+    t,
+    '<input name="' +
+      n +
+      '" type="' +
+      type +
+      '" value="' +
+      esc(value) +
+      '" ' +
+      (req ? "required" : "") +
+      ">",
+  );
+const select = (n, t, choices, selected) =>
+  label(
+    t,
+    '<select name="' +
+      esc(n) +
+      '">' +
+      choices
+        .map(([v, l]) =>
+          selected !== undefined && v === selected
+            ? '<option selected value="' + esc(v) + '">' + esc(l) + "</option>"
+            : option(v, l),
+        )
+        .join("") +
+      "</select>",
+  );
+const button = (act, t, secondary = false) =>
+  '<button type="button" data-act="' +
+  act +
+  '" class="' +
+  (secondary ? "secondary" : "") +
+  '">' +
+  esc(t) +
+  "</button>";
+const form = (id, inner, submit, secondaryAction = "") =>
+  '<form id="' +
+  id +
+  '"><div class="form">' +
+  inner +
+  '</div><div class="actions"><button>' +
+  esc(submit) +
+  "</button>" +
+  secondaryAction +
+  "</div></form>";
+const panel = (t, c) => "<section><h2>" + esc(t) + "</h2>" + c + "</section>";
+function popupForm(id, title, fields, submitLabel) {
+  return (
+    '<button type="button" data-open-form="' +
+    esc(id) +
+    '" aria-haspopup="dialog">' +
+    esc(title) +
+    "</button><template>" +
+    form(id, fields, submitLabel, button("cancel", "Abbrechen", true)) +
+    "</template>"
+  );
+}
+const entryDialog = document.querySelector("#entry-dialog");
+let entryTrigger;
+function openEditor(trigger, title, content, selector = "") {
+  entryTrigger = trigger;
+  entryDialog.innerHTML =
+    '<div class="panel-head"><h2 id="entry-title">' +
+    esc(title) +
+    '</h2><button type="button" class="entry-close" data-act="cancel" aria-label="Schließen">×</button></div>' +
+    selector +
+    content +
+    '<div class="entry-error" role="alert"></div>';
+  if (!entryDialog.open) entryDialog.showModal();
+  entryDialog
+    .querySelector("form input:not([type=hidden]), form select, form textarea")
+    ?.focus();
+}
+function openReasonEditor(trigger, title, subject, saveReason) {
+  openEditor(
+    trigger,
+    title,
+    "<p>" +
+      esc(subject) +
+      "</p>" +
+      form(
+        "entry-reason",
+        field("reason", "Begründung", "text", true),
+        title,
+        button("cancel", "Abbrechen", true),
+      ),
+  );
+  entryDialog.querySelector("form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    action(async () => {
+      const reason = new FormData(event.target).get("reason").trim();
+      if (!reason) throw Error("Begründung angeben.");
+      await saveReason(reason);
+      show();
+      closeEditor();
+    });
+  });
+}
+function closeEditor() {
+  if (!entryDialog.open) return;
+  entryDialog.close();
+  delete entryDialog.dataset.recordWorkspace;
+  entryDialog.replaceChildren();
+  edit = null;
+  const key = [
+    "data-wallet-action",
+    "data-year-edit",
+    "data-event-edit",
+    "data-event-cleanup",
+    "data-edit",
+    "data-lifecycle",
+    "data-settle",
+    "data-open-form",
+    "data-act",
+  ].find((k) => entryTrigger?.hasAttribute(k));
+  const target = entryTrigger?.isConnected
+    ? entryTrigger
+    : key &&
+      article.querySelector(
+        "[" + key + '="' + CSS.escape(entryTrigger.getAttribute(key)) + '"]',
+      );
+  (target || article).focus({ preventScroll: true });
+  entryTrigger = null;
+}
+entryDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  if (!busy) closeEditor();
+});
+const heading = (t) => "<h1>" + esc(t) + "</h1>";
+let profilesLocal = [];
+let importFile = null,
+  importRole = "",
+  globalRows = [],
+  imported = [],
+  chosenPeriod = "",
+  syncDetail = "";
+let auditRows = [],
+  logged = false;
+let s,
+  page = "Übersicht",
+  kind = "income",
+  edit = null,
+  auth = "",
+  events = [],
+  saved = false,
+  filter = "",
+  journalFilters = {},
+  busy = false;
+// Preserve legacy device data until a separate migration is agreed.
+const offlineEnabled = false;
+const sw = undefined;
+if (!offlineEnabled && navigator.serviceWorker)
+  navigator.serviceWorker
+    .getRegistration()
+    .then((registration) => registration?.update())
+    .catch(() => {});
+async function api(path, body, token = auth) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = token;
+  if (!offlineEnabled && s && ["manage", "donation-reports"].includes(path))
+    headers["X-Bonfire-Event"] = s.event.ID;
+  if (
+    !offlineEnabled &&
+    donorAccess &&
+    (path.startsWith("online?") || path === "donation-reports")
+  )
+    headers["X-Bonfire-Donor"] = "true";
+  const response = await fetch("/api/" + path, {
+    method: body ? "POST" : "GET",
+    headers,
+    cache: "no-store",
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!response.ok) {
+    const message = (await response.text()).slice(0, 240);
+    if (!offlineEnabled && response.status === 401 && logged) {
+      closeEditor();
+      s = null;
+      onlineUser = null;
+      logged = false;
+      donorAccess = false;
+      show();
+    }
+    throw Error(message);
+  }
+  return response.json();
+}
+import { donationReport } from "./donors.js";
+const bearer = () =>
+  offlineEnabled ? "Bearer " + s.device + "." + s.token : "";
+let donorAccess = false;
+const unconfirmedWrites = new Set();
+function onlineSnapshot(out, previous = {}) {
+  return {
+    ...previous,
+    ...out,
+    entries: out.entries || [],
+    conflicts: out.conflicts || [],
+    ops: [],
+    prints: [],
+    seq: out.last,
+    pinnedTemplates: out.entries.filter((r) => r.Kind === "template"),
+  };
+}
+async function workspaceRequest(id, body) {
+  if (!navigator.onLine)
+    throw Error(
+      "Keine Serververbindung. Speichern ist erst wieder mit Verbindung möglich.",
+    );
+  const changes =
+    body.Ops?.length || body.Prints?.length || body.Action || body.Resolve;
+  if (changes && unconfirmedWrites.has(id))
+    throw Error(
+      "Vor einem weiteren Speicherversuch zuerst den Serverstand aktualisieren und den letzten Eintrag prüfen.",
+    );
+  try {
+    const result = await api("online?event=" + encodeURIComponent(id), body);
+    unconfirmedWrites.delete(id);
+    return result;
+  } catch (err) {
+    if (err instanceof TypeError) {
+      if (changes) unconfirmedWrites.add(id);
+      throw Error(
+        "Der Server hat den Vorgang nicht bestätigt. Prüfe nach der Wiederverbindung zuerst den Serverstand.",
+        { cause: err },
+      );
+    }
+    throw err;
+  }
+}
+async function reprint(row, format) {
+  if (!row.Data[format])
+    throw Error("Dieses Original benötigt ein Belegprofil.");
+  if (!s.recovery)
+    await commit({
+      ...s,
+      prints: [
+        ...(s.prints || []),
+        {
+          ID: crypto.randomUUID(),
+          Subject: row.ID.slice("original:".length),
+          At: new Date().toISOString(),
+        },
+      ],
+    });
+  download(
+    from64(
+      row.Data[format],
+      format === "PDF"
+        ? "application/pdf"
+        : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ),
+    "Beleg-" + row.Data.Number + "." + format.toLowerCase(),
+  );
+}
+async function commit(next) {
+  if (offlineEnabled) {
+    await save(next);
+    s = next;
+    return;
+  }
+  if (next.ops.length || next.prints?.length) {
+    const out = await workspaceRequest(next.event.ID, {
+      Ops: next.ops,
+      Prints: next.prints || [],
+    });
+    s = onlineSnapshot(out, next);
+  } else s = next;
+}
+function writableWorkspace() {
+  return (
+    ["Admin", "Write"].includes(s.role) &&
+    !s.closed &&
+    !s.sealed &&
+    !s.ending &&
+    !s.recovery &&
+    s.incidentState !== "returning" &&
+    !(offlineEnabled && Date.parse(s.expires) <= Date.now())
+  );
+}
+const adminKinds = new Set([
+  "opening",
+  "period",
+  "organization",
+  "template",
+  "dispatch",
+  "import-source",
+]);
+function onOverview() {
+  return page === "Übersicht" || page === "Veranstaltungen";
+}
+function editableKinds() {
+  if (!writableWorkspace()) return [];
+  const kinds =
+    !offlineEnabled && onOverview()
+      ? ["opening"]
+      : recordKinds(page, !offlineEnabled);
+  return kinds.filter((k) => s.role === "Admin" || !adminKinds.has(k));
+}
+function canWrite() {
+  if (!writableWorkspace())
+    throw Error(
+      offlineEnabled
+        ? "Lokale Schreibfreigabe beendet."
+        : "Dieser Arbeitsbereich ist schreibgeschützt.",
+    );
+}
+async function queue(k, d, target = crypto.randomUUID(), base = 0) {
+  canWrite();
+  const next = structuredClone(s);
+  const append = (Kind, Target, Base, Data) =>
+    next.ops.push({
+      LocalTime: new Date().toISOString(),
+      ID: crypto.randomUUID(),
+      Seq: ++next.seq,
+      Kind,
+      Target,
+      Base,
+      Data,
+    });
+  if (k === "attachment") {
+    const { File, ...metadata } = d;
+    append(k, target, base, metadata);
+    const revision = String(base + 1);
+    append("attachment-file", await countID("file", target, revision), 0, {
+      Label: metadata.Label,
+      Date: metadata.Date,
+      Reference: target,
+      File,
+      Fields: { sha256: d.Fields.sha256, size: d.Fields.size, revision },
+    });
+  } else append(k, target, base, d);
+  await commit(next);
+}
+async function sync(extra = {}) {
+  if (!offlineEnabled) {
+    s = onlineSnapshot(await workspaceRequest(s.event.ID, extra), s);
+    return;
+  }
+  if (s.recovery)
+    throw Error("Wiederhergestelltes Archiv ist schreibgeschützt.");
+  const probe = await api("sync", { Ops: [] }, bearer());
+  if (probe.last > s.seq)
+    throw Error(
+      "Server kennt weitere Vorgänge dieser Gerätekennung. Profil sperren und Kopien klären.",
+    );
+  if (probe.last < s.last) {
+    const missing = (s.history || [])
+      .filter((o) => o.Seq > probe.last && o.Seq <= s.last)
+      .sort((a, b) => a.Seq - b.Seq);
+    if (missing.length !== s.last - probe.last)
+      throw Error(
+        "Wiederhergestellter Serverstand älter als lokales Archiv. Daten bleiben lokal erhalten.",
+      );
+    for (const o of missing) await api("sync", { Ops: [o] }, bearer());
+  }
+  // Each acknowledged operation is durable before removing it from the local outbox.
+  do {
+    const batch = s.ops.slice(0, 1),
+      last = s.ops.length <= 1;
+    const out = await api(
+      "sync",
+      { Ops: batch, ...(last ? { ...extra, Prints: s.prints || [] } : {}) },
+      bearer(),
+    );
+    const revisions = new Map(out.entries.map((r) => [r.ID, r.Revision]));
+    if (
+      s.entries.some(
+        (r) =>
+          r.Kind !== "contact" &&
+          (!revisions.has(r.ID) || revisions.get(r.ID) < r.Revision),
+      )
+    )
+      throw Error(
+        "Der Server liefert einen älteren Fachstand. Lokale Daten für die Wiederherstellung aufbewahrt.",
+      );
+    const next = {
+      ...s,
+      ...out,
+      prints: last
+        ? (s.prints || []).filter(
+            (l) => !(out.acknowledgedPrints || []).includes(l.ID),
+          )
+        : s.prints,
+      history: [...(s.history || []), ...batch],
+      ops: s.ops.slice(batch.length),
+      seq: Math.max(s.seq, out.last),
+      synced: new Date().toISOString(),
+    };
+    if (!next.pinnedTemplates)
+      next.pinnedTemplates = (s.synced ? s.entries : out.entries).filter(
+        (r) => r.Kind === "template",
+      );
+    next.event = { ...s.event, Accounts: out.accounts };
+    if (out.sealed) next.ending = false;
+    await commit(next);
+  } while (s.ops.length);
+}
+function rows() {
+  return visible(s);
+}
+function choices(kinds, name) {
+  return [
+    ["", "—"],
+    ...rows()
+      .filter(
+        (r) =>
+          kinds.includes(r.Kind) &&
+          (!["Account", "To", "Wallet"].includes(name) ||
+            !r.Data.Fields?.masterInactive ||
+            ["opening", "actual"].includes(kind) ||
+            edit?.Data?.[name] === r.ID) &&
+          (!r.Data.Retired || edit?.Data?.Contact === r.ID),
+      )
+      .map((r) => [
+        r.ID,
+        r.Kind === "contact"
+          ? [r.Data.Label, r.Data.Address, r.Data.Fields?.distinct]
+              .filter(Boolean)
+              .join(" · ")
+          : r.Data.Label,
+      ]),
+  ];
+}
+function refs(name, title, kinds, alwaysSearch = false) {
+  const dropdown = select(name, title, choices(kinds, name));
+  if (
+    name !== "Contact" ||
+    (!alwaysSearch && !rows().some((r) => r.Kind === "contact"))
+  )
+    return dropdown;
+  return (
+    label(
+      "Search contacts",
+      '<input type="search" data-contact-filter autocomplete="off">',
+    ) + dropdown
+  );
+}
+async function loadSponsorChoices(form) {
+  if (
+    offlineEnabled ||
+    page !== "Zahlungen" ||
+    kind !== "sponsorship" ||
+    s.role !== "Write"
+  )
+    return;
+  const picker = form.elements.Contact;
+  try {
+    const contacts = await api(
+      "manage",
+      { Action: "sponsor-contacts" },
+      bearer(),
+    );
+    if (!form.isConnected) return;
+    const available = new Set([...picker.options].map((opt) => opt.value));
+    for (const { id, caption } of contacts) {
+      if (!available.has(id)) picker.add(new Option(caption, id));
+    }
+    form
+      .querySelector("[data-contact-filter]")
+      .dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (err) {
+    if (form.isConnected)
+      entryDialog.querySelector(".entry-error").textContent = err.message;
+  }
+}
+function table(list, editable = []) {
+  if (!list.length) return '<p class="muted">Keine Einträge.</p>';
+  return (
+    '<div class="list entry-list"><table><thead><tr><th>Datum</th><th>Vorgang</th><th>Bezeichnung</th><th>Betrag</th><th aria-label="Aktionen"></th></tr></thead><tbody>' +
+    list
+      .map(
+        (r) =>
+          "<tr><td>" +
+          esc(r.Data.Date) +
+          "</td><td>" +
+          esc(
+            r.Data.Fields?.claimType === "invoice"
+              ? "Ausgangsrechnung"
+              : types[r.Kind],
+          ) +
+          "</td><td>" +
+          esc(r.Data.Label) +
+          (r.Kind === "expense" && r.Data.Fields?.issuer
+            ? " · " + esc(r.Data.Fields.issuer)
+            : "") +
+          (r.Data.Retired ? " · Archiviert" : "") +
+          (r.Kind === "attachment"
+            ? r.Data.uploadPending
+              ? " · Datei lokal, Übertragung offen"
+              : r.Data.File
+                ? " · Datei verfügbar"
+                : " · Metadaten vorhanden, Datei ausständig"
+            : "") +
+          "</td><td>" +
+          esc(flowAmount(r)) +
+          '</td><td><div class="entry-actions">' +
+          (["sponsorship", "donation", "payment"].includes(r.Kind) &&
+          (r.Kind !== "donation" || s.role === "Admin" || s.donorAccess)
+            ? '<button type="button" class="secondary" data-record-document="' +
+              esc(r.ID) +
+              '">' +
+              {
+                donation: "Spendenbeleg",
+                sponsorship: "Rechnung",
+                payment: "Zahlung bestätigen",
+              }[r.Kind] +
+              "</button>"
+            : "") +
+          (r.Kind === "attachment" && r.Data.File
+            ? '<button type="button" data-attachment="' +
+              esc(r.ID) +
+              '">Datei laden</button>'
+            : "") +
+          (editable.includes(r.Kind) && !r.Data.Retired
+            ? '<button class="secondary" data-edit="' +
+              esc(r.ID) +
+              '">Bearbeiten</button>'
+            : "") +
+          (editable.includes(r.Kind) &&
+          s.role === "Admin" &&
+          !s.closed &&
+          !s.sealed &&
+          (r.Kind === "contact" ||
+            (r.Kind === "price" && r.Data.Status !== "Freigegeben"))
+            ? '<button type="button" class="secondary" data-lifecycle="' +
+              esc(r.ID) +
+              '">' +
+              (r.Data.Retired ? "Wiederherstellen" : "Archivieren") +
+              "</button>"
+            : "") +
+          "</div></td></tr>",
+      )
+      .join("") +
+    "</tbody></table></div>"
+  );
+}
+let readiness = [];
+let conflictFiles;
+function incidentPanel() {
+  const devices = s.devices || [];
+  const labels = {
+    missing: "Vermisst",
+    incomplete: "Abschluss unvollständig · Ausnahme protokolliert",
+    returning: "Zurückgemeldet · Einzelprüfung läuft",
+  };
+  const cases = devices.filter((d) => d.IncidentState);
+  let content = cases
+    .map(
+      (d) =>
+        "<p><strong>" +
+        esc(d.Name) +
+        "</strong> · " +
+        esc(labels[d.IncidentState]) +
+        " · bestätigte Folge " +
+        esc(d.Last) +
+        (d.IncidentNote ? "<br>" + esc(d.IncidentNote) : "") +
+        "</p>",
+    )
+    .join("");
+  for (const [id, allowed, label, reason] of [
+    ["incident", [""], "Gerät vermisst melden", "Vorfall und bekannte Lücke"],
+    [
+      "incomplete",
+      ["missing"],
+      "Unvollständigkeit bestätigen",
+      "Rekonstruktion und verbleibende Lücke",
+    ],
+    [
+      "returnDevice",
+      ["missing", "incomplete"],
+      "Rückkehr zur Prüfung freigeben",
+      "Nachweis der Geräterückkehr",
+    ],
+  ]) {
+    const choices = devices.filter(
+      (d) =>
+        d.ID !== s.device &&
+        !d.Sealed &&
+        allowed.includes(d.IncidentState || ""),
+    );
+    if (choices.length && s.role === "Admin" && !s.recovery)
+      content += popupForm(
+        id,
+        label,
+        select(
+          "device",
+          "Betroffenes Gerät",
+          choices.map((d) => [d.ID, d.Name]),
+        ) + field("reason", reason, "text", true),
+        label,
+      );
+  }
+  return content ? panel("Gerätevorfälle", content) : "";
+}
+function copyForm() {
+  return popupForm(
+    "copy",
+    "Veranstaltung kopieren",
+    "<p>Quelle <strong>" +
+      esc(s.event.Name) +
+      "</strong></p>" +
+      field("name", "Name der neuen Veranstaltung", "text", true) +
+      (years.length
+        ? select(
+            "year",
+            "Zielgeschäftsjahr",
+            years.filter((y) => !y.Closed).map((y) => [y.ID, y.Name]),
+            s.event.Year,
+          )
+        : "") +
+      "<fieldset><legend>Struktur übernehmen</legend>" +
+      [
+        ["bar", "Bars"],
+        ["wallet", "Geldtaschen"],
+        ["shift", "Schichten"],
+        ["price", "Preisentwürfe"],
+        ["template", "Vorlagen"],
+      ]
+        .map(
+          ([k, l]) =>
+            '<label><input type="checkbox" checked name="copy_' +
+            k +
+            '">' +
+            l +
+            "</label>",
+        )
+        .join("") +
+      "</fieldset>" +
+      field("start", "Neuer Beginn", "date", true, s.event.Starts) +
+      field("end", "Neues Ende", "date", true, s.event.Ends),
+    "Struktur und Preisentwürfe kopieren",
+  );
+}
+function devicePage() {
+  const conflicts = s.conflicts
+    .map((c) => {
+      const cur = s.entries.find((r) => r.ID === c.Target);
+      const sameName = c.Kind === "contact" && !cur && c.Base === 0;
+      return panel(
+        "Konflikt · " + c.Data.Label,
+        (sameName
+          ? "<p>Kontaktneuanlage prüfen. Bei gleichem Namen für eine getrennte Person oder Firma die Abgrenzung begründen. Vorhandene Adressen bleiben erhalten.</p>"
+          : "") +
+          "<p>Ausgangsrevision " +
+          esc(c.Base) +
+          " · gespeicherte Revision " +
+          esc(cur?.Revision ?? 0) +
+          "</p><p>Gespeichert: " +
+          esc(cur?.Data.Label || "Fehlt") +
+          " · " +
+          eur(cur?.Data.Amount) +
+          "</p><p>Vorschlag: " +
+          esc(c.Data.Label) +
+          " · " +
+          eur(c.Data.Amount) +
+          "</p><details><summary>Beide Fassungen ansehen</summary><pre>" +
+          esc(
+            JSON.stringify(
+              [cur?.Data, c.Data],
+              (k, v) =>
+                ["File", "PDF", "DOCX"].includes(k)
+                  ? v
+                    ? "Datei vorhanden"
+                    : undefined
+                  : v,
+              2,
+            ),
+          ) +
+          "</pre></details>" +
+          (s.role === "Admin" && !s.recovery && !s.closed
+            ? form(
+                "resolve-" + c.ID,
+                select("choice", "Entscheidung", [
+                  ["beibehalten", "Bisherigen Stand behalten"],
+                  ["übernehmen", "Vorschlag übernehmen"],
+                ]) +
+                  (s.accounts && monetary.has(c.Kind)
+                    ? refs("account", "Konto für Klärung (optional)", [
+                        "account",
+                        "wallet",
+                      ])
+                    : "") +
+                  (s.accounts &&
+                  [
+                    "transfer",
+                    "payout",
+                    "supply",
+                    "skim",
+                    "return",
+                    "cashback",
+                  ].includes(c.Kind)
+                    ? refs("destination", "Zielkonto für Klärung (optional)", [
+                        "account",
+                        "wallet",
+                      ])
+                    : "") +
+                  field("reason", "Begründung", "text", true),
+                "Klärung speichern",
+              )
+            : ""),
+      );
+    })
+    .join("");
+  return (
+    (offlineEnabled
+      ? "<p>" +
+        esc(s.user) +
+        " · " +
+        esc(s.role) +
+        " · Gerätefreigabe bis " +
+        esc(new Date(s.expires).toLocaleString("de-AT")) +
+        "</p>" +
+        (!s.sealed && !s.recovery
+          ? panel(
+              "Gerätefreigabe verlängern",
+              form(
+                "renew",
+                field("password", "Online-Passwort", "password", true) +
+                  field("otp", "TOTP oder Recoverycode (falls eingerichtet)"),
+                "Gerät erneut autorisieren",
+              ),
+            )
+          : "") +
+        panel(
+          "Abgleich",
+          button("readiness", "Offlinebereitschaft prüfen", true) +
+            readiness.map((t) => "<p>" + esc(t) + "</p>").join("") +
+            "<p>" +
+            s.ops.length +
+            " lokale Vorgänge ausstehend · " +
+            s.conflicts.length +
+            " Konflikte im letzten Abgleich</p><p>" +
+            esc(
+              s.synced
+                ? "Letzter bestätigter Abgleich " +
+                    new Date(s.synced).toLocaleString("de-AT")
+                : "Erster Abgleich ausständig",
+            ) +
+            '</p><div class="actions">' +
+            button("sync", "Jetzt abgleichen") +
+            button("recover", "Verschlüsselte Sicherung laden", true) +
+            "</div>",
+        )
+      : button("sync", "Refresh entries", true)) +
+    conflicts +
+    panel(
+      "Prüfprotokoll",
+      '<div class="actions">' +
+        button("audit", "Protokoll anzeigen", true) +
+        button("journalHistory", "Storno und Ersatz anzeigen", true) +
+        button("numbers", "Nummernregister prüfen", true) +
+        button("conflictFiles", "Strittige Originalfassungen laden", true) +
+        "</div>" +
+        (conflictFiles?.device === s.device && conflictFiles.list.length
+          ? form(
+              "conflictFile",
+              select(
+                "operation",
+                "Archivierte Konfliktfassung",
+                conflictFiles.list.map((x) => [
+                  x.id,
+                  "Nr. " + x.number + " · " + x.outcome + " · " + x.id,
+                ]),
+              ) +
+                select("format", "Dateityp", [
+                  ["pdf", "PDF"],
+                  ["docx", "DOCX"],
+                ]),
+              "Archivdatei laden",
+            )
+          : conflictFiles?.device === s.device ? "<p>No disputed originals found.</p>" : "") +
+        auditRows
+          .map(
+            (r) =>
+              "<p>" +
+              esc(r.at) +
+              " · " +
+              esc(r.username) +
+              " · " +
+              esc(r.action) +
+              (r.device ? "<br>Ausführendes Gerät " + esc(r.device) : "") +
+              (r.local_time ? " · Gerätezeit " + esc(r.local_time) : "") +
+              (r.source_device
+                ? " · Quellgerät " +
+                  esc(r.source_device) +
+                  " · Ausgangsrevision " +
+                  esc(r.base_revision)
+                : "") +
+              "</p>",
+          )
+          .join(""),
+    ) +
+    (s.role === "Admin" && !s.event.General
+      ? panel(
+          "Veranstaltung verwalten",
+          copyForm() +
+            esc(syncDetail) +
+            (s.closed
+              ? popupForm(
+                  "reopen",
+                  "Arbeitsbereich wieder öffnen",
+                  field("reason", "Begründung", "text", true),
+                  "Veranstaltung wieder öffnen",
+                )
+              : ""),
+        )
+      : "") +
+    (s.role === "Admin"
+      ? panel(
+          "Kontozuordnung",
+          button(
+            "accounts",
+            s.event.Accounts
+              ? "Kontozuordnung ausschalten"
+              : "Kontozuordnung einschalten",
+            true,
+          ),
+        )
+      : "") +
+    (offlineEnabled
+      ? incidentPanel() +
+        panel(
+          "Erfassungsende",
+          "<p>Mit der Bestätigung endet die Erfassung auf diesem Gerät für diese Veranstaltung.</p><p>Geräte ohne bestätigtes Ende beim letzten Abgleich: " +
+            esc(s.pending ?? "Unbekannt") +
+            '</p><div class="actions">' +
+            (!s.sealed
+              ? button("seal", "Mein Erfassungsende bestätigen")
+              : "<strong>Erfassungsende bestätigt</strong>") +
+            (s.role === "Admin" && !s.closed && !s.recovery
+              ? button("close", "Bestände prüfen und abschließen")
+              : "") +
+            "</div>",
+        )
+      : s.role === "Admin" && !s.closed
+        ? button("close", "Bestände prüfen und abschließen")
+        : "")
+  );
+}
+function formFields(k, countPhase = "") {
+  const eventBooking = !offlineEnabled && page === "Zahlungen";
+  const walletTopUp = page === "Geldtaschen" && k === "supply" && !edit;
+  const simpleBooking = [
+    "expense",
+    "income",
+    "refund",
+    "deposit",
+    "deposit-return",
+  ].includes(k);
+  let extra = "";
+  let f =
+    field(
+      "Label",
+      k === "expense"
+        ? "What was it for?"
+        : k === "contact"
+          ? "Name or company"
+          : "Bezeichnung",
+      "text",
+      true,
+      walletTopUp
+        ? "Change top-up"
+        : k === "count"
+          ? {
+              Anfang: "Opening count",
+              Ende: "Closing count",
+              Zwischenstand: "Interim count",
+            }[countPhase]
+          : "",
+    ) +
+    field(
+      "Date",
+      k === "period" ? "Periodenbeginn" : "Datum",
+      "date",
+      true,
+      offlineEnabled ? today() : defaultDay(s.event),
+    );
+  if (monetary.has(k) && k !== "supply")
+    f += label(
+      "Amount in EUR",
+      '<input name="amount" inputmode="decimal" required placeholder="0,00">',
+    );
+  if (k === "period") f += field("To", "Periodenende", "date", true);
+  if (k === "expense") {
+    const issuers = [
+      ...new Set(
+        rows()
+          .filter((r) => r.Kind === "expense")
+          .map((r) => r.Data.Fields?.issuer)
+          .filter(Boolean),
+      ),
+    ].sort();
+    f += label(
+      "Invoice issuer",
+      '<input name="field_issuer" list="expense-issuers" maxlength="200"><datalist id="expense-issuers">' +
+        issuers.map((v) => option(v, v)).join("") +
+        "</datalist>",
+    );
+  }
+  if (
+    ![
+      "bar",
+      "contact",
+      "period",
+      "template",
+      "opening",
+      "actual",
+      "reserve",
+      "count",
+    ].includes(k)
+  )
+    extra += refs("Bar", "Bar (optional)", ["bar"]);
+  if (
+    [
+      "expense",
+      "refund",
+      "deposit",
+      "deposit-return",
+      "donation",
+      "payment",
+      "count",
+      "plan",
+      "supply",
+      "skim",
+      "cashback",
+      "return",
+      "income",
+      "presale",
+    ].includes(k)
+  ) {
+    if (k === "count" && (countPhase || edit?.Data.Phase) !== "Zwischenstand")
+      f += select("field_countScope", "Zählumfang", [
+        ["wallet", "Einzelne Geldtasche"],
+        ["all", "Alle Geldtaschen zusammen"],
+      ]);
+    const wallet = refs(
+      "Wallet",
+      walletTopUp ? "Empfangende Geldtasche" : "Geldtasche",
+      ["wallet"],
+    );
+    if (simpleBooking) extra += wallet;
+    else f += wallet;
+  }
+  if (
+    k === "sponsorship" ||
+    (!eventBooking &&
+      ["donation", "payment", "outlay", "income", "expense"].includes(k))
+  ) {
+    const contact = refs(
+      "Contact",
+      eventBooking ? "Sponsor aus dem Kontaktverzeichnis" : "Kontakt",
+      ["contact"],
+      eventBooking,
+    );
+    if (simpleBooking) extra += contact;
+    else f += contact;
+  } else if (eventBooking && edit?.Data.Contact) {
+    const contact = rows().find(
+      (r) => r.Kind === "contact" && r.ID === edit.Data.Contact,
+    );
+    if (contact)
+      f += "<p>Zugeordneter Kontakt: " + esc(contact.Data.Label) + "</p>";
+  }
+  if (k === "organization")
+    f +=
+      label(
+        "Organisationslogo (PNG, optional)",
+        '<input type="file" name="logo" accept="image/png">',
+      ) +
+      field("Address", "Anschrift", "text", true) +
+      field("field_IBAN", "Entwicklungskonto / IBAN") +
+      field("field_holder", "Kontoinhaber") +
+      field("field_legal", "Freigegebener Rechnungstext") +
+      field("field_donationLegal", "Freigegebener Spendentext");
+  if (k === "contact")
+    f +=
+      field("field_salutation", "Briefanrede (optional)") +
+      field("field_given", "Vorname") +
+      field("field_family", "Familienname") +
+      (s.donorAccess
+        ? field("field_birth", "Geburtsdatum für die Spendenprüfung", "date")
+        : "");
+  if (["card", "fee", "payout", "cashback"].includes(k))
+    f += field(
+      "field_provider",
+      "Kartenanbieter / Abrechnungskreis",
+      "text",
+      true,
+    );
+  if (k === "presale")
+    f +=
+      field("field_saleQuantity", "Stückzahl Vorverkauf", "number", true) +
+      field("unitSale", "Preis pro Stück in EUR", "text", true) +
+      field("field_paymentEvidence", "Zahlungsnachweis / Belegnummer");
+  if (k === "expense")
+    extra += refs("field_sale", "Zugehöriger Vorverkauf (Herstellungskosten)", [
+      "presale",
+    ]);
+  if (k === "paper")
+    f +=
+      field(
+        "Number",
+        "Papiernummer P- (nur Zahl, " +
+          s.first +
+          " bis " +
+          (s.paperLimit ?? s.limit) +
+          ")",
+        "number",
+        true,
+      ) +
+      select("Status", "Papierbelegstatus", [
+        ["Ausgegeben", "Ausgegeben"],
+        ["Verworfen", "Verworfen"],
+      ]) +
+      refs("Reference", "Bereits erfasste Barzahlung", [
+        "income",
+        "payment",
+        "donation",
+        "presale",
+      ]);
+  if (k === "contact")
+    f += field(
+      "field_distinct",
+      "Abgrenzung bei gleichem Kontaktnamen (optional)",
+    );
+  if (k === "sponsorship")
+    f +=
+      select("field_claimType", "Forderungsart", [
+        ["sponsor", "Sponsoring"],
+        ["invoice", "Ausgangsrechnung"],
+      ]) +
+      label(
+        "Rechnungspositionen (optional, eine pro Zeile: Menge | Leistung | Einzelpreis)",
+        '<textarea name="positions"></textarea>',
+      ) +
+      select(
+        "field_pledge",
+        "Zusage",
+        ["Offen", "Zugesagt", "Zurückgezogen"].map((v) => [v, v]),
+      ) +
+      field("field_due", "Fälligkeit", "date") +
+      field("field_service", "Leistungszeitraum") +
+      field("field_paymentRef", "Zahlungsreferenz für Überweisungen");
+  if (k === "price")
+    f +=
+      field("field_guest", "Gästebezeichnung") +
+      field("field_allergens", "Bestätigte Allergene") +
+      field("field_unitA", "Einheit laut erster Quelle (bei Klärung)") +
+      field("field_unitB", "Abweichende Quellenangabe") +
+      field("field_unitReason", "Begründung für die geklärte Ausgabeeinheit");
+  if (k === "contact") {
+    const legacy =
+      edit?.Data.Address &&
+      !edit.Data.Fields?.street &&
+      !edit.Data.Fields?.town &&
+      !edit.Data.Fields?.zip;
+    f +=
+      (legacy
+        ? label("Bisherige Anschrift", '<textarea name="Address"></textarea>')
+        : "") +
+      field("field_street", "Straße und Hausnummer") +
+      field("field_zip", "PLZ") +
+      field("field_town", "Ort") +
+      field("Category", "Person / Firma");
+  }
+  if (monetary.has(k) && !["price", "cashback", "skim", "return"].includes(k)) {
+    const sourceLabel = walletTopUp
+      ? "Entnommen aus (Quelle)"
+      : "Konto / Quelle";
+    if (
+      walletTopUp &&
+      !s.event.Accounts &&
+      rows().filter((r) => r.Kind === "wallet").length > 1
+    )
+      f += select("sourceWallet", "Wechselgeldquelle", [
+        ["", "Hauptkassa oder andere Quelle"],
+        ...choices(["wallet"]).filter(([id]) => id),
+      ]);
+    if (s.event.Accounts)
+      f += refs("Account", sourceLabel, ["account", "wallet"]);
+    else if (simpleBooking) extra += field("Account", "Konto / Quelle");
+    else f += field("Account", sourceLabel, "text", walletTopUp);
+  }
+  if (
+    !walletTopUp &&
+    ["transfer", "payout", "skim", "return", "cashback"].includes(k)
+  )
+    f += s.event.Accounts
+      ? refs(
+          "To",
+          k === "cashback" ? "Terminal-Verrechnungskonto" : "Zielkonto",
+          k === "cashback" ? ["account"] : ["account", "wallet"],
+        )
+      : field(
+          "To",
+          k === "cashback" ? "Terminal-Verrechnungskonto" : "Zielkonto",
+          "text",
+          true,
+        );
+  if (
+    [
+      "income",
+      "expense",
+      "refund",
+      "deposit",
+      "deposit-return",
+      "payment",
+      "donation",
+      "presale",
+    ].includes(k)
+  )
+    f += select("Method", "Zahlungsart", [
+      ["Bar", "Bar"],
+      ["Überweisung", "Überweisung"],
+      ["Karte", "Karte"],
+    ]);
+  if (
+    [
+      "income",
+      "expense",
+      "payment",
+      "donation",
+      "card",
+      "supply",
+      "skim",
+      "cashback",
+      "return",
+    ].includes(k)
+  )
+    extra += field("field_matter", "Externe Vorgangskennung");
+  if (k === "payment") f += refs("Reference", "Forderung", ["sponsorship"]);
+  else if (k === "reimbursement") {
+    f += refs("Reference", "Einzelne Privatauslage", ["outlay"]);
+    const debts = rows().filter((r) => r.Kind === "outlay");
+    if (debts.length)
+      f +=
+        "<details><summary>Sammelerstattung aufteilen</summary>" +
+        debts
+          .map((r) =>
+            field(
+              "alloc_" + r.ID,
+              r.Data.Label + " · maximal " + eur(r.Data.Amount),
+            ),
+          )
+          .join("") +
+        "</details>";
+  } else if (k === "attachment")
+    f +=
+      refs(
+        "Reference",
+        "Zugehöriger Vorgang",
+        Object.keys(types).filter((n) => n !== "attachment"),
+      ) +
+      label(
+        "PDF, JPEG oder PNG",
+        '<input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required>',
+      );
+  else if (k === "template")
+    f += select(
+      "Reference",
+      "Ausgabeprofil",
+      profiles.map((p, i) => [profileID(i), p]),
+    );
+  else if (k === "price")
+    f +=
+      select("Category", "Sortiment", [
+        ["Getränk", "Getränk"],
+        ["Essen", "Essen"],
+      ]) +
+      field("Unit", "Einheit") +
+      field("Variant", "Variante") +
+      select(
+        "Status",
+        "Preisstand",
+        s.role === "Admin"
+          ? [
+              ["Entwurf", "Entwurf"],
+              ["Freigegeben", "Freigegeben"],
+            ]
+          : [["Entwurf", "Entwurf"]],
+      );
+  else if (k === "donation")
+    f +=
+      field("Reference", "Sammler/in") +
+      field(
+        "field_reporting",
+        "Meldezeitraum (unabhängig von der Abschlussperiode)",
+      ) +
+      select("Status", "Spendenart", [
+        [
+          "Offen",
+          eventBooking && !edit?.Data.Contact
+            ? "Spenderangaben offen"
+            : "Namentlich",
+        ],
+        ["Anonym", "Anonym"],
+      ]);
+  else if (simpleBooking)
+    extra +=
+      field("Category", "Kategorie") + field("Reference", "Belegreferenz");
+  if (k === "count")
+    f += select("Status", "Erfassungsstand", [
+      ["Unbestätigt", "Erfasste Beobachtung"],
+      ["Bestätigt", "Zählung bestätigen"],
+    ]);
+  if (["count", "plan", "reserve", "supply"].includes(k)) {
+    if (countPhase)
+      f += '<input type="hidden" name="Phase" value="' + esc(countPhase) + '">';
+    else if (k === "count" || k === "plan")
+      f += select(
+        "Phase",
+        "Phase",
+        ["Anfang", "Zwischenstand", "Ende"].map((p) => [p, p]),
+      );
+    if (k === "count" || k === "supply")
+      f +=
+        select("field_countMode", "Enter amount", [
+          ["amount", "Gesamtbetrag eingeben"],
+          ["pieces", "Münzen und Scheine zählen"],
+        ]) +
+        label(
+          k === "supply" ? "Amount in EUR" : "Counted amount in EUR",
+          '<input name="amount" inputmode="decimal" placeholder="0,00">',
+        );
+    f +=
+      '</div><div class="count-pieces"><h3>Denominations</h3><div class="pieces">' +
+      denom
+        .map(
+          (c) =>
+            '<div class="piece-row">' +
+            label(
+              eur(c),
+              '<input name="coin' +
+                c +
+                '" aria-label="Stückzahl ' +
+                esc(eur(c)) +
+                '" min="0" max="1000000" inputmode="numeric" type="number" value="0" step="1"><small data-piece="' +
+                c +
+                '">' +
+                esc(eur(0)) +
+                "</small>",
+            ) +
+            '<div class="piece-steps">' +
+            [1, 2, 5, 10]
+              .map(
+                (step) =>
+                  '<button type="button" class="secondary" data-denomination="' +
+                  c +
+                  '" data-step="' +
+                  step +
+                  '" aria-label="' +
+                  step +
+                  " Stück zu " +
+                  esc(eur(c)) +
+                  ' hinzufügen">+' +
+                  step +
+                  "</button>",
+              )
+              .join("") +
+            "</div></div>",
+        )
+        .join("") +
+      '</div><p class="count-total">Gezählter Betrag <output id="count-total" aria-live="polite">' +
+      esc(eur(0)) +
+      '</output></p></div><div class="form">';
+  }
+  if (edit) f += field("Note", "Reason for correction", "text", true);
+  else extra += field("Note", "Notiz / Textbaustein");
+  if (extra)
+    f +=
+      '<details class="record-extra"><summary>' +
+      (simpleBooking
+        ? edit
+          ? "Zuordnung und Belegdetails"
+          : "Zuordnung, Beleg und Notiz"
+        : "Weitere Angaben") +
+      '</summary><div class="form">' +
+      extra +
+      "</div></details>";
+  return f;
+}
+function journalFilterFields() {
+  const all = rows(),
+    labels = new Map(all.map((r) => [r.ID, r.Data.Label]));
+  let fields =
+    field("from", "Von", "date", false, journalFilters.from || "") +
+    field("until", "Bis", "date", false, journalFilters.until || "");
+  for (const [key, title, values] of [
+    [
+      "kind",
+      "Vorgangsart",
+      recordKinds(page, !offlineEnabled).map((k) => [k, types[k]]),
+    ],
+    ...[
+      ["category", "Kategorie", "Category"],
+      ["method", "Zahlungsart", "Method"],
+      ["account", "Konto", "Account"],
+      ["bar", "Bar", "Bar"],
+    ].map(([key, title, attr]) => [
+      key,
+      title,
+      [...new Set(all.map((r) => r.Data[attr]).filter(Boolean))]
+        .sort()
+        .map((v) => [v, labels.get(v) || v]),
+    ]),
+  ]) {
+    fields += label(
+      title,
+      '<select name="' +
+        key +
+        '"><option value="">Alle</option>' +
+        values
+          .map(
+            ([v, t]) =>
+              '<option value="' +
+              esc(v) +
+              '"' +
+              (journalFilters[key] === v ? " selected" : "") +
+              ">" +
+              esc(t) +
+              "</option>",
+          )
+          .join("") +
+        "</select>",
+    );
+  }
+  return fields;
+}
+function isBookingList() {
+  return page === "Journal" || (!offlineEnabled && page === "Zahlungen");
+}
+function walletSettlementSummary(entries) {
+  const pooled = poolCount(entries, "Anfang") || poolCount(entries, "Ende");
+  function actionRow(wallet) {
+    const target = wallet ? "settlement:" + wallet.ID : "settlement-total";
+    const previous = entries.find((r) => r.ID === target);
+    const amount = wallet
+      ? counted(
+          entries.filter((r) => r.ID !== target),
+          wallet.ID,
+        )
+      : pooledRevenue(entries);
+    if (amount == null)
+      return wallet
+        ? ""
+        : "<p>Für die Gesamtabrechnung den gemeinsamen Endbestand und den Anfangsbestand erfassen. Der Anfangsbestand kann auch aus den Einzelzählungen aller Börsen stammen.</p>";
+    const label = wallet
+      ? esc(wallet.Data.Label) + " · Weitere Sammelbareinnahme"
+      : "Alle Geldtaschen · Sammelbareinnahme";
+    let action = "";
+    if (amount < 0) action = "Zählungen und Geldbewegungen prüfen.";
+    else if (previous?.Data.Amount === amount) action = "Gebucht";
+    else if (writableWorkspace()) {
+      const title = previous
+        ? "Sammelbetrag berichtigen"
+        : wallet
+          ? "Sammelbetrag buchen"
+          : "Gesamtbetrag buchen";
+      action =
+        '<button type="button" data-settle="' +
+        esc(wallet?.ID || target) +
+        '">' +
+        title +
+        "</button>";
+    }
+    return "<p>" + label + " " + eur(amount) + " " + action + "</p>";
+  }
+  const actions = pooled
+    ? actionRow(null)
+    : entries
+        .filter((r) => r.Kind === "wallet")
+        .map(actionRow)
+        .join("");
+  return walletTable(entries, actions);
+}
+function records() {
+  const kinds = recordKinds(page, !offlineEnabled);
+  if (!kinds.includes(kind)) kind = kinds[0];
+  const set = rows().filter(
+    (r) =>
+      kinds.includes(r.Kind) &&
+      (!isBookingList() || journalMatches(r, journalFilters)) &&
+      (!filter ||
+        (
+          r.Data.Label +
+          " " +
+          (r.Data.Bar || "") +
+          " " +
+          (r.Data.Category || "") +
+          " " +
+          (r.Data.Fields?.issuer || "")
+        )
+          .toLowerCase()
+          .includes(filter.toLowerCase())),
+  );
+  let detail = "";
+  if (isBookingList()) {
+    const balances = new Map();
+    for (const r of rows()) {
+      const provider = r.Data.Fields?.provider;
+      if (provider && ["card", "fee", "payout", "cashback"].includes(r.Kind))
+        balances.set(
+          provider,
+          (balances.get(provider) || 0) +
+            (["card", "cashback"].includes(r.Kind) ? 1 : -1) * r.Data.Amount,
+        );
+    }
+    detail = [...balances]
+      .map(
+        ([name, balance]) =>
+          "<p>Anbieterguthaben " + esc(name) + " · " + eur(balance) + "</p>",
+      )
+      .join("");
+  }
+  if (page === "Sponsoring" || (!offlineEnabled && page === "Zahlungen")) {
+    const claims = sponsorshipStatus(rows());
+    if (claims.length) {
+      const originals = claims.flatMap((c) =>
+        c.originals.map((doc) => [
+          doc.id,
+          c.claim.Data.Label + " · Nr. " + doc.number,
+        ]),
+      );
+      detail += panel(
+        "Sponsoring",
+        '<div class="list"><table><tr><th>Forderung</th><th>Zusage</th><th>Betrag</th><th>Bezahlt</th><th>Offen</th><th>Belege und Versand</th></tr>' +
+          claims
+            .map(
+              (c) =>
+                "<tr><td>" +
+                esc(c.claim.Data.Label) +
+                "</td><td>" +
+                esc(c.pledge) +
+                "</td><td>" +
+                eur(c.claim.Data.Amount) +
+                "</td><td>" +
+                eur(c.paid) +
+                "</td><td>" +
+                eur(c.outstanding) +
+                "</td><td>" +
+                (c.originals
+                  .map((o) => "Nr. " + o.number + " · " + esc(o.dispatch))
+                  .join("<br>") || "Kein Original ausgestellt") +
+                (page === "Zahlungen"
+                  ? ' <button type="button" class="secondary" data-claim-invoice="' +
+                    esc(c.claim.ID) +
+                    '">Rechnung öffnen</button>'
+                  : "") +
+                "</td></tr>",
+            )
+            .join("") +
+          "</table></div>" +
+          (s.role === "Admin" && !s.closed && originals.length
+            ? popupForm(
+                "dispatch",
+                "Übergabe dokumentieren",
+                select("original", "Ausgestellter Beleg", originals) +
+                  select(
+                    "delivery",
+                    "Extern erfolgte Übergabe",
+                    [
+                      "Extern übergeben",
+                      "Extern versandt",
+                      "Vermerk aufgehoben",
+                    ].map((v) => [v, v]),
+                  ) +
+                  field(
+                    "evidence",
+                    "Nachweis oder Korrekturgrund",
+                    "text",
+                    true,
+                  ),
+                "Übergabe dokumentieren",
+              )
+            : ""),
+      );
+    }
+  }
+  if (page === "Perioden") {
+    detail =
+      form(
+        "globalPeriod",
+        field("start", "Auswertung von", "date", true, s.event.Starts) +
+          field("end", "bis", "date", true, s.event.Ends) +
+          select("scope", "Auswertung", [
+            ["period", "Aktueller Fachstand"],
+            ["journal-period", "Buchungen einschließlich Storno und Ersatz"],
+          ]),
+        "Zugewiesene Veranstaltungen auswerten",
+      ) +
+      globalRows
+        .map(
+          (r) =>
+            "<p>" +
+            esc(r.datum) +
+            " · " +
+            esc(r.veranstaltung) +
+            " · " +
+            esc(r.bezeichnung) +
+            (r.revision
+              ? " · " +
+                esc(r.richtung) +
+                " · Revision " +
+                esc(r.revision) +
+                " · " +
+                esc(r.akteur)
+              : "") +
+            " · " +
+            eur(r.cent) +
+            "</p>",
+        )
+        .join("");
+  }
+  if (page === "Perioden" && s.role === "Admin" && !s.recovery && !s.closed) {
+    detail += popupForm(
+      "periodAction",
+      "Periodenstand ändern",
+      refs("id", "Abrechnungsperiode", ["period"]) +
+        select("action", "Vorgang", [
+          ["period-close", "Zeitraum freigeben"],
+          ["period-open", "Zeitraum wieder öffnen"],
+        ]) +
+        field("reason", "Begründung für Wiederöffnung"),
+      "Periodenstand bestätigen",
+    );
+  }
+  if (page === "Perioden" && s.role === "Admin" && !s.closed)
+    detail += popupForm(
+      "carry",
+      "Vorperiodenstand übernehmen",
+      refs("period", "Zielperiode", ["period"]) +
+        field("reason", "Begründung bei Austausch eines früheren Übertrags"),
+      "Bestätigten Vorperiodenstand übernehmen",
+    );
+  if (page === "Geldtaschen") {
+    const plan = denominationNeeds(rows()).filter((r) => r.need || r.stock);
+    const starts = rows().filter(
+        (r) => r.Kind === "count" && r.Data.Phase === "Anfang",
+      ),
+      plans = rows().filter(
+        (r) => r.Kind === "plan" && r.Data.Phase === "Anfang",
+      );
+    const needed =
+      starts.some((r) => r.Data.Fields?.countScope === "all") && !plans.length
+        ? starts
+        : [
+            ...plans,
+            ...starts.filter(
+              (r) =>
+                r.Data.Fields?.countScope !== "all" &&
+                !plans.some((p) => p.Data.Wallet === r.Data.Wallet),
+            ),
+          ];
+    if (needed.length)
+      detail += panel(
+        "Wechselgeld vorbereiten",
+        "<p>Benötigter Betrag · <strong>" +
+          eur(needed.reduce((sum, r) => sum + (r.Data.Amount ?? 0), 0)) +
+          "</strong></p>" +
+          (needed.some((r) => !r.Data.Pieces)
+            ? "<p>Für einen Teilbetrag sind die Stückzahlen offen.</p>"
+            : ""),
+      );
+    if (plan.length)
+      detail += panel(
+        "Wechselgeld über alle Geldtaschen",
+        "<table><thead><tr><th>Nennwert</th><th>Bedarf</th><th>Verfügbar</th><th>Fehlmenge</th></tr></thead><tbody>" +
+          plan
+            .map(
+              (r) =>
+                "<tr><td>" +
+                eur(r.cent) +
+                "</td><td>" +
+                r.need +
+                "</td><td>" +
+                (r.stock ?? "Offen") +
+                "</td><td>" +
+                (r.missing ?? "Offen") +
+                "</td></tr>",
+            )
+            .join("") +
+          "</tbody></table>",
+      );
+  }
+  if (offlineEnabled && page === "Geldtaschen" && writableWorkspace()) {
+    detail += popupForm(
+      "handover",
+      "Physische Übergabe dokumentieren",
+      refs("wallet", "Geldtasche", ["wallet"]) +
+        select(
+          "to",
+          "Empfangendes Gerät",
+          (s.devices || []).filter((d) => !d.Sealed).map((d) => [d.ID, d.Name]),
+        ) +
+        select("status", "Übergabe", [
+          ["Angeboten", "Übergabe anbieten"],
+          ["Bestätigt", "Empfang bestätigen"],
+        ]),
+      "Übergabe dokumentieren",
+    );
+  }
+  return (
+    (page === "Perioden" && !s.event.General
+      ? festivalPanel(rows()) + walletSettlementSummary(rows())
+      : "") +
+    (page === "Geldtaschen" ? walletSettlementSummary(rows()) : "") +
+    "<section>" +
+    panelHeading(
+      "Einträge",
+      !offlineEnabled ? button("sync", "Refresh entries", true) : "",
+    ) +
+    '<details class="filter-box"' +
+    (filter || Object.values(journalFilters).some(Boolean) ? " open" : "") +
+    "><summary>Filter entries</summary>" +
+    form(
+      "filter",
+      field(
+        "filter",
+        "Bezeichnung oder Kategorie suchen",
+        "search",
+        false,
+        filter,
+      ) + (isBookingList() ? journalFilterFields() : ""),
+      "Filtern",
+    ) +
+    "</details>" +
+    table(set, editableKinds()) +
+    detail +
+    "</section>"
+  );
+}
+function recordForm(countPhase = "") {
+  return form(
+    "record",
+    formFields(kind, countPhase),
+    edit
+      ? "Save correction"
+      : offlineEnabled
+        ? "Lokal speichern"
+        : "Speichern",
+    button("cancel", "Abbrechen", true),
+  );
+}
+function entryLabel(page) {
+  return (
+    {
+      Übersicht: "Enter opening balance",
+      Veranstaltungen: "Enter opening balance",
+      Journal: "Record transaction",
+      Zahlungen: offlineEnabled
+        ? "Add entry"
+        : "Record event transaction",
+      Kontakte: "Add contact",
+      Spenden: "Record donation",
+      Preise: "Add price",
+    }[page] || "Add entry"
+  );
+}
+const walletStages = [
+  [
+    "Before the event",
+    [
+      ["bar", "Add bar"],
+      ["shift", "Add shift"],
+      ["reserve", "Record available change"],
+      ["plan", "Plan change per wallet"],
+    ],
+  ],
+  [
+    "During the event",
+    [
+      ["skim", "Collect cash"],
+      ["count:Zwischenstand", "Record interim count"],
+    ],
+  ],
+  ["At event close", [["return", "Return remaining cash"]]],
+];
+function walletButton(action, title) {
+  return (
+    '<button type="button" class="secondary" aria-haspopup="dialog" data-wallet-action="' +
+    esc(action) +
+    '">' +
+    esc(title) +
+    "</button>"
+  );
+}
+function walletActions() {
+  return (
+    '<section class="wallet-menu" aria-label="Manage wallets"><div class="actions">' +
+    walletButton("wallet", "Add wallet") +
+    walletButton("count:Anfang", "Count opening balance") +
+    walletButton("supply", "Add change") +
+    walletButton("count:Ende", "Count closing balance") +
+    '</div><details class="wallet-more"' +
+    (article.querySelector(".wallet-more[open]") ? " open" : "") +
+    '><summary>More actions</summary><div class="wallet-actions">' +
+    walletStages
+      .map(
+        ([stage, actions]) =>
+          "<div><h2>" +
+          esc(stage) +
+          "</h2>" +
+          actions
+            .map(([action, title]) => walletButton(action, title))
+            .join("") +
+          "</div>",
+      )
+      .join("") +
+    "</div></details></section>"
+  );
+}
+function bookingTypeSelector(kinds) {
+  const basic = ["income", "expense", "donation"];
+  const sponsorship = ["sponsorship", "payment"];
+  const sections = [
+    ["Income and expenses", basic],
+    ["Sponsorship and invoices", sponsorship],
+    [
+      "More actions",
+      kinds.filter((k) => !basic.includes(k) && !sponsorship.includes(k)),
+    ],
+  ];
+  return label(
+    "Vorgang",
+    '<select name="type">' +
+      sections
+        .map(([title, items]) => {
+          const options = items
+            .filter((k) => kinds.includes(k))
+            .map((k) =>
+              option(
+                k,
+                k === "sponsorship"
+                  ? "Sponsorship receivable / invoice"
+                  : types[k],
+              ),
+            )
+            .join("");
+          return options
+            ? '<optgroup label="' + esc(title) + '">' + options + "</optgroup>"
+            : "";
+        })
+        .join("") +
+      "</select>",
+  );
+}
+function openRecord(trigger, item = null) {
+  canWrite();
+  const kinds = editableKinds();
+  if (!kinds.length || (item && !kinds.includes(item.Kind))) return;
+  edit = item;
+  const [walletKind, countPhase] = (trigger?.dataset.walletAction || "").split(
+    ":",
+  );
+  if (walletKind && (page !== "Geldtaschen" || !kinds.includes(walletKind)))
+    return;
+  kind = item?.Kind || walletKind || (kinds.includes(kind) ? kind : kinds[0]);
+  const selector =
+    kinds.length > 1 && page !== "Geldtaschen"
+      ? !offlineEnabled && isBookingList()
+        ? bookingTypeSelector(kinds)
+        : select(
+            "type",
+            "Vorgang",
+            kinds.map((k) => [k, types[k]]),
+          )
+      : "";
+  openEditor(
+    trigger,
+    item
+      ? types[kind] + " berichtigen"
+      : walletKind
+        ? trigger.textContent
+        : entryLabel(page),
+    recordForm(countPhase),
+    (offlineEnabled
+      ? ""
+      : '<p class="booking-target">Buchungsziel <strong>' +
+        esc(workspaceLabel()) +
+        "</strong></p>") + selector,
+  );
+  if (!offlineEnabled) entryDialog.dataset.recordWorkspace = s.event.ID;
+  const type = entryDialog.querySelector("[name=type]");
+  if (type) {
+    type.value = kind;
+    type.disabled = !!item;
+  }
+  const record = entryDialog.querySelector("#record");
+  if (item) fillRecord(record);
+  if (record.elements.field_countMode) {
+    const fields = record.elements;
+    if (fields.field_countScope) {
+      if (
+        !item &&
+        (!rows().some((r) => r.Kind === "wallet") ||
+          poolCount(rows(), "Anfang") ||
+          (countPhase === "Ende" && poolCount(rows(), "Ende")))
+      )
+        fields.field_countScope.value = "all";
+      if (item)
+        fields.field_countScope.value =
+          item.Data.Fields?.countScope || "wallet";
+      for (const opt of fields.field_countScope.options) {
+        opt.disabled = item
+          ? opt.value !== fields.field_countScope.value
+          : overlapsCountScope(
+              rows(),
+              opt.value === "all",
+              fields.Phase.value,
+            ) ||
+            (opt.value === "wallet" &&
+              !rows().some((r) => r.Kind === "wallet"));
+      }
+      if (fields.field_countScope.selectedOptions[0]?.disabled)
+        fields.field_countScope.value =
+          [...fields.field_countScope.options].find((opt) => !opt.disabled)
+            ?.value || "";
+    }
+    if (item)
+      fields.field_countMode.value = item.Data.Pieces ? "pieces" : "amount";
+    updateCountOptions(record);
+  }
+  loadSponsorChoices(record);
+  if (!item && kind === "opening" && onOverview()) {
+    const period = rows().find(
+      (r) => r.Kind === "period" && r.ID === overviewPeriod,
+    );
+    const fields = entryDialog.querySelector("#record").elements;
+    fields.Label.value = "Anfangsbestand";
+    fields.Date.min = period?.Data.Date || s.event.Starts;
+    fields.Date.max = period?.Data.To || s.event.Ends;
+    fields.Date.value = fields.Date.min;
+    if (!offlineEnabled && s.event.Year && fields.Date.min === s.event.Starts)
+      addYearCarryChoice(entryDialog.querySelector("#record"));
+    fields.amount.focus();
+  }
+}
+function addYearCarryChoice(manual) {
+  manual.insertAdjacentHTML(
+    "beforebegin",
+    '<fieldset class="opening-method"><legend>Anfangsbestand</legend>' +
+      '<label><input type="radio" name="openingMethod" value="manual" checked> Händisch erfassen</label>' +
+      '<label><input type="radio" name="openingMethod" value="prior"> Aus Vorjahr übernehmen</label></fieldset>',
+  );
+  const choice = manual.previousElementSibling;
+  const preview = document.createElement("div");
+  manual.after(preview);
+  preview.hidden = true;
+  const workspace = s.event;
+  let sources;
+  choice.addEventListener("change", async () => {
+    const prior = choice.querySelector(":checked").value === "prior";
+    manual.hidden = prior;
+    preview.hidden = !prior;
+    if (!prior || sources || preview.getAttribute("aria-busy") === "true")
+      return;
+    preview.setAttribute("aria-busy", "true");
+    preview.textContent = "Vorjahresabschluss wird geladen …";
+    try {
+      sources = await api("manage", { Action: "year-carry" });
+      if (!preview.isConnected) return;
+      if (!sources.length) {
+        preview.textContent =
+          "Für diesen Arbeitsbereich liegt im vorherigen Geschäftsjahr kein bestätigter Schlussbestand vor. Du kannst den Anfangsbestand händisch erfassen.";
+        return;
+      }
+      const sourceOptions = new Map(
+        sources.map((l) => [l.Source, l.Name + " · " + l.Year]),
+      );
+      preview.innerHTML =
+        select("source", "Quelle im Vorjahr", [
+          ["", "Bitte wählen"],
+          ...sourceOptions,
+        ]) + '<div class="year-carry-preview"></div>';
+      const picker = preview.querySelector("select");
+      if (workspace.General && sourceOptions.size === 1)
+        picker.value = sources[0].Source;
+      const targetAccounts = workspace.Accounts
+        ? choices(["account", "wallet"])
+        : [];
+      const render = () => {
+        const lines = sources.filter((l) => l.Source === picker.value);
+        const box = preview.querySelector(".year-carry-preview");
+        if (!lines.length) {
+          box.replaceChildren();
+          return;
+        }
+        box.innerHTML =
+          "<p>Bestätigter Schlussbestand zum " +
+          dat(lines[0].End) +
+          " · <strong>" +
+          eur(lines.reduce((sum, l) => sum + l.Amount, 0)) +
+          "</strong></p>" +
+          form(
+            "year-carry",
+            '<input type="hidden" name="source" value="' +
+              esc(picker.value) +
+              '">' +
+              '<input type="hidden" name="stamp" value="' +
+              esc(lines[0].Stamp) +
+              '">' +
+              lines
+                .map((l) =>
+                  workspace.Accounts
+                    ? select(
+                        "account:" + l.Account,
+                        l.Label + " · " + eur(l.Amount) + " → Zielkonto",
+                        targetAccounts,
+                      )
+                    : lines.length > 1
+                      ? "<p>" + esc(l.Label) + " · " + eur(l.Amount) + "</p>"
+                      : "",
+                )
+                .join("") +
+              "<p>Eröffnung zum " +
+              dat(workspace.Starts) +
+              "</p>",
+            "Anfangsbestand übernehmen",
+            button("cancel", "Abbrechen", true),
+          );
+        for (const account of box.querySelectorAll("select"))
+          account.required = true;
+        if (workspace.Accounts && targetAccounts.length === 1) {
+          box
+            .querySelector("form")
+            .replaceWith(
+              document.createTextNode(
+                "Lege unter Abschluss zuerst ein Zielkonto an.",
+              ),
+            );
+        }
+      };
+      picker.addEventListener("change", render);
+      render();
+    } catch (err) {
+      preview.textContent = err.message;
+    } finally {
+      preview.removeAttribute("aria-busy");
+    }
+  });
+}
+let donorReview;
+const donorRequest = (body) => api("donation-reports", body, bearer());
+function donationPanel() {
+  if (!offlineEnabled && s.role === "Admin" && !s.donorAccess)
+    return panel(
+      "Spendenmeldedaten",
+      button("viewDonors", "Meldedaten für diese Sitzung öffnen", true),
+    );
+  if (s.role !== "Admin" || !s.donorAccess || s.recovery) return "";
+  const review = donorReview?.device === s.device ? donorReview : null;
+  let content = form(
+    "donorLoad",
+    field(
+      "period",
+      "Meldezeitraum",
+      "text",
+      true,
+      review?.period || String(new Date().getFullYear()),
+    ),
+    "Prüfstand online laden",
+  );
+  if (!review) return panel("Spendenmeldedaten", content);
+  const data = review.preview.daten;
+  content +=
+    "<p>" +
+    data.Spenden.length +
+    " meldbare Spenden · " +
+    eur(data.SummeCent) +
+    " · " +
+    data.Ausgeschlossen.length +
+    " ausgeschlossen</p><details><summary>Prüfdaten und Ausschlussgründe ansehen</summary><pre>" +
+    esc(JSON.stringify(data, null, 2)) +
+    "</pre></details>";
+  const latest = review.history.at(-1);
+  if (latest)
+    content +=
+      "<ol>" +
+      review.history
+        .map(
+          (h) =>
+            "<li>" +
+            esc(
+              h.at + " · " + h.actor + " · " + h.status + " · " + h.evidence,
+            ) +
+            "</li>",
+        )
+        .join("") +
+      "</ol>";
+  const next = {
+    Geprüft: ["Exportiert", "Korrektur"],
+    Exportiert: ["Übermittelt", "Korrektur"],
+    Übermittelt: ["Bestätigt", "Korrektur"],
+    Bestätigt: ["Korrektur"],
+  };
+  const options =
+    latest && latest.status !== "Korrektur" ? next[latest.status] : ["Geprüft"];
+  if (!s.closed)
+    content += popupForm(
+      "donorDecision",
+      "Prüfvermerk erfassen",
+      select(
+        "step",
+        "Entscheidung",
+        options.map((v) => [v, v]),
+      ) + field("reason", "Prüfvermerk oder externer Nachweis", "text", true),
+      "Entscheidung dokumentieren",
+    );
+  const released = review.history.filter((h) => h.status === "Exportiert");
+  if (released.length)
+    content += form(
+      "donorDownload",
+      select(
+        "report",
+        "Gespeicherter Export",
+        released.map((h) => [h.id, h.at + " · " + h.id]),
+      ),
+      "Geprüfte Datei herunterladen",
+    );
+  return panel("Spendenmeldedaten", content);
+}
+function exchange() {
+  const periods = rows().filter((r) => r.Kind === "period");
+  return (
+    panel(
+      "Auswertungszeitraum",
+      select("reportPeriod", "Zeitraum", [
+        [
+          "",
+          offlineEnabled
+            ? "Gesamter lokaler Stand"
+            : "Gewählter Arbeitsbereich",
+        ],
+        ...periods.map((r) => [
+          r.ID,
+          r.Data.Label + " · " + r.Data.Date + " bis " + r.Data.To,
+        ]),
+      ]) +
+        '<div class="actions">' +
+        button("csv", "Journal als CSV") +
+        button("xlsx", "Journal als Excel") +
+        button("evidence", "Prüfpaket laden") +
+        (s.donorAccess
+          ? field(
+              "donorPeriod",
+              "Meldezeitraum Spenden",
+              "text",
+              true,
+              String(new Date().getFullYear()),
+            ) + button("donors", "Spendenliste laden")
+          : "") +
+        "</div>",
+    ) +
+    donationPanel() +
+    (s.role === "Admin" && writableWorkspace()
+      ? panel(
+          "Importvorschau",
+          form(
+            "preview",
+            select("sourceRole", "Quellenrolle", [
+              ["Journal", "BONFIRE-Journal"],
+              ["D1", "Historischer Abschluss · D1"],
+              ["D8", "Vorbereitete Folgevorlage · D8"],
+            ]) +
+              field(
+                "year",
+                "Quellenjahr",
+                "number",
+                true,
+                String(new Date().getFullYear()),
+              ) +
+              label(
+                "Journaldatei (CSV oder XLSX)",
+                '<input type="file" name="file" accept=".xlsx,.csv" required>',
+              ),
+            "Datei prüfen",
+          ) +
+            (imported.length
+              ? "<p>" +
+                imported.length +
+                ' Quellenzeilen</p><div class="list"><table><tr><th>Quelle</th><th>Blatt / Zeile</th><th>Datum</th><th>Herkunft Datum</th><th>Original</th><th>Bezeichnung</th><th>Art</th><th>Betrag</th><th>Prüfstand</th></tr>' +
+                imported
+                  .map(
+                    (r) =>
+                      "<tr>" +
+                      [
+                        importRole,
+                        r.sheet ? r.sheet + "!" + r.cell : r.row,
+                        r.date || "Offen",
+                        r.yearOrigin || "Quelldatum",
+                        r.cached != null
+                          ? r.raw +
+                            " · Cache " +
+                            (r.cached || "fehlt") +
+                            (r.calculatedCent != null
+                              ? " · nachgerechnet " + eur(r.calculatedCent)
+                              : "") +
+                            (r.differenceCent
+                              ? " · Abweichung " + eur(r.differenceCent)
+                              : "")
+                          : (r.raw ??
+                            (r.amount == null ? "Offen" : String(r.amount))),
+                        r.label,
+                        types[r.kind] || "Zuordnung offen",
+                        eur(r.amount),
+                        r.status,
+                      ]
+                        .map((v) => "<td>" + esc(v) + "</td>")
+                        .join("") +
+                      "</tr>",
+                  )
+                  .join("") +
+                "</table></div>" +
+                popupForm(
+                  "importRow",
+                  "Importzeile prüfen",
+                  select(
+                    "ix",
+                    "Einzeln geprüfte Zeile",
+                    imported.map((r, i) => [
+                      i,
+                      (r.sheet ? r.sheet + "!" + r.cell : r.row) +
+                        " · " +
+                        r.label,
+                    ]),
+                  ) +
+                    select("kind", "Buchungsart", [
+                      ["income", "Einnahme"],
+                      ["expense", "Ausgabe"],
+                    ]) +
+                    field("date", "Geprüftes Buchungsdatum", "date", true) +
+                    field("account", "Konto") +
+                    field("reason", "Prüfvermerk / Entscheidung", "text", true),
+                  "Geprüfte Zeile übernehmen",
+                )
+              : ""),
+        )
+      : "")
+  );
+}
+function reportRows() {
+  const period = rows().find((r) => r.ID === chosenPeriod);
+  return rows().filter(
+    (r) =>
+      !period ||
+      (r.Data.Date >= period.Data.Date && r.Data.Date <= period.Data.To),
+  );
+}
+function installStudio() {
+  const options = document.querySelector("#export").closest("section");
+  const editor = document.querySelector("#template")?.closest("section");
+  const studio = document.createElement("div");
+  studio.className = "document-studio";
+  options.before(studio);
+  const controls = document.createElement("div");
+  controls.className = "doc-controls";
+  controls.append(options);
+  if (editor) controls.append(editor);
+  studio.innerHTML =
+    '<div class="proof-tabs"><button type="button" data-act="docInputs">Eingabe</button><button type="button" data-act="docProof">Druckvorschau</button></div>';
+  studio.append(controls);
+  const proof = document.createElement("section");
+  proof.className = "proof";
+  proof.innerHTML =
+    '<h2>Druckvorschau</h2><p id="proof-status">Profil und Fachvorgang wählen, um die Arbeitsfassung zu prüfen.</p><div id="proof-sheet"></div>' +
+    button("docProof", "Vorschau aktualisieren", true);
+  studio.append(proof);
+  document
+    .querySelector("#export .actions")
+    .insertAdjacentHTML(
+      "beforeend",
+      button("docProof", "Druckvorschau öffnen", true),
+    );
+}
+let proofRevision = 0;
+async function proofDocument(editing) {
+  const revision = ++proofRevision;
+  const studio = document.querySelector(".document-studio"),
+    host = studio.querySelector("#proof-sheet"),
+    status = studio.querySelector("#proof-status");
+  studio.classList.add("view-proof");
+  host.replaceChildren();
+  status.textContent = "Arbeitsfassung wird lokal aufgebaut …";
+  try {
+    const vals = Object.fromEntries(
+      new FormData(document.querySelector("#export")),
+    );
+    let source = s,
+      index = Number(vals.profile);
+    if (editing) {
+      const form = Object.fromEntries(
+          new FormData(document.querySelector("#template")),
+        ),
+        ref = form.Reference;
+      index = profiles.findIndex((_, i) => profileID(i) === ref);
+      const base =
+        s.drafts?.[ref] ||
+        (s.pinnedTemplates || s.entries).find((r) => r.ID === "template:" + ref)
+          ?.Data ||
+        {};
+      source = {
+        ...s,
+        drafts: {
+          ...s.drafts,
+          [ref]: {
+            ...base,
+            Label: form.Label,
+            Note: form.Note,
+            Fields: {
+              ...base.Fields,
+              font: form.font,
+              footer: form.footer,
+              margin: form.margin,
+              header: form.header,
+              copies: form.copies,
+              firstColumn: form.firstColumn,
+              paper: form.paper,
+            },
+          },
+        },
+      };
+      vals.version = "draft";
+    }
+    const snap = snapshot(index, source, rows(), { ...vals, number: null });
+    const files = await renderDocument(snap);
+    if (revision !== proofRevision || !host.isConnected) return;
+    const previewHost = document.createElement("div");
+    host.replaceChildren(previewHost);
+    await displayProof(previewHost, files.docx);
+    if (revision !== proofRevision || !previewHost.isConnected) return;
+    status.textContent =
+      profiles[index] +
+      " · " +
+      snap.width +
+      " × " +
+      snap.height +
+      " mm · " +
+      (vals.version === "draft" ? "Entwurf" : snap.templateVersionID) +
+      " · Word-Arbeitsfassung";
+  } catch (err) {
+    if (revision !== proofRevision || !host.isConnected) return;
+    status.textContent = err.message;
+    throw err;
+  }
+}
+async function openRecordDocument(trigger) {
+  const id = trigger.dataset.recordDocument;
+  let row = rows().find((r) => r.ID === id);
+  if (row.Kind === "donation" && !s.donorAccess) {
+    donorAccess = true;
+    try {
+      await sync();
+    } catch (err) {
+      donorAccess = false;
+      throw err;
+    }
+    row = rows().find((r) => r.ID === id);
+  }
+  const i = { sponsorship: 0, payment: 11, donation: 12 }[row.Kind];
+  const existing = rows()
+    .filter(
+      (r) =>
+        r.Kind === "original" &&
+        r.Data.Reference === id &&
+        (r.Data.Fields?.series === "confirmation") === i >= 11,
+    )
+    .sort((a, b) => b.Data.Number - a.Data.Number)[0];
+  if (existing) {
+    const key = esc(existing.ID);
+    openEditor(
+      trigger,
+      existing.Data.Label + " · Nr. " + existing.Data.Number,
+      '<div class="actions">' +
+        ["PDF", "DOCX"]
+          .map(
+            (ext) =>
+              '<button type="button" data-file="' +
+              key +
+              '" data-format="' +
+              ext +
+              '">' +
+              ext +
+              " speichern</button>",
+          )
+          .join("") +
+        (navigator.canShare?.({
+          files: [new File([""], "Beleg.pdf", { type: "application/pdf" })],
+        })
+          ? '<button type="button" data-share-original="' +
+            key +
+            '">PDF teilen</button>'
+          : "") +
+        "</div>",
+    );
+    return;
+  }
+  const hidden = (name, value) =>
+    '<input type="hidden" name="' +
+    name +
+    '" value="' +
+    esc(String(value)) +
+    '">';
+  const name = trigger.textContent;
+  const content =
+    "<p>" +
+    esc(row.Data.Label) +
+    " · " +
+    esc(row.Data.Date) +
+    " · <strong>" +
+    eur(row.Data.Amount) +
+    "</strong></p>";
+  const inputs =
+    hidden("subject", id) +
+    hidden("profile", i) +
+    hidden("version", "active") +
+    hidden("format", writableWorkspace() ? "Original" : "PDF") +
+    (i === 12 ? refs("recipient", "Empfänger", ["contact"]) : "") +
+    '<div class="document-preview" data-receipt-preview></div>';
+  openEditor(
+    trigger,
+    name,
+    content +
+      form(
+        "export",
+        inputs,
+        writableWorkspace() ? "Original ausstellen" : "PDF-Vorschau speichern",
+      ),
+  );
+  const f = entryDialog.querySelector("form");
+  f.dataset.event = s.event.ID;
+  if (f.elements.recipient) f.elements.recipient.value = row.Data.Contact || "";
+  const preview = () => {
+    const vals = Object.fromEntries(new FormData(f)),
+      snap = snapshot(i, s, rows(), vals);
+    f.querySelector("[data-receipt-preview]").textContent = [
+      ...(snap.tables?.address || []),
+      snap.tables?.intro || snap.title,
+    ].join(" · ");
+  };
+  f.addEventListener("change", preview);
+  const proof = document.createElement("button");
+  proof.type = "button";
+  proof.textContent = "Druckvorschau";
+  const host = document.createElement("div");
+  f.querySelector("[data-receipt-preview]").after(proof, host);
+  proof.onclick = () =>
+    action(async () => {
+      const snap = snapshot(i, s, rows(), Object.fromEntries(new FormData(f)));
+      host.replaceChildren();
+      await displayProof(host, (await renderDocument(snap)).docx);
+    });
+  f.addEventListener("change", () => host.replaceChildren());
+  preview();
+}
+async function libraryDialog(trigger) {
+  const list = await api("template-library");
+  const builtin = profiles.map((label, i) => ({
+    id: "standard-" + i,
+    label,
+    profile: profileID(i),
+    revision: 0,
+    source: "BONFIRE",
+  }));
+  const releases = [...list, ...builtin],
+    opts = releases.map((t) => [
+      String(t.id),
+      t.source +
+        " · " +
+        t.label +
+        " · " +
+        (t.revision ? "Version " + t.revision : "Standard"),
+    ]);
+  const content =
+    select("release", "Vorlagenstand", opts) +
+    refs("subject", "Fachvorgang für Vorschau", [
+      "sponsorship",
+      "payment",
+      "donation",
+      "count",
+      "plan",
+    ]) +
+    "<p>Ziel · " +
+    esc(s.event.Name) +
+    '</p><div class="actions"><button type="button" data-preview-release>Druckvorschau</button></div><div data-library-proof></div>';
+  openEditor(
+    trigger,
+    "Vorlagenbibliothek",
+    form("library", content, "Vorlage übernehmen"),
+  );
+  const f = entryDialog.querySelector("form");
+  const source = async () => {
+    const t = releases.find((v) => String(v.id) === f.elements.release.value);
+    const v = t.revision
+      ? await api("template-library?id=" + encodeURIComponent(t.id))
+      : { Reference: t.profile, Label: t.label, Fields: {} };
+    return {
+      ...v,
+      Date: today(),
+      Fields: {
+        ...v.Fields,
+        sourceRelease: String(t.id),
+        sourceVersion: t.source + " · " + (t.revision || "Standard"),
+      },
+    };
+  };
+  f.librarySource = source;
+  f.dataset.event = s.event.ID;
+  f.querySelector("[data-preview-release]").onclick = () =>
+    action(async () => {
+      const v = await source(),
+        i = profiles.findIndex((_, i) => profileID(i) === v.Reference);
+      const snap = snapshot(i, { ...s, drafts: { [v.Reference]: v } }, rows(), {
+        version: "draft",
+        subject: f.elements.subject.value,
+      });
+      const host = f.querySelector("[data-library-proof]");
+      host.replaceChildren();
+      await displayProof(host, (await renderDocument(snap)).docx);
+    });
+}
+function docs() {
+  const originals = rows().filter((r) => r.Kind === "original");
+  return (
+    panel(
+      "Dokument erstellen",
+      (!offlineEnabled && s.role === "Admin" && writableWorkspace()
+        ? '<div class="actions">' +
+          button("library", "Vorlagenbibliothek", true) +
+          "</div>"
+        : "") +
+        form(
+          "export",
+          select(
+            "profile",
+            "Vorlage",
+            profiles.map((p, i) => [i, p]),
+          ) +
+            refs("subject", "Fachvorgang (je nach Vorlage)", [
+              "sponsorship",
+              "payment",
+              "donation",
+              "count",
+              "plan",
+            ]) +
+            refs("bar", "Bar (für Barbericht)", ["bar"]) +
+            refs("period", "Periode (für Journal und Prüfbericht)", [
+              "period",
+            ]) +
+            select("guestCopies", "Gästepreisliste je Blatt", [
+              ["1", "Ganzes Blatt"],
+              ["2", "Zwei Exemplare"],
+            ]) +
+            select("paper", "Gästepreisliste Papier", [
+              ["Profil", "Wie im Vorlagenprofil"],
+              ["Letter", "Letter · Quellenformat"],
+              ["A4", "A4 · alternative Fassung"],
+            ]) +
+            field(
+              "organization",
+              "Organisation",
+              "text",
+              true,
+              rows().find((r) => r.Kind === "organization")?.Data.Label || "",
+            ) +
+            ((s.priceHistory || []).length
+              ? select("priceVersion", "Preisstand für Karten und Gästeliste", [
+                  ["", "Aktuelle freigegebene Preise"],
+                  ...[
+                    ...new Map(
+                      s.priceHistory.map((p) => [p.Version, p]),
+                    ).values(),
+                  ]
+                    .reverse()
+                    .map((p) => [
+                      String(p.Version),
+                      p.At.slice(0, 19) + " · Stand " + p.Version,
+                    ]),
+                ])
+              : "") +
+            select("version", "Vorlagenstand", [
+              ["active", "Freigegebene Fassung"],
+              ["draft", offlineEnabled ? "Lokaler Entwurf" : "Sitzungsentwurf"],
+            ]) +
+            (writableWorkspace()
+              ? field("revisionReason", "Korrekturgrund (für Ersatzbeleg)")
+              : "") +
+            select("format", "Ausgabe", [
+              ["PDF", "PDF-Arbeitsfassung"],
+              ["DOCX", "DOCX-Arbeitsfassung"],
+              ...(writableWorkspace()
+                ? [
+                    ["Original", "Nummeriertes Original archivieren"],
+                    ["Korrektur", "Begründete Korrekturfassung archivieren"],
+                  ]
+                : []),
+            ]),
+          "Dokument erzeugen",
+        ),
+    ) +
+    panel(
+      "Dankesbriefe als Serie",
+      form(
+        "letters",
+        rows()
+          .filter((r) => r.Kind === "donation" && r.Data.Contact)
+          .map((r) =>
+            label(
+              r.Data.Label,
+              '<input type="checkbox" name="recipients" value="' +
+                esc(r.ID) +
+                '">',
+            ),
+          )
+          .join(""),
+        "Ausgewählte Briefe als ZIP laden",
+      ),
+    ) +
+    panel(
+      "Archiv",
+      (offlineEnabled
+        ? "<p>Freie Nummern dieses Geräts: "
+        : "<p>Verfügbare Belegnummern: ") +
+        availableNumbers(s) +
+        "</p>" +
+        originals
+          .map(
+            (r) =>
+              '<p class="actions"><span>' +
+              esc(r.Data.Label) +
+              " · " +
+              r.Data.Number +
+              '</span><button data-file="' +
+              esc(r.ID) +
+              '" data-format="PDF">PDF</button><button data-file="' +
+              esc(r.ID) +
+              '" data-format="DOCX">DOCX</button></p>',
+          )
+          .join(""),
+    ) +
+    (writableWorkspace()
+      ? panel(
+          "Vorlagen anpassen",
+          button(
+            "pinTemplates",
+            offlineEnabled
+              ? "Freigegebenen Vorlagenstand für dieses Gerät übernehmen"
+              : "Vorlagen aktualisieren",
+            true,
+          ) +
+            form(
+              "template",
+              select(
+                "Reference",
+                "Profil",
+                profiles.map((p, i) => [profileID(i), p]),
+              ) +
+                field("Label", "Überschrift", "text", true) +
+                label(
+                  "Textbaustein",
+                  '<textarea name="Note">' +
+                    esc(s.importedText || "") +
+                    "</textarea>",
+                ) +
+                select("font", "Schriftpreset", [
+                  ["helvetica", "Sans Serif"],
+                  ["times", "Serif"],
+                  ["courier", "Monospace"],
+                ]) +
+                field("header", "Kartenkopf (optional)") +
+                field(
+                  "copies",
+                  "Karten je Blatt (bis 3 Getränke / 7 Essen)",
+                  "number",
+                ) +
+                field(
+                  "firstColumn",
+                  "Kartenbreite erste Spalte in mm (40–75)",
+                  "number",
+                ) +
+                select("paper", "Gästepreisliste Standardpapier", [
+                  ["Letter", "Letter"],
+                  ["A4", "A4"],
+                ]) +
+                field("footer", "Fußzeile") +
+                field("margin", "Seitenrand in mm", "number", true, "15"),
+              offlineEnabled
+                ? "Entwurf lokal speichern"
+                : "Entwurf für diese Sitzung übernehmen",
+              (s.role === "Admin"
+                ? '<button data-release="true">Fassung freigeben</button>'
+                : "") + button("draftProof", "Änderungen ansehen", true),
+            ) +
+            form(
+              "wordLayout",
+              label(
+                "Word-Layout für Dankesbriefe (A4, DOCX)",
+                '<input type="file" name="file" accept=".docx" required>',
+              ),
+              "Word-Layout als Briefentwurf übernehmen",
+            ) +
+            (s.drafts?.[profileID(6)]?.File
+              ? "<p>Word-Layout im Entwurf verfügbar</p>"
+              : "") +
+            form(
+              "importTemplate",
+              label(
+                "DOCX-Textvorlage",
+                '<input type="file" name="file" accept=".docx" required>',
+              ),
+              "Text und Felder übernehmen",
+            ) +
+            (s.role === "Admin"
+              ? form(
+                  "lfk",
+                  label(
+                    "LFK-Formular als freigegebener Druckhintergrund",
+                    '<input type="file" name="file" accept=".pdf" required>',
+                  ),
+                  "A6-Formular vorbereiten",
+                )
+              : ""),
+        )
+      : "")
+  );
+}
+function preparePanel() {
+  return panel(
+    "Veranstaltung vorbereiten",
+    events.some((e) => !e.Closed)
+      ? form(
+          "prepare",
+          select(
+            "event",
+            "Veranstaltung",
+            events.filter((e) => !e.Closed).map((e) => [e.ID, e.Name]),
+          ) +
+            field("name", "Gerätename", "text", true) +
+            (onlineUser?.role === "Read"
+              ? '<input name="digitalCount" type="hidden" value="0">'
+              : field(
+                  "digitalCount",
+                  "Benötigte digitale Belegnummern (0–1000)",
+                  "number",
+                  true,
+                  "1000",
+                )) +
+            select("donor", "Meldedaten auf diesem Gerät", [
+              ["", "Standardprofil"],
+              ...(onlineUser?.role === "Admin"
+                ? [["ja", "Belegprofil mit sensiblen Daten (Admin)"]]
+                : []),
+            ]) +
+            field(
+              "pass",
+              "Lokales Passwort (mindestens 10 Zeichen)",
+              "password",
+              true,
+            ),
+          "Offlineprofil speichern",
+        )
+      : "<p>Keine offene Veranstaltung zugewiesen.</p>",
+  );
+}
+let years = [],
+  allSpaces = [],
+  selectedYear = "";
+const legacyGroup = "unassigned";
+const fiscalYear = () => years.find((y) => y.ID === selectedYear);
+const defaultDay = (scope) =>
+  !scope || (today() >= scope.Starts && today() <= scope.Ends)
+    ? today()
+    : scope.Starts;
+function yearFields(y = {}) {
+  return (
+    field("Name", "Name", "text", true, y.Name) +
+    field("Starts", "Start date", "date", true, y.Starts) +
+    field("Ends", "End date", "date", true, y.Ends)
+  );
+}
+function yearForm() {
+  return popupForm(
+    "fiscal-year",
+    "Create fiscal year",
+    yearFields(),
+    "Save fiscal year",
+  );
+}
+function yearSetup() {
+  const old = allSpaces.filter((e) => !e.Year);
+  return (
+    pageHead(
+      "Fiscal years",
+      "Choose the fiscal year for your cashbook.",
+      onlineUser.role === "Admin" ? yearForm() : "",
+    ) +
+    (years.length
+      ? panel(
+          "Open fiscal year",
+          years
+            .map(
+              (y) =>
+                '<div class="fiscal-year-row"><button type="button" class="secondary" data-year="' +
+                esc(y.ID) +
+                '">' +
+                esc(y.Name) +
+                "</button><span>" +
+                dat(y.Starts) +
+                " – " +
+                dat(y.Ends) +
+                "</span>" +
+                (onlineUser.role === "Admin" && !y.Closed
+                  ? '<button type="button" class="secondary" data-year-edit="' +
+                    esc(y.ID) +
+                    '" aria-haspopup="dialog" aria-label="Edit fiscal year ' +
+                    esc(y.Name) +
+                    '">Edit</button>'
+                  : "") +
+                "</div>",
+            )
+            .join(""),
+        )
+      : "") +
+    (onlineUser.role !== "Admin" && !years.length
+      ? "<p>You have no assigned workspaces in a fiscal year yet.</p>"
+      : "") +
+    (old.length
+      ? panel(
+          "Existing workspaces",
+          '<button type="button" class="secondary" data-year="unassigned">Open unassigned workspaces</button>' +
+            (onlineUser.role === "Admin" && years.length
+              ? popupForm(
+                  "assign-year",
+                  "Assign fiscal year",
+                  select(
+                    "Event",
+                    "Workspace",
+                    old.map((e) => [e.ID, e.Name]),
+                  ) +
+                    select(
+                      "Year",
+                      "Fiscal year",
+                      years.map((y) => [y.ID, y.Name]),
+                    ),
+                  "Assign fiscal year",
+                )
+              : ""),
+        )
+      : "")
+  );
+}
+function eventFields(name, starts, ends) {
+  return (
+    field("Name", "Event name", "text", true, name) +
+    field("Starts", "Start date", "date", true, starts) +
+    field("Ends", "End date", "date", true, ends)
+  );
+}
+function eventForm() {
+  const year = fiscalYear(),
+    day = defaultDay(year);
+  return popupForm(
+    "event",
+    "Create event",
+    eventFields("", day, day) +
+      select("Accounts", "Account assignment", [
+        ["", "Off"],
+        ["ja", "On"],
+      ]),
+    "Save event",
+  );
+}
+async function openEventCleanup(trigger, workspace, message = "") {
+  const inventory = (id) =>
+    api("events/entries?event=" + encodeURIComponent(id));
+  const items = await inventory(workspace.ID);
+  const cancel = button("cancel", "Cancel", true);
+  const targets = events.filter(
+    (e) =>
+      workspace.Year &&
+      e.Year === workspace.Year &&
+      e.ID !== workspace.ID &&
+      !e.Closed,
+  );
+  const choices = items.map((i) => [
+    i.ID,
+    [
+      types[i.Kind] || i.Kind,
+      i.Label,
+      dat(i.Date),
+      i.Amount == null ? "" : eur(i.Amount),
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  ]);
+  const fields = items.length
+    ? select("Target", "Entry", choices) +
+      select("Destination", "Action or destination", [
+        ["", "Choose an option"],
+        ["remove", "Remove entry or reverse booking"],
+        ...targets.map((e) => [e.ID, "Move to " + e.Name]),
+      ]) +
+      '<div class="form cleanup-mapping" hidden></div>' +
+      field("Reason", "Reason", "text", true)
+    : "";
+  const description = items.length
+    ? items.length +
+      (items.length === 1 ? " entry is" : " entries are") +
+      " still assigned. Select an entry to move or remove."
+    : "This event is empty. Delete it from the fiscal year?";
+  openEditor(
+    trigger,
+    workspace.Name,
+    (message ? '<p role="status">' + esc(message) + "</p>" : "") +
+      "<p>" +
+      esc(description) +
+      "</p>" +
+      form(
+        "event-cleanup",
+        fields,
+        items.length ? "Choose an action" : "Delete event",
+        cancel,
+      ),
+  );
+  const editor = entryDialog.querySelector("form");
+  const submitButton = editor.querySelector("button:not([type=button])");
+  const mapping = editor.querySelector(".cleanup-mapping");
+  let request = crypto.randomUUID();
+  let selection = 0;
+  if (items.length) {
+    submitButton.disabled = true;
+    editor.addEventListener("input", () => {
+      request = crypto.randomUUID();
+    });
+    editor.addEventListener("change", async (event) => {
+      if (!["Target", "Destination"].includes(event.target.name)) return;
+      const serial = ++selection;
+      const item = items.find((i) => i.ID === editor.elements.Target.value);
+      const destinationSelect = editor.elements.Destination;
+      for (const option of destinationSelect.options) {
+        option.disabled =
+          !!option.value &&
+          !(option.value === "remove" ? item.Removable : item.Movable);
+      }
+      if (destinationSelect.selectedOptions[0]?.disabled)
+        destinationSelect.value = "";
+      const destination = destinationSelect.value;
+      const removing = destination === "remove";
+      const target = targets.find((e) => e.ID === destination);
+      submitButton.disabled = true;
+      submitButton.textContent = removing
+        ? "Remove entry"
+        : target
+          ? "Move entry"
+          : "Choose an action";
+      mapping.replaceChildren();
+      mapping.hidden = true;
+      const alert = entryDialog.querySelector(".entry-error");
+      alert.textContent = "";
+      if (!item.Removable && !item.Movable) {
+        alert.textContent =
+          "This entry belongs to a protected transaction.";
+        return;
+      }
+      if (!destination) return;
+      if (target) {
+        const moneyAccount = [
+          "income",
+          "expense",
+          "refund",
+          "deposit",
+          "deposit-return",
+          "donation",
+          "presale",
+          "transfer",
+        ].includes(item.Kind);
+        const required = [
+          ["Bar", "Destination bar", ["bar"], item.Bar],
+          ["Wallet", "Destination wallet", ["wallet"], item.Wallet],
+          [
+            "Account",
+            "Destination account",
+            ["wallet", "account"],
+            item.Account || (target.Accounts && moneyAccount),
+          ],
+          [
+            "To",
+            "Destination counterparty account",
+            ["wallet", "account"],
+            item.Kind === "transfer",
+          ],
+        ].filter(([, , , needed]) => needed);
+        if (required.length) {
+          try {
+            const rows = await inventory(destination);
+            if (!editor.isConnected || serial !== selection) return;
+            mapping.innerHTML = required
+              .map(([key, title, kinds]) =>
+                select(key, title, [
+                  ["", "Choose an option"],
+                  ...rows
+                    .filter((r) => kinds.includes(r.Kind))
+                    .map((r) => [r.ID, r.Label]),
+                ]),
+              )
+              .join("");
+            mapping.hidden = false;
+            for (const input of mapping.querySelectorAll("select"))
+              input.required = true;
+          } catch (err) {
+            if (editor.isConnected && serial === selection)
+              alert.textContent = err.message;
+            return;
+          }
+        }
+      }
+      submitButton.disabled = false;
+    });
+    editor.elements.Target.dispatchEvent(
+      new Event("change", { bubbles: true }),
+    );
+  }
+  editor.addEventListener("submit", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    action(async () => {
+      const alert = entryDialog.querySelector(".entry-error");
+      alert.replaceChildren();
+      if (!items.length) {
+        await api("events/delete", { Event: workspace.ID });
+        allSpaces = await api("events");
+        await selectFiscalWorkspace(
+          selectedYear,
+          preferredEvent === workspace.ID ? "" : preferredEvent,
+        );
+        page = "Veranstaltungsliste";
+        show();
+        closeEditor();
+        notice.textContent = workspace.Name + " wurde gelöscht.";
+        return;
+      }
+      const values = Object.fromEntries(new FormData(editor));
+      const item = items.find((i) => i.ID === values.Target);
+      const removing = values.Destination === "remove";
+      if (!values.Destination) throw Error("Aktion oder Ziel auswählen.");
+      await api("events/entries", {
+        ...values,
+        Event: workspace.ID,
+        Revision: item.Revision,
+        Action: removing ? "remove" : "move",
+        Destination: removing ? "" : values.Destination,
+        Request: request,
+      });
+      if ([workspace.ID, values.Destination].includes(preferredEvent)) {
+        await sync();
+        show();
+      } else if (page === "Veranstaltungsliste") show();
+      await openEventCleanup(
+        trigger,
+        workspace,
+        item.Label + (removing ? " wurde entfernt." : " wurde umgebucht."),
+      );
+    });
+  });
+}
+function closingControls() {
+  if (offlineEnabled || s.role !== "Admin") return "";
+  const year = s.event.General && !!s.event.Year;
+  if (!year && s.yearClosed) return "";
+  const title = year
+    ? "Geschäftsjahr"
+    : s.event.General
+      ? "Kassenbuch"
+      : "Veranstaltung";
+  const name = year ? fiscalYear().Name : s.event.Name;
+  const closed = year ? s.yearClosed : s.closed;
+  const verb = closed ? "wieder öffnen" : "abschließen";
+  const description = closed
+    ? year
+      ? "Das allgemeine Kassenbuch wird zur Bearbeitung freigegeben. Abgeschlossene Veranstaltungen lassen sich anschließend einzeln öffnen."
+      : "Nach der Freigabe sind Buchungen und Berichtigungen wieder möglich."
+    : year
+      ? "Alle Veranstaltungen müssen abgeschlossen sein. Beim Bestätigen werden das allgemeine Kassenbuch geprüft und das Geschäftsjahr für Änderungen gesperrt."
+      : "Bestände und Abrechnung werden geprüft. Nach dem Abschluss ist der Arbeitsbereich schreibgeschützt.";
+  return (
+    (year
+      ? '<button type="button" class="secondary" data-act="yearBalances">Kontenabgleich</button>'
+      : "") +
+    popupForm(
+      "scope-closure",
+      title + " " + verb,
+      "<p>" +
+        esc(name) +
+        " · " +
+        esc(description) +
+        "</p>" +
+        (closed
+          ? field("reason", "Grund für die Wiederöffnung", "text", true)
+          : "") +
+        '<input type="hidden" name="workspace" value="' +
+        esc(s.event.ID) +
+        '">' +
+        '<input type="hidden" name="action" value="' +
+        (closed
+          ? year
+            ? "year-reopen"
+            : "reopen"
+          : year
+            ? "Geschäftsjahr abschließen"
+            : "Abschluss") +
+        '">',
+      title + " " + verb,
+    ) +
+    (year && !closed && s.closed
+      ? popupForm(
+          "reopen",
+          "Kassenbuch wieder öffnen",
+          field("reason", "Grund für die Wiederöffnung", "text", true),
+          "Kassenbuch wieder öffnen",
+        )
+      : "")
+  );
+}
+function eventAdminButtons(event) {
+  return onlineUser?.role === "Admin" && !event.Closed && !event.General
+    ? '<button type="button" class="secondary" aria-haspopup="dialog" data-event-edit="' +
+        esc(event.ID) +
+        '">Edit</button><button type="button" class="secondary" aria-haspopup="dialog" data-event-cleanup="' +
+        esc(event.ID) +
+        '">Delete event …</button>'
+    : "";
+}
+function eventListRow(e) {
+  const book = !e.Closed && ["Admin", "Write"].includes(onlineUser.role);
+  const date = dat(e.Starts) + (e.Ends === e.Starts ? "" : " – " + dat(e.Ends));
+  const result = e.ReceiptsCents - e.PaidCents - e.OutstandingCents;
+  const resultClass = result < 0 ? "deficit" : result > 0 ? "surplus" : "";
+  return (
+    '<li class="event-row"><div class="event-info"><button type="button" class="event-name" data-space="' +
+    esc(e.ID) +
+    '">' +
+    esc(e.Name) +
+    '</button><span class="event-date">' +
+    icon("CalendarDays") +
+    date +
+    '</span></div><span class="event-status' +
+    (e.Closed ? " is-closed" : "") +
+    '">' +
+    (e.Closed ? "Closed" : "Open for bookings") +
+    '</span><div class="event-figures"><dl>' +
+    "<div><dt>Income</dt><dd>" +
+    eur(e.ReceiptsCents) +
+    "</dd></div>" +
+    "<div><dt>Expenses</dt><dd>" +
+    eur(e.PaidCents) +
+    "</dd></div>" +
+    '<div><dt>Net result</dt><dd class="' +
+    resultClass +
+    '">' +
+    eur(result) +
+    "</dd></div></dl>" +
+    (e.OutstandingCents
+      ? "<small>Unreimbursed expenses: " + eur(e.OutstandingCents) + "</small>"
+      : "") +
+    '</div><div class="event-actions">' +
+    (book
+      ? '<button type="button" data-book-event="' +
+        esc(e.ID) +
+        '" aria-haspopup="dialog">' +
+        icon("Plus") +
+        "Record event transaction</button>"
+      : "") +
+    eventAdminButtons(e) +
+    "</div></li>"
+  );
+}
+async function showEventsOfYear() {
+  const year = selectedYear;
+  article.innerHTML =
+    pageHead(
+      "Events",
+      fiscalYear()
+        ? "Fiscal year " + fiscalYear().Name
+        : "Existing workspaces",
+      fiscalYear() && !fiscalYear().Closed && onlineUser.role === "Admin"
+        ? eventForm()
+        : "",
+    ) +
+    '<div class="event-list-host" aria-busy="true">Loading events…</div>';
+  const host = article.querySelector(".event-list-host");
+  try {
+    const spaces = await api(
+      "events?overview=1&year=" +
+        encodeURIComponent(year === legacyGroup ? "" : year),
+    );
+    if (!host.isConnected) return;
+    events = spaces;
+    allSpaces = allSpaces
+      .filter((e) => (e.Year || legacyGroup) !== year)
+      .concat(spaces);
+    const list = spaces.filter((e) => !e.General);
+    host.innerHTML = list.length
+      ? '<ul class="event-list" aria-label="Events in this fiscal year">' +
+        list.map(eventListRow).join("") +
+        "</ul>"
+      : "<p>There are no events in this fiscal year yet.</p>";
+  } catch (err) {
+    if (host.isConnected) host.textContent = err.message;
+  } finally {
+    host.removeAttribute("aria-busy");
+  }
+}
+function defaultLedger(spaces) {
+  const ledgers = spaces.filter((e) => e.General);
+  return ledgers.length === 1 ? ledgers[0] : null;
+}
+function workspaceLabel() {
+  const label = s.event.General
+    ? s.event.Name
+    : "Veranstaltung · " + s.event.Name;
+  return (
+    label +
+    " · " +
+    (fiscalYear()
+      ? "Geschäftsjahr " + fiscalYear().Name
+      : "Ohne Jahreszuordnung")
+  );
+}
+function isOnlineEventPage() {
+  return (
+    !offlineEnabled &&
+    s &&
+    !s.event.General &&
+    onlineEventTabs.some(([key]) => key === page)
+  );
+}
+async function selectFiscalWorkspace(yearID, eventID) {
+  const spaces = yearID
+    ? allSpaces.filter((e) =>
+        yearID === legacyGroup ? !e.Year : e.Year === yearID,
+      )
+    : [];
+  const chosen = eventID
+    ? spaces.find((e) => e.ID === eventID)
+    : defaultLedger(spaces);
+  if (eventID && !chosen)
+    throw Error("Dieser Arbeitsbereich ist im Geschäftsjahr nicht verfügbar.");
+  const out = chosen ? await workspaceRequest(chosen.ID, {}) : null;
+  selectedYear = yearID;
+  events = spaces;
+  preferredEvent = chosen?.ID || "";
+  s = out ? onlineSnapshot(out) : null;
+  edit = null;
+  filter = "";
+  journalFilters = {};
+  overviewPeriod = "";
+  chosenPeriod = "";
+  auditRows = [];
+  donorReview = null;
+  conflictFiles = null;
+  globalRows = [];
+  imported = [];
+  importFile = null;
+  syncDetail = "";
+  try {
+    sessionStorage.setItem("bonfire-selection-" + onlineUser.user, JSON.stringify([selectedYear]));
+  } catch {
+    // The current workspace also works when browser storage is disabled.
+  }
+}
+function onlineAdmin() {
+  return (
+    (offlineEnabled && onlineUser?.role === "Admin"
+      ? panel(
+          "Veranstaltung anlegen",
+          popupForm(
+            "event",
+            "Veranstaltung anlegen",
+            select("General", "Arbeitsbereich", [
+              ["", "Veranstaltung"],
+              ["ja", "Allgemeines Kassenbuch ohne Veranstaltung"],
+            ]) +
+              field("Name", "Name des Arbeitsbereichs", "text", true) +
+              field("Starts", "Beginn", "date", true, today()) +
+              field("Ends", "Ende", "date", true, today()) +
+              select("Accounts", "Kontozuordnung", [
+                ["", "Aus"],
+                ["ja", "Ein"],
+              ]),
+            "Veranstaltung speichern",
+          ),
+        ) +
+        panel(
+          "Benutzer zuweisen",
+          popupForm(
+            "user",
+            "Benutzer anlegen",
+            field("Name", "E-Mail-Adresse oder Benutzername", "text", true) +
+              field("Password", "Startpasswort", "password", true) +
+              select("Role", "Rolle", [
+                ["Write", "Write"],
+                ["Read", "Read"],
+              ]) +
+              select(
+                "Event",
+                "Veranstaltung",
+                events.map((e) => [e.ID, e.Name]),
+              ),
+            "Benutzer anlegen",
+          ),
+        ) +
+        panel(
+          "Zugriff ändern",
+          popupForm(
+            "access",
+            "Zugriff ändern",
+            field("Name", "Bestehender Benutzer", "text", true) +
+              select(
+                "Event",
+                "Veranstaltung",
+                events.map((e) => [e.ID, e.Name]),
+              ) +
+              select("Action", "Zugriff", [
+                ["grant", "Zuweisen"],
+                ["revoke", "Entziehen"],
+              ]) +
+              field("Reason", "Begründung", "text", true),
+            "Zuweisung speichern",
+          ),
+        )
+      : "") +
+    panel(
+      "Persönliches Konto",
+      button("accountSecurity", "Konto und Sicherheit öffnen", true),
+    )
+  );
+}
+function profileTools() {
+  return panel(
+    "Offlineprofile auf diesem Gerät",
+    '<div class="actions">' +
+      button("newProfile", "Neues Arbeitsprofil", true) +
+      profilesLocal
+        .map(
+          (k, i) =>
+            ' <a href="/?profil=' +
+            encodeURIComponent(k) +
+            '">Profil ' +
+            (i + 1) +
+            "</a>",
+        )
+        .join("") +
+      "</div>" +
+      (!saved
+        ? "<h3>Gerätesicherung einsehen</h3><p>Öffne eine verschlüsselte Sicherung mit ihrem bisherigen lokalen Passwort. Das Archiv zeigt den gespeicherten Stand. Buchen und Synchronisieren sind im Archiv gesperrt.</p>" +
+          form(
+            "recoverProfile",
+            label(
+              "Verschlüsselte Gerätesicherung",
+              '<input type="file" name="file" required>',
+            ) + field("pass", "Bisheriges lokales Passwort", "password", true),
+            "Als Lesearchiv öffnen",
+          )
+        : ""),
+  );
+}
+let loginChallenge = "",
+  loginIdentity = "",
+  useRecoveryCode = false,
+  profileHelp = false;
+function authSurface() {
+  const brand = document.querySelector("#sidebar header").outerHTML;
+  let title, content, secondary;
+  if (profileHelp) {
+    title = "Offlineprofile und Sicherungen";
+    content = profileTools();
+    secondary = button("backLogin", "Zurück", true);
+  } else if (saved) {
+    title = "Gerät entsperren";
+    content = form(
+      "unlock",
+      label(
+        "Lokales Passwort",
+        '<input type="password" name="pass" autocomplete="current-password" required>',
+      ),
+      "Entsperren",
+    );
+    secondary =
+      button("recover", "Gerätesicherung speichern", true) +
+      button("profileHelp", "Weitere Offlineprofile", true);
+  } else if (loginChallenge) {
+    title = useRecoveryCode ? "Enter recovery code" : "Verify sign-in";
+    content =
+      '<p class="auth-hint">' +
+      esc(loginIdentity) +
+      "</p>" +
+      form(
+        "loginFactor",
+        label(
+          useRecoveryCode
+            ? "Recovery code"
+            : "Code from your authenticator app",
+          '<input name="otp" type="text" autocomplete="one-time-code" autocapitalize="none" spellcheck="false" required ' +
+            (useRecoveryCode
+              ? 'maxlength="16"'
+              : 'inputmode="numeric" pattern="[0-9]{6}" maxlength="6"') +
+            ">",
+        ),
+        "Verify",
+      );
+    secondary =
+      button(
+        "changeFactor",
+        useRecoveryCode
+          ? "Use an authenticator code"
+          : "Use a recovery code",
+        true,
+      ) + button("backLogin", "Back to sign-in", true);
+  } else {
+    title = "Sign in";
+    content = form(
+      "login",
+      label(
+        "Email or username",
+        '<input name="user" type="text" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" value="' +
+          esc(loginIdentity) +
+          '" required>',
+      ) +
+        label(
+          "Password",
+          '<input name="pass" type="password" autocomplete="current-password" required>',
+        ),
+      "Sign in",
+    );
+    secondary =
+      (supportsPasskeys()
+        ? button("passkeyLogin", "Sign in with a passkey", true)
+        : "") +
+      (offlineEnabled
+        ? button("profileHelp", "Offlineprofile und Sicherungen", true)
+        : "");
+  }
+  return (
+    '<div class="auth-card">' +
+    brand +
+    '<div class="auth-body"><h1>' +
+    title +
+    "</h1>" +
+    content +
+    "</div>" +
+    (secondary ? '<footer class="actions">' + secondary + "</footer>" : "") +
+    "</div>"
+  );
+}
+let overviewPeriod = "";
+let onlineUser = null,
+  onlineData = null,
+  preferredEvent = "",
+  destination = "Übersicht";
+const pageDescriptions = {
+  Journal: "Zahlungen, Belege und Berichtigungen.",
+  Kontakte: "Personen und Firmen für Sponsoring und Spenden.",
+  Spenden: "Spendeneingänge und Meldedaten im gewählten Arbeitsbereich.",
+  Dokumente: "Belege ausstellen, Originale nachdrucken und Vorlagen anpassen.",
+  Perioden: "Abrechnungszeitraum, Istbestände und Freigabe.",
+  Verwaltung: "Organisation, Geschäftsjahre und Zugriffsrechte verwalten.",
+};
+function pageHead(title, description = "", action = "") {
+  return (
+    '<div class="page-head"><div>' +
+    heading(title) +
+    (description ? "<p>" + esc(description) + "</p>" : "") +
+    "</div>" +
+    action +
+    "</div>"
+  );
+}
+function prepareView() {
+  return (
+    pageHead(
+      "Gerät vorbereiten",
+      "Für lokale Erfassung, Belegausgabe und Arbeiten ohne Netz.",
+    ) +
+    preparePanel() +
+    "<details><summary>Weitere Profile und Wiederherstellung</summary>" +
+    profileTools() +
+    "</details>"
+  );
+}
+async function onlineStart(user) {
+  onlineUser = user;
+  if (!offlineEnabled) {
+    [years, allSpaces] = await Promise.all([api("years"), api("events")]);
+    let lastYear;
+    try {
+      const preference = JSON.parse(sessionStorage.getItem("bonfire-selection-" + user.user));
+      if (Array.isArray(preference)) [lastYear] = preference;
+    } catch {
+      // Fall back to the current fiscal year if the preference is unavailable.
+    }
+    const yearID =
+      years.find((y) => y.ID === lastYear)?.ID ||
+      (lastYear === legacyGroup && allSpaces.some((e) => !e.Year)
+        ? legacyGroup
+        : years.find((y) => y.Starts <= today() && y.Ends >= today())?.ID ||
+          years[0]?.ID ||
+          "");
+    await selectFiscalWorkspace(yearID);
+    logged = true;
+    return;
+  }
+  events = await api("events");
+  const day = today(),
+    distance = (e) =>
+      day < e.Starts
+        ? Date.parse(e.Starts) - Date.parse(day)
+        : day > e.Ends
+          ? Date.parse(day) - Date.parse(e.Ends)
+          : 0;
+  const chosen =
+    events.find((e) => e.ID === preferredEvent) ||
+    [...events].sort(
+      (a, b) =>
+        Number(a.Closed) - Number(b.Closed) ||
+        distance(a) - distance(b) ||
+        a.Name.localeCompare(b.Name),
+    )[0];
+  onlineData = chosen
+    ? await api("workplace?event=" + encodeURIComponent(chosen.ID))
+    : null;
+  preferredEvent = chosen?.ID || "";
+  logged = true;
+}
+let serverReachable = null;
+let healthRequest = 0;
+function paintConnection() {
+  const online = navigator.onLine && serverReachable;
+  const status = !navigator.onLine
+    ? "Offline"
+    : serverReachable === null
+      ? "Checking connection"
+      : online
+        ? "Server online"
+        : "Server unavailable";
+  const network = document.querySelector("#connection");
+  network.innerHTML =
+    icon(online ? "Laptop" : "WifiOff") +
+    esc(status) +
+    (s && offlineEnabled
+      ? '<span class="connection-queue">' + s.ops.length + " ausstehend</span>"
+      : "");
+}
+async function checkConnection() {
+  const request = ++healthRequest;
+  if (document.hidden) return;
+  let available = false;
+  if (navigator.onLine) {
+    try {
+      const response = await fetch("/health", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(4500),
+      });
+      available = response.ok && (await response.json()) === "bereit";
+    } catch {
+      /* An unreachable server leaves the local profile usable. */
+    }
+  }
+  if (request === healthRequest) {
+    serverReachable = available;
+    paintConnection();
+  }
+}
+function shell() {
+  const active = !!s || logged,
+    who = s || onlineUser;
+  const expanded =
+    document.querySelector("#admin-navigation")?.open ||
+    sectionOf(page) === "Verwaltung";
+  nav.innerHTML = navigation(
+    isOnlineEventPage() ? "Veranstaltungen" : page,
+    who?.user,
+    who?.role,
+    active,
+    logged && !offlineEnabled,
+    expanded,
+    logged,
+  );
+  const org = s
+    ? rows().find((r) => r.Kind === "organization")?.Data
+    : onlineData?.entries.find((r) => r.Kind === "organization")?.Data;
+  document.querySelector("#crumb").textContent =
+    (org?.Label || "Fire Brigade Finance") +
+    "   /   " +
+    (active
+      ? page === "Einrichtung"
+        ? "Gerät vorbereiten"
+        : canOpenConsole(page, who?.role)
+          ? "Verwaltung   /   " + page
+          : titleOf(page)
+      : saved
+        ? "Entsperren"
+        : "Anmeldung");
+  const mark = document.querySelector("#station");
+  mark.innerHTML =
+    org?.File || org?.Logo
+      ? '<img alt="" src="data:image/png;base64,' +
+        esc(org.File || org.Logo) +
+        '">'
+      : icon("Landmark");
+  const picker = document.querySelector("#workspace-picker");
+  picker.innerHTML =
+    logged && !s && events.length
+      ? select(
+          "workspace",
+          "Arbeitsbereich",
+          events.map((e) => [e.ID, e.Name]),
+        )
+      : "";
+  if (!offlineEnabled && logged) {
+    picker.textContent =
+      s &&
+      ![
+        "Veranstaltungsliste",
+        "Geschäftsjahre",
+        "Konto und Sicherheit",
+      ].includes(page) &&
+      !canOpenConsole(page, who?.role)
+        ? workspaceLabel()
+        : "";
+  }
+  document.querySelector("#sidebar-year").innerHTML =
+    logged && !offlineEnabled
+      ? fiscalPicker(
+          years,
+          selectedYear,
+          allSpaces.some((e) => !e.Year),
+        )
+      : "";
+  if (picker.querySelector("[name=workspace]"))
+    picker.querySelector("[name=workspace]").value = preferredEvent;
+  paintConnection();
+  document.querySelector("#menu-toggle").innerHTML = icon("Menu");
+  document.querySelector("#content").dataset.module = sectionOf(page);
+}
+function onlineView() {
+  if (page === "Einrichtung") return prepareView();
+  if (
+    page === "Verwaltung" ||
+    page === "Gerät & Sync" ||
+    page === "Datenaustausch"
+  )
+    return (
+      pageHead("Verwaltung", pageDescriptions.Verwaltung) +
+      route("Einrichtung", "Gerät vorbereiten", "secondary", "Laptop") +
+      onlineAdmin() +
+      "<details><summary>Profile und Sicherungen</summary>" +
+      profileTools() +
+      "</details>"
+    );
+  if (!onlineData)
+    return (
+      pageHead(
+        "Dein Arbeitsplatz",
+        "Es ist noch kein Arbeitsbereich zugewiesen.",
+      ) +
+      (onlineUser.role === "Admin"
+        ? route("Verwaltung", "Arbeitsbereich anlegen", "primary", "Plus")
+        : "<p>Ein Admin kann dir eine Veranstaltung oder ein Kassenbuch zuweisen.</p>")
+    );
+  const { event: e, entries: list, pending, conflicts } = onlineData;
+  if (onOverview())
+    return overview(
+      e,
+      list,
+      pending,
+      conflicts,
+      false,
+      page === "Veranstaltungen",
+      onlineUser.role,
+      overviewPeriod,
+    );
+  const isEvent = sectionOf(page) === "Veranstaltungen";
+  const content =
+    page === "Journal" || page === "Zahlungen"
+      ? ledger(bookings(list))
+      : page === "Dokumente"
+        ? '<ul class="catalog">' +
+          profiles
+            .map((p) => "<li>" + icon("Files") + esc(p) + "</li>")
+            .join("") +
+          "</ul>"
+        : moduleList(page, list);
+  return (
+    pageHead(
+      isEvent ? e.Name : titleOf(page),
+      pageDescriptions[page] || e.Name,
+      e.Closed
+        ? ""
+        : route(
+            "Einrichtung",
+            onlineUser.role === "Read"
+              ? "Leseprofil vorbereiten"
+              : "Erfassung vorbereiten",
+            "primary",
+            "Laptop",
+          ),
+    ) +
+    (isEvent ? tabs(offlineEnabled ? eventTabs : onlineEventTabs, page) : "") +
+    panel(
+      page === "Dokumente"
+        ? "Vorlagenprofile"
+        : isEvent
+          ? eventTabs.find(([k]) => k === page)[1]
+          : page === "Journal"
+            ? "Buchungen"
+            : "Einträge",
+      content,
+    )
+  );
+}
+const adminViews = {
+  Benutzer: mountUsers,
+  Backup: mountBackup,
+  "Audit-Log": mountAudit,
+  Systemstatus: mountStatus,
+};
+let adminSearch = "",
+  passwordTicket = "";
+let accountCatalog,
+  balanceItems = [];
+async function openBalances(trigger) {
+  balanceItems = await api(
+    "year-balances?year=" + encodeURIComponent(selectedYear),
+  );
+  openEditor(
+    trigger,
+    "Kontenabgleich · " + fiscalYear().Name,
+    balanceTable(balanceItems, s.yearClosed),
+  );
+}
+function show() {
+  document.body.classList.toggle("auth-screen", !s && !logged);
+  notice.textContent = "";
+  state.textContent = "";
+  shell();
+  if (passwordTicket) {
+    article.innerHTML = '<div class="auth-card admin-console"></div>';
+    mountPasswordChange(article.firstElementChild, passwordTicket, () => {
+      passwordTicket = "";
+      show();
+    });
+    return;
+  }
+  if (logged && page === "Konto und Sicherheit") {
+    article.innerHTML = '<div class="admin-console personal-security"></div>';
+    const host = article.firstElementChild;
+    mountAccountSecurity(host, { api }).catch((err) => {
+      if (host.isConnected) host.textContent = err.message;
+    });
+    return;
+  }
+  if (
+    !offlineEnabled &&
+    logged &&
+    page === "Feuerwehrkonten" &&
+    onlineUser.role === "Admin"
+  ) {
+    const host = document.createElement("div");
+    article.replaceChildren(host);
+    Promise.all([api("fire-accounts"), api("events")])
+      .then(([catalog, spaces]) => {
+        if (!host.isConnected) return;
+        accountCatalog = catalog;
+        allSpaces = spaces;
+        host.innerHTML = fireDirectory(catalog, spaces, years);
+      })
+      .catch((e) => {
+        if (host.isConnected) host.textContent = e.message;
+      });
+    return;
+  }
+  if (!offlineEnabled && logged && canOpenConsole(page, onlineUser.role)) {
+    article.innerHTML = '<div class="admin-console" aria-live="polite"></div>';
+    const host = article.firstElementChild;
+    const search = adminSearch;
+    adminSearch = "";
+    Promise.resolve(
+      adminViews[page](host, { api, identity: onlineUser, search }),
+    ).catch((err) => {
+      if (host.isConnected)
+        notice.textContent =
+          err.message || "Verwaltung konnte nicht geladen werden.";
+    });
+    return;
+  }
+  if (!offlineEnabled && logged && !s && page === "Verwaltung") {
+    article.innerHTML = pageHead("Organisation") + onlineAdmin();
+    return;
+  }
+  if (!offlineEnabled && logged) {
+    if (page === "Geschäftsjahre" || !selectedYear) {
+      article.innerHTML = yearSetup();
+      return;
+    }
+    if (
+      page === "Veranstaltungsliste" ||
+      (page === "Veranstaltungen" && !isOnlineEventPage()) ||
+      (!s && page === "Übersicht")
+    ) {
+      showEventsOfYear();
+      return;
+    }
+    if (!s) {
+      const ledgers = events.filter((e) => e.General);
+      article.innerHTML =
+        pageHead(
+          titleOf(page),
+          ledgers.length
+            ? "Kassenbuch auswählen."
+            : "Für diesen Bereich ist kein allgemeines Kassenbuch freigegeben.",
+        ) +
+        ledgers
+          .map(
+            (e) =>
+              '<button type="button" class="secondary" data-space="' +
+              esc(e.ID) +
+              '">' +
+              esc(e.Name) +
+              "</button>",
+          )
+          .join(" ") +
+        route("Veranstaltungsliste", "Veranstaltungen öffnen");
+      return;
+    }
+  }
+  if (!s) {
+    article.innerHTML = logged ? onlineView() : authSurface();
+    const selector = article.querySelector("#prepare [name=event]");
+    if (
+      selector &&
+      [...selector.options].some((o) => o.value === preferredEvent)
+    )
+      selector.value = preferredEvent;
+    return;
+  }
+  state.textContent =
+    s.event.Name +
+    "   /   " +
+    (s.closed
+      ? "Abgeschlossen"
+      : s.sealed
+        ? "Erfassung beendet"
+        : s.ending
+          ? "Erfassungsende ausstehend"
+          : "Lokaler Arbeitsstand") +
+    (s.synced
+      ? " · Letzter Abgleich " + new Date(s.synced).toLocaleString("de-AT")
+      : " · Erster Abgleich offen") +
+    (s.conflicts.length ? " · " + s.conflicts.length + " Klärfälle" : "") +
+    "   ·   " +
+    s.ops.length +
+    " ausstehend";
+  if (!offlineEnabled)
+    state.textContent = s.yearClosed
+      ? "Geschäftsjahr abgeschlossen · Nur Lesen"
+      : s.closed
+        ? "Abgeschlossen · Nur Lesen"
+        : "";
+  const isEvent = isOnlineEventPage() || sectionOf(page) === "Veranstaltungen",
+    isAdmin = sectionOf(page) === "Verwaltung";
+  article.innerHTML =
+    page === "Übersicht" || page === "Veranstaltungen"
+      ? overview(
+          { ...s.event, Closed: s.closed },
+          rows(),
+          s.pending ?? 0,
+          s.conflicts.length,
+          true,
+          page === "Veranstaltungen",
+          s.role,
+          overviewPeriod,
+          !offlineEnabled,
+          editableKinds().includes("opening"),
+        ) +
+        (!offlineEnabled && page === "Veranstaltungen"
+          ? '<div class="actions">' +
+            route(
+              "Veranstaltungsliste",
+              "Alle Veranstaltungen im Geschäftsjahr",
+              "secondary",
+              "CalendarDays",
+            ) +
+            eventAdminButtons(s.event) +
+            (s.role === "Admin" ? copyForm() : "") +
+            "</div>"
+          : "")
+      : pageHead(
+          isEvent
+            ? offlineEnabled
+              ? s.event.Name
+              : onlineEventTabs.find(([key]) => key === page)?.[1] ||
+                s.event.Name
+            : titleOf(page),
+          isOnlineEventPage()
+            ? s.event.Name
+            : pageDescriptions[page] || s.event.Name,
+          page !== "Geldtaschen" && editableKinds().length
+            ? button("focusEntry", entryLabel(page))
+            : "",
+        ) +
+        (isEvent
+          ? tabs(offlineEnabled ? eventTabs : onlineEventTabs, page)
+          : isAdmin
+            ? tabs(
+                offlineEnabled
+                  ? adminTabs
+                  : [
+                      ["Verwaltung", "Organisation"],
+                      ["Prüfprotokoll", "Prüfprotokoll"],
+                      ["Datenaustausch", "Datenaustausch"],
+                    ],
+                page,
+              )
+            : "") +
+        (page === "Geldtaschen" && writableWorkspace() ? walletActions() : "") +
+        (page === "Datenaustausch"
+          ? exchange()
+          : page === "Dokumente"
+            ? docs()
+            : page === "Gerät & Sync" || page === "Prüfprotokoll"
+              ? devicePage()
+              : records()) +
+        (page === "Verwaltung"
+          ? !offlineEnabled
+            ? onlineAdmin()
+            : panel(
+                "Weitere Arbeitsbereiche",
+                button("newProfile", "Anderen Arbeitsbereich öffnen", true),
+              )
+          : "") +
+        (page === "Spenden"
+          ? donationPanel()
+          : !offlineEnabled &&
+              page === "Zahlungen" &&
+              rows().some((r) => r.Kind === "donation") &&
+              s.role === "Admin"
+            ? "<details><summary>Spendenmeldedaten</summary>" +
+              donationPanel() +
+              "</details>"
+            : "") +
+        (page === "Preise"
+          ? route(
+              "Dokumente",
+              "Preisliste und Karten drucken",
+              "secondary",
+              "Files",
+            )
+          : "");
+  if (!offlineEnabled && (onOverview() || page === "Perioden"))
+    article
+      .querySelector(".page-head")
+      ?.insertAdjacentHTML("beforeend", closingControls());
+  if (page === "Dokumente") installStudio();
+  const periodSelect = article.querySelector("[name=reportPeriod]");
+  if (periodSelect) periodSelect.value = chosenPeriod;
+}
+
+function fillRecord(f) {
+  for (const [k, v] of Object.entries(edit.Data)) {
+    if (f.elements.namedItem(k)) f.elements.namedItem(k).value = v ?? "";
+    if (k === "Amount" && f.elements.amount)
+      f.elements.amount.value =
+        v == null
+          ? ""
+          : Math.floor(v / 100) + "," + String(v % 100).padStart(2, "0");
+    if (k === "Lines" && f.elements.positions)
+      f.elements.positions.value = (v || [])
+        .map(
+          (l) =>
+            l.QuantityMilli / 1000 +
+            " | " +
+            l.Description +
+            " | " +
+            (l.UnitCents / 100).toFixed(2),
+        )
+        .join("\n");
+    if (k === "Allocations")
+      for (const [src, n] of Object.entries(v || {})) {
+        if (f.elements["alloc_" + src])
+          f.elements["alloc_" + src].value = (n / 100).toFixed(2);
+      }
+    if (k === "Fields")
+      for (const [name, value] of Object.entries(v || {})) {
+        if (f.elements["field_" + name])
+          f.elements["field_" + name].value = value;
+      }
+    if (k === "Pieces")
+      for (const [coin, n] of Object.entries(v || {}))
+        if (f.elements["coin" + coin]) f.elements["coin" + coin].value = n;
+  }
+  if (f?.elements.Note) f.elements.Note.value = "";
+  if (f.querySelector("#count-total")) updateCount(f);
+}
+let backgroundSync;
+async function action(fn) {
+  if (backgroundSync) await backgroundSync;
+  if (busy) return;
+  busy = true;
+  article.setAttribute("aria-busy", "true");
+  try {
+    await fn();
+  } catch (e) {
+    const message = e.message || "Vorgang fehlgeschlagen.";
+    if (entryDialog.open) {
+      const alert = entryDialog.querySelector(".entry-error");
+      alert.textContent = message;
+      if (
+        entryDialog.querySelector("#record") &&
+        s &&
+        unconfirmedWrites.has(s.event.ID)
+      )
+        alert.insertAdjacentHTML(
+          "beforeend",
+          button("sync", "Refresh entries", true),
+        );
+      alert.scrollIntoView({ block: "nearest" });
+    } else notice.textContent = message;
+  } finally {
+    article.setAttribute("aria-busy", "false");
+    busy = false;
+  }
+}
+async function submit(f) {
+  const vals = Object.fromEntries(new FormData(f));
+  const id = f.id;
+  if (id === "fire-master" || id === "fire-link" || id === "fire-count") {
+    const body = { ...vals };
+    if (id === "fire-master") {
+      body.Active = vals.Active !== "false";
+      body.Revision = Number(f.dataset.revision || 0);
+      body.ID = f.dataset.master;
+      body.Action = body.ID ? "edit" : "create";
+    }
+    if (id === "fire-link") {
+      body.Action = "link";
+      body.ID = f.dataset.master;
+    }
+    if (id === "fire-count") {
+      Object.assign(body, {
+        Year: selectedYear,
+        ID: f.dataset.master,
+        Action: vals.Action,
+        Revision: Number(f.dataset.revision),
+        Opening: vals.Opening ? cents(vals.Opening) : null,
+        Actual: vals.Actual ? cents(vals.Actual) : null,
+      });
+    }
+    await api("fire-accounts", body);
+  }
+  if (id === "pooled-settlement") {
+    canWrite();
+    if (f.dataset.event !== s.event.ID)
+      throw Error("Veranstaltung erneut öffnen.");
+    const amount = pooledRevenue(rows()),
+      end = poolCount(rows(), "Ende");
+    if (amount == null || amount < 0 || amount !== Number(f.dataset.amount))
+      throw Error("Zählstand geändert. Abrechnung erneut öffnen.");
+    if (s.event.Accounts && !vals.Account)
+      throw Error("Buchungskonto auswählen.");
+    const previous = rows().find((r) => r.ID === "settlement-total");
+    await queue(
+      "income",
+      {
+        Label: "Barabrechnung aller Geldtaschen",
+        Amount: amount,
+        Date: previous?.Data.Date || end.Data.Date,
+        Account: vals.Account || "",
+        Method: "Bar",
+        Reference: "wallet-settlement-total",
+        Note: vals.reason || "",
+      },
+      "settlement-total",
+      previous?.Revision || 0,
+    );
+  }
+  if (id === "conflictFile") {
+    const out = await api(
+      "manage",
+      { Action: "conflict-file", Target: vals.operation },
+      bearer(),
+    );
+    download(
+      from64(
+        out[vals.format],
+        vals.format === "pdf"
+          ? "application/pdf"
+          : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ),
+      "Konfliktfassung-" +
+        out.number +
+        "-" +
+        vals.operation +
+        "." +
+        vals.format,
+    );
+  }
+  if (id === "donorLoad") {
+    await sync();
+    const period = vals.period.trim();
+    const preview = await donorRequest({ Action: "Vorschau", Period: period });
+    const history = await donorRequest({ Action: "Verlauf", Period: period });
+    donorReview = {
+      device: s.device,
+      period,
+      preview,
+      history,
+      report: crypto.randomUUID(),
+    };
+  }
+  if (id === "donorDecision" || id === "donorDownload") {
+    if (donorReview?.device !== s.device || !s.donorAccess)
+      throw Error("Prüfstand neu laden.");
+    const { period, preview, report, history } = donorReview;
+    if (id === "donorDecision") {
+      const key = JSON.stringify([
+        period,
+        report,
+        history.at(-1)?.id,
+        vals.step,
+        vals.reason,
+      ]);
+      if (donorReview.pending?.key !== key)
+        donorReview.pending = { key, id: crypto.randomUUID() };
+      await donorRequest({
+        Action: vals.step,
+        Period: period,
+        Report: vals.step === "Geprüft" ? report : history.at(-1)?.id,
+        Digest: preview.sha256,
+        Reason: vals.reason,
+        Request: donorReview.pending.id,
+      });
+      donorReview.history = await donorRequest({
+        Action: "Verlauf",
+        Period: period,
+      });
+      donorReview.report = crypto.randomUUID();
+    } else {
+      const file = await donorRequest({
+        Action: "Datei",
+        Period: period,
+        Report: vals.report,
+      });
+      const bytes = new TextEncoder().encode(file.datei);
+      const digest = Array.from(
+        new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+        (v) => v.toString(16).padStart(2, "0"),
+      ).join("");
+      if (digest !== file.sha256)
+        throw Error("Prüfsumme der Exportdatei stimmt nicht.");
+      download(
+        new Blob([bytes], { type: "application/json" }),
+        "Spendenexport-" + vals.report + ".json",
+      );
+    }
+  }
+  if (id === "login" || id === "loginFactor") {
+    const headers = { "X-Bonfire-Login": "staged" };
+    if (id === "login") {
+      loginIdentity = vals.user.trim();
+      const bytes = new TextEncoder().encode(loginIdentity + ":" + vals.pass);
+      headers.Authorization = "Basic " + btoa(String.fromCharCode(...bytes));
+    } else {
+      headers.Authorization = "Bonfire-Challenge " + loginChallenge;
+      headers["X-Bonfire-OTP"] = vals.otp.trim();
+    }
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers,
+    });
+    if (!res.ok) {
+      if (res.status === 410) {
+        loginChallenge = "";
+        useRecoveryCode = false;
+        show();
+        article.querySelector("[name=pass]")?.focus();
+      } else if (id === "loginFactor") {
+        f.elements.otp.select();
+      }
+      throw Error(await res.text());
+    }
+    const result = await res.json();
+    if (result.challenge) {
+      loginChallenge = result.challenge;
+      useRecoveryCode = false;
+      show();
+      article.querySelector("[name=otp]").focus();
+      return;
+    }
+    loginChallenge = "";
+    if (result.passwordChange) {
+      passwordTicket = result.passwordChange;
+      show();
+      return;
+    }
+    await onlineStart(await api("workplace"));
+    page = destination;
+  }
+
+  if (id === "fiscal-year" || id === "assign-year") {
+    const created = await api(
+      id === "fiscal-year" ? "years" : "years/assign",
+      vals,
+    );
+    [years, allSpaces] = await Promise.all([api("years"), api("events")]);
+    donorAccess = false;
+    await selectFiscalWorkspace(
+      id === "fiscal-year" ? created.ID : vals.Year,
+      vals.Event,
+    );
+    page = s && !s.event.General ? "Veranstaltungen" : "Übersicht";
+  }
+  if (id === "event-edit" || id === "year-edit") {
+    const previous = Object.fromEntries(
+      Object.keys(vals).map((key) => [
+        key,
+        f.elements.namedItem(key).defaultValue,
+      ]),
+    );
+    const yearEdit = id === "year-edit";
+    await api(yearEdit ? "years/edit" : "events/edit", {
+      ...(yearEdit ? { Year: f.dataset.year } : { Event: f.dataset.event }),
+      Previous: previous,
+      Updated: vals,
+    });
+    if (yearEdit) {
+      [years, allSpaces] = await Promise.all([api("years"), api("events")]);
+    } else if (s?.event.ID === f.dataset.event) await sync();
+  }
+  if (id === "event") {
+    const created = await api("events", {
+      ...vals,
+      Accounts: !!vals.Accounts,
+      General: !!vals.General,
+      ...(!offlineEnabled ? { Year: selectedYear } : {}),
+    });
+    if (offlineEnabled) {
+      preferredEvent = created.ID;
+      await onlineStart(onlineUser);
+      page = "Einrichtung";
+    } else {
+      allSpaces = await api("events");
+      await selectFiscalWorkspace(selectedYear, created.ID);
+      page = "Veranstaltungen";
+    }
+  }
+  if (id === "user") {
+    await api("users", vals);
+  }
+  if (id === "access") {
+    await api("access", vals);
+  }
+  if (id === "prepare") {
+    if (vals.pass.length < 10) throw Error("Lokales Passwort zu kurz.");
+    if (!sw) throw Error("Service Worker und sicherer Kontext erforderlich.");
+    await sw;
+    await navigator.storage.persist?.();
+    const p = await api("prepare", {
+      Event: vals.event,
+      Name: vals.name,
+      Donor: !!vals.donor,
+      DigitalCount: Number(vals.digitalCount),
+    });
+    const next = {
+      ...p,
+      nextNumber: p.first,
+      seq: 0,
+      last: 0,
+      entries: [],
+      conflicts: [],
+      ops: [],
+    };
+    await createVault(vals.pass, next);
+    s = next;
+    page = destination === "Einrichtung" ? "Übersicht" : destination;
+    logged = false;
+    onlineUser = null;
+    onlineData = null;
+    events = [];
+    saved = true;
+    auth = "";
+    await api("logout", {});
+    await sync();
+  }
+  if (id === "unlock") {
+    s = await unlock(vals.pass);
+    page = destination;
+    setTimeout(tryAutoSync, 500);
+  }
+  if (id === "recoverProfile") {
+    const restored = await recoverReadOnly(vals.file, vals.pass);
+    await createVault(vals.pass, restored);
+    s = restored;
+    saved = true;
+  }
+  if (id === "renew") {
+    const credentials =
+      "Basic " +
+      btoa(
+        String.fromCharCode(
+          ...new TextEncoder().encode(s.user + ":" + vals.password),
+        ),
+      );
+    if (!s.nextToken) await commit({ ...s, nextToken: crypto.randomUUID() });
+    const res = await fetch("/api/renew", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: credentials,
+        "X-Bonfire-OTP": vals.otp,
+      },
+      body: JSON.stringify({
+        Device: s.device,
+        Proof: s.token,
+        Next: s.nextToken,
+      }),
+    });
+    if (!res.ok) throw Error(await res.text());
+    await commit({
+      ...s,
+      expires: await res.json(),
+      token: s.nextToken,
+      nextToken: null,
+    });
+    await sync();
+  }
+  if (id === "periodAction") {
+    await api(
+      "manage",
+      { Action: vals.action, Target: vals.id, Reason: vals.reason },
+      bearer(),
+    );
+    await sync();
+  }
+  if (["incident", "incomplete", "returnDevice"].includes(id)) {
+    await api(
+      "manage",
+      {
+        Action: id === "returnDevice" ? "return" : id,
+        Target: vals.device,
+        Reason: vals.reason,
+      },
+      bearer(),
+    );
+    await sync();
+  }
+  if (id === "carry") {
+    const period = rows().find((r) => r.ID === vals.period);
+    if (!period) throw Error("Zielperiode wählen.");
+    const prior = await api(
+      "manage",
+      { Action: "prior", Target: period.Data.Date },
+      bearer(),
+    );
+    for (const [account, amount] of Object.entries(prior.Actuals)) {
+      const target = await countID("opening", period.ID, account);
+      const old = rows().find((r) => r.ID === target);
+      if (
+        old &&
+        old.Data.Fields?.previous === prior.ID &&
+        old.Data.Amount === amount
+      )
+        continue;
+      if (old && !old.Data.Fields?.previous)
+        throw Error("Vorhandene manuelle Eröffnung zuerst fachlich klären.");
+      if (old && vals.reason.trim().length < 5)
+        throw Error("Austausch des Vorperiodenübertrags begründen.");
+      await queue(
+        "opening",
+        {
+          Label: "Übertrag aus Abschluss " + prior.End,
+          Date: period.Data.Date,
+          Amount: amount,
+          Account: account,
+          Fields: { previous: prior.ID },
+          Note: old ? vals.reason : "",
+        },
+        target,
+        old?.Revision || 0,
+      );
+    }
+  }
+  if (id === "year-carry") {
+    if (entryDialog.dataset.recordWorkspace !== s?.event.ID)
+      throw Error("Arbeitsbereich erneut öffnen.");
+    const accountMap = Object.fromEntries(
+      Object.entries(vals)
+        .filter(([k]) => k.startsWith("account:"))
+        .map(([k, v]) => [k.slice(8), v]),
+    );
+    await api("manage", {
+      Action: "year-carry",
+      Target: vals.source,
+      Stamp: vals.stamp,
+      AccountMap: accountMap,
+    });
+    await sync();
+  }
+  if (id === "globalPeriod") {
+    globalRows = await api(
+      "manage",
+      { Action: vals.scope, Target: vals.start, Reason: vals.end },
+      bearer(),
+    );
+  }
+  if (id === "copy") {
+    const copied = await api(
+      "manage",
+      {
+        Action: "copy",
+        Target: vals.name,
+        Start: vals.start,
+        End: vals.end,
+        Year: vals.year || "",
+        CopyKinds: Object.keys(vals)
+          .filter((k) => k.startsWith("copy_"))
+          .map((k) => k.slice(5)),
+      },
+      bearer(),
+    );
+    if (!offlineEnabled) {
+      allSpaces = await api("events");
+      const target = allSpaces.find((e) => e.ID === copied);
+      if (target) {
+        await selectFiscalWorkspace(target.Year, target.ID);
+        page = "Veranstaltungen";
+      }
+    }
+    syncDetail = "Veranstaltungskopie angelegt.";
+  }
+  if (id === "reopen") {
+    await api("manage", { Action: "reopen", Reason: vals.reason }, bearer());
+    await sync();
+  }
+  if (id === "scope-closure") {
+    if (vals.workspace !== s.event.ID)
+      throw Error("Arbeitsbereich erneut öffnen.");
+    if (["reopen", "year-reopen"].includes(vals.action)) {
+      await api(
+        "manage",
+        { Action: vals.action, Reason: vals.reason },
+        bearer(),
+      );
+      await sync();
+    } else {
+      await sync({ Action: vals.action });
+    }
+    [years, allSpaces] = await Promise.all([api("years"), api("events")]);
+    events = allSpaces.filter((e) => (e.Year || legacyGroup) === selectedYear);
+  }
+  if (id === "handover") {
+    const wallet = rows().find((r) => r.ID === vals.wallet),
+      target = "handover:" + vals.wallet,
+      prev = rows().find((r) => r.ID === target);
+    if (!wallet) throw Error("Geldtasche wählen.");
+    if (
+      vals.status === "Angeboten" &&
+      (vals.to === s.device || prev?.Data.Status === "Angeboten")
+    )
+      throw Error(
+        "Ein anderes empfangendes Gerät wählen und eine offene Übergabe zuerst bestätigen.",
+      );
+    if (
+      vals.status === "Bestätigt" &&
+      (vals.to !== s.device ||
+        prev?.Data.To !== s.device ||
+        prev.Data.Status !== "Angeboten")
+    )
+      throw Error("Keine passende Übergabe an dieses Gerät.");
+    await queue(
+      "handover",
+      {
+        Date: today(),
+        Label: wallet.Data.Label,
+        Wallet: vals.wallet,
+        To: vals.to,
+        Status: vals.status,
+        Note: "Übergabe " + vals.status,
+      },
+      target,
+      prev?.Revision || 0,
+    );
+  }
+  if (id === "preview") {
+    imported = [];
+    importFile = null;
+    const result = vals.sourceRole === "Journal"
+      ? await preview(vals.file, rows())
+      : await historyPreview(vals.file, vals.sourceRole, vals.year);
+    imported = result;
+    importFile = vals.file;
+    importRole = vals.sourceRole;
+  }
+  if (id === "dispatch") {
+    const target = "dispatch:" + vals.original,
+      existing = rows().find((r) => r.ID === target);
+    if (
+      s.role !== "Admin" ||
+      vals.evidence.trim().length < 3 ||
+      (!existing && vals.delivery === "Vermerk aufgehoben")
+    )
+      throw Error("Adminrechte, gültigen Übergabestatus und Nachweis angeben.");
+    const original = rows().find(
+      (r) => r.ID === vals.original && r.Kind === "original",
+    );
+    if (!original) throw Error("Ausgestellten Beleg wählen.");
+    await queue(
+      "dispatch",
+      {
+        Date: today(),
+        Label: "Beleg " + original.Data.Number,
+        Reference: original.ID,
+        Status: vals.delivery,
+        Note: vals.evidence,
+      },
+      target,
+      existing?.Revision || 0,
+    );
+  }
+  if (id === "importRow") {
+    if (s.role !== "Admin")
+      throw Error("Importfreigabe durch einen Admin erforderlich.");
+    const r = imported[Number(vals.ix)];
+    if (!r || r.blocked || r.amount == null || importRole === "D8")
+      throw Error("Diese Quellenzeile ist für eine Buchung gesperrt.");
+    if (s.event.Accounts && !vals.account)
+      throw Error("Kontozuordnung erforderlich.");
+    const source = "source:" + r.source,
+      target = "import:" + r.source + ":" + (r.key || r.row);
+    if (rows().some((x) => x.ID === target))
+      throw Error("Diese Quellenstelle wurde bereits übernommen.");
+    if (!rows().some((x) => x.ID === source))
+      await queue(
+        "import-source",
+        {
+          Label: "Geprüfte Importquelle",
+          Date: today(),
+          Reference: r.source,
+          Filename: importFile.name,
+          File: await b64(importFile),
+          Status: importRole,
+        },
+        source,
+      );
+    await queue(
+      vals.kind,
+      {
+        Label: r.label,
+        Date: vals.date,
+        Amount: r.amount,
+        Account: vals.account,
+        Reference: source,
+        Note: vals.reason,
+        Fields: {
+          cell: r.cell || String(r.row),
+          sheet: r.sheet || "Journal",
+          original: r.raw ?? String(r.amount),
+          sourceColumn: r.column || "",
+          dateOrigin: r.yearOrigin || "Quelldatum",
+        },
+      },
+      target,
+    );
+    r.status = "Übernommen";
+  }
+  if (id === "letters") {
+    const selected = new FormData(f).getAll("recipients");
+    if (!selected.length)
+      throw Error("Mindestens eine zugeordnete Spende auswählen.");
+    const files = {};
+    for (const subject of selected) {
+      const snap = snapshot(6, s, rows(), { subject });
+      const { pdf, docx } = await renderDocument(snap);
+      files[subject + ".pdf"] = new Uint8Array(await pdf.arrayBuffer());
+      files[subject + ".docx"] = new Uint8Array(await docx.arrayBuffer());
+    }
+    download(
+      new Blob([zipSync(files)], { type: "application/zip" }),
+      "Dankesbriefe.zip",
+    );
+  }
+  if (id === "filter") {
+    if (vals.from && vals.until && vals.from > vals.until)
+      throw Error("Datumsbereich prüfen.");
+    filter = vals.filter;
+    if (isBookingList()) journalFilters = vals;
+  }
+  if (id === "record") {
+    if (
+      !offlineEnabled &&
+      (!s ||
+        entryDialog.dataset.recordWorkspace !== s.event.ID ||
+        (page === "Journal" && !s.event.General) ||
+        (page === "Zahlungen" && s.event.General))
+    )
+      throw Error(
+        "Das Buchungsziel hat sich geändert. Erfassung schließen und im gewünschten Bereich erneut öffnen.",
+      );
+    const d = { ...vals };
+    if (kind === "cashback") d.Account = d.Wallet;
+    if (kind === "contact") {
+      const address = [
+        vals.field_street?.trim(),
+        [vals.field_zip?.trim(), vals.field_town?.trim()]
+          .filter(Boolean)
+          .join(" "),
+      ].filter(Boolean);
+      if (address.length) d.Address = address.join("\n");
+    }
+    if (edit?.Data.Contact && !("Contact" in vals))
+      d.Contact = edit.Data.Contact;
+    if (kind === "supply") {
+      const wallet = rows().find(
+        (r) => r.Kind === "wallet" && r.ID === d.Wallet,
+      );
+      if (!wallet) throw Error("Empfangende Geldtasche auswählen.");
+      if (d.sourceWallet) {
+        if (d.sourceWallet === wallet.ID)
+          throw Error("Zwei verschiedene Geldtaschen auswählen.");
+        d.Account = d.sourceWallet;
+      }
+      delete d.sourceWallet;
+      d.To = wallet.ID;
+    }
+    if (kind === "skim" || kind === "return") d.Account = d.Wallet;
+    delete d.amount;
+    delete d.file;
+    if (
+      kind === "contact" &&
+      !edit &&
+      rows().some(
+        (r) =>
+          r.Kind === "contact" &&
+          r.Data.Label.trim().toLocaleLowerCase("de") ===
+            d.Label.trim().toLocaleLowerCase("de"),
+      ) &&
+      !d.field_distinct?.trim()
+    )
+      throw Error(
+        "Dieser Kontaktname ist vorhanden. Bestehenden Kontakt wählen oder getrennte Person/Firma im Feld Abgrenzung begründen.",
+      );
+    if (monetary.has(kind) && kind !== "supply") d.Amount = cents(vals.amount);
+    if (kind === "organization") {
+      if (vals.logo?.size) {
+        if (vals.logo.type !== "image/png" || vals.logo.size > 300000)
+          throw Error("Organisationslogo als PNG bis 300 kB wählen.");
+        d.File = await b64(vals.logo);
+      } else d.File = edit?.Data.File || "";
+      delete d.logo;
+    }
+    if (kind === "attachment") {
+      if (!vals.file.size || vals.file.size > 4194304)
+        throw Error("Dateigröße maximal 4 MiB.");
+      const bytes = new Uint8Array(await vals.file.arrayBuffer());
+      const signature = [...bytes.slice(0, 8)];
+      if (
+        ![
+          [37, 80, 68, 70, 45],
+          [255, 216, 255],
+          [137, 80, 78, 71, 13, 10, 26, 10],
+        ].some((m) => m.every((n, i) => signature[i] === n))
+      )
+        throw Error("Datei als PDF, JPEG oder PNG auswählen.");
+      d.Fields = {
+        ...d.Fields,
+        sha256: Array.from(
+          new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+          (x) => x.toString(16).padStart(2, "0"),
+        ).join(""),
+        size: String(bytes.length),
+      };
+      d.File = await b64(vals.file);
+      d.Filename = vals.file.name;
+    }
+    if (d.positions) {
+      d.Lines = positions(d.positions);
+      if (d.Lines.reduce((sum, l) => sum + lineCents(l), 0) !== d.Amount)
+        throw Error("Positionssumme muss dem Gesamtbetrag entsprechen.");
+    }
+    delete d.positions;
+    if (kind === "presale") {
+      const qty = Number(d.field_saleQuantity),
+        unit = cents(d.unitSale);
+      if (
+        !Number.isSafeInteger(qty) ||
+        qty < 1 ||
+        qty > 1000000 ||
+        qty * unit !== d.Amount
+      )
+        throw Error(
+          "Vorverkaufsmenge und Einzelpreis müssen den Erlös ergeben.",
+        );
+      d.field_unitCents = String(unit);
+      delete d.unitSale;
+    }
+    for (const k of Object.keys(d)) {
+      if (k.startsWith("alloc_")) {
+        if (d[k]) (d.Allocations ??= {})[k.slice(5)] = cents(d[k]);
+        delete d[k];
+      }
+      if (k.startsWith("field_")) {
+        (d.Fields ??= {})[k.slice(6)] = d[k];
+        delete d[k];
+      }
+    }
+    let target = kind === "organization" ? "organization" : edit?.ID;
+    if (!edit && kind === "opening" && onOverview())
+      target = await countID(
+        "opening",
+        d.Date,
+        s.event.Accounts ? d.Account : "",
+      );
+    if (kind === "paper") {
+      d.Number = Number(d.Number);
+      target = "paper:" + d.Number;
+      if (
+        !Number.isInteger(d.Number) ||
+        d.Number < s.first ||
+        d.Number > (s.paperLimit ?? s.limit) ||
+        rows().some((r) => r.ID === target)
+      )
+        throw Error(
+          "Papiernummer außerhalb der Reserve oder bereits registriert.",
+        );
+      if (
+        d.Status === "Verworfen"
+          ? d.Reference || (d.Note || "").trim().length < 3
+          : rows().find((r) => r.ID === d.Reference)?.Data.Method !== "Bar"
+      )
+        throw Error("Barzahlung zuordnen oder verworfene Nummer begründen.");
+    }
+    if (
+      kind === "price" &&
+      d.Status === "Freigegeben" &&
+      (!d.Unit?.trim() || !d.Category)
+    )
+      throw Error("Einheit und Sortiment vor Freigabe klären.");
+    if (kind === "cashback" && !d.Fields?.provider?.trim())
+      throw Error("Terminal angeben.");
+    if (kind === "organization" && s.role !== "Admin")
+      throw Error("Adminrechte erforderlich.");
+    if (kind === "count" && d.Status === "Bestätigt")
+      d.Fields = {
+        ...d.Fields,
+        confirmedBy: s.user,
+        confirmedAt: new Date().toISOString(),
+      };
+    if (["plan", "count", "reserve", "supply"].includes(kind)) {
+      if (d.Fields?.countMode === "amount") d.Amount = cents(vals.amount);
+      else {
+        d.Pieces = {};
+        for (const n of denom) {
+          d.Pieces[n] = Number(d["coin" + n]);
+          delete d["coin" + n];
+        }
+        d.Amount = totalPieces(d.Pieces);
+      }
+    }
+    if (["plan", "count", "reserve"].includes(kind)) {
+      const pooled = kind === "count" && d.Fields?.countScope === "all";
+      if (kind !== "reserve" && !pooled && !d.Wallet)
+        throw Error("Geldtasche auswählen.");
+      if (pooled) d.Wallet = "";
+      if (
+        kind === "count" &&
+        d.Phase !== "Zwischenstand" &&
+        overlapsCountScope(rows(), pooled, d.Phase)
+      )
+        throw Error(
+          "Gesamtzählung und Einzelzählungen würden sich überschneiden. Den vorhandenen Zählumfang verwenden.",
+        );
+      let phaseKey = d.Phase;
+      if (kind === "count" && d.Phase === "Zwischenstand") {
+        const observation = edit
+          ? edit.Data.Fields?.observation
+          : crypto.randomUUID();
+        if (observation) {
+          d.Fields = { ...d.Fields, observation };
+          phaseKey += "|" + observation;
+        }
+      }
+      target =
+        kind === "reserve"
+          ? "coinreserve"
+          : await countID(kind, d.Wallet, phaseKey);
+      if (!edit && rows().some((r) => r.ID === target))
+        throw Error(
+          "Für diese Phase besteht eine Zählung. Bestehenden Eintrag bearbeiten.",
+        );
+      if (edit && target !== edit.ID)
+        throw Error(
+          "Geldtasche und Phase einer Berichtigung müssen übereinstimmen.",
+        );
+    }
+    if (["supply", "skim", "return"].includes(kind)) {
+      const wallet = rows().find((r) => r.ID === d.Wallet);
+      if (!wallet) throw Error("Geldtasche auswählen.");
+    }
+    if (
+      s.event.Accounts &&
+      [
+        "income",
+        "expense",
+        "reimbursement",
+        "fee",
+        "card",
+        "payout",
+        "donation",
+        "payment",
+        "presale",
+      ].includes(kind) &&
+      !d.Account
+    )
+      throw Error("Konto auswählen.");
+    if (
+      ["transfer", "payout", "skim", "supply", "return"].includes(kind) &&
+      (!d.Account || !d.To || d.Account === d.To)
+    )
+      throw Error("Verschiedene Quell- und Zielkonten angeben.");
+    if (kind === "period" && (!d.To || d.Date > d.To))
+      throw Error("Periodenende prüfen.");
+    if (d.Allocations) {
+      if (
+        d.Reference ||
+        Object.values(d.Allocations).reduce((a, n) => a + n, 0) !== d.Amount
+      )
+        throw Error(
+          "Entweder Einzelbezug oder vollständige Sammelzuordnung wählen.",
+        );
+    }
+    if (
+      ["payment", "reimbursement", "attachment"].includes(kind) &&
+      !d.Reference &&
+      !d.Allocations
+    )
+      throw Error("Zugehörigen Vorgang auswählen.");
+    await queue(kind, d, target, edit?.Revision || 0);
+    edit = null;
+  }
+  if (id === "lfk") {
+    if (s.role !== "Admin") throw Error("Adminrechte erforderlich.");
+    const id = "template:" + profileID(2),
+      old = rows().find((r) => r.ID === id);
+    await queue(
+      "template",
+      {
+        ...old?.Data,
+        Label: old?.Data.Label || profiles[2],
+        Reference: profileID(2),
+        Date: today(),
+        Note: old?.Data.Note || "LFK-Druckhintergrund",
+        File: await b64(await background(vals.file)),
+      },
+      id,
+      old?.Revision || 0,
+    );
+  }
+  if (id === "wordLayout") {
+    const input = new Uint8Array(await vals.file.arrayBuffer());
+    const verified = mergeWord(input);
+    const supported = [...contracts[6].required, ...contracts[6].optional];
+    for (const token of verified.tokens) {
+      if (!supported.includes(token)) throw Error("The donation letter does not provide field " + token);
+    }
+    const next = structuredClone(s),
+      ref = profileID(6),
+      active = (s.pinnedTemplates || s.entries).find(
+        (r) => r.Kind === "template" && r.Data.Reference === ref,
+      );
+    (next.drafts ??= {})[ref] = {
+      ...(active?.Data || {}),
+      ...(next.drafts?.[ref] || {}),
+      Reference: ref,
+      Label: next.drafts?.[ref]?.Label || active?.Data.Label || profiles[6],
+      File: await b64(new Blob([verified.bytes])),
+      baseRevision: next.drafts?.[ref]?.baseRevision ?? active?.Revision ?? 0,
+    };
+    await commit(next);
+  }
+  if (id === "library") {
+    canWrite();
+    if (f.dataset.event !== s.event.ID)
+      throw Error("Arbeitsbereich hat gewechselt.");
+    const v = await f.librarySource(),
+      target = "template:" + v.Reference,
+      old = rows().find((r) => r.ID === target);
+    await queue("template", v, target, old?.Revision ?? 0);
+    await sync();
+    if (s.conflicts.some((c) => c.Target === target))
+      throw Error("Vorlagenstand wurde zwischenzeitlich geändert.");
+  }
+  if (id === "importTemplate") {
+    const text = await importTemplate(vals.file);
+    const next = structuredClone(s);
+    next.importedText = text;
+    await commit(next);
+  }
+  if (id === "template" && f.dataset.mode !== "release") {
+    const next = structuredClone(s);
+    (next.drafts ??= {})[vals.Reference] = {
+      ...vals,
+      File:
+        next.drafts?.[vals.Reference]?.File ||
+        (s.pinnedTemplates || s.entries).find(
+          (r) => r.Kind === "template" && r.Data.Reference === vals.Reference,
+        )?.Data.File ||
+        "",
+      baseRevision:
+        next.drafts?.[vals.Reference]?.baseRevision ??
+        (next.pinnedTemplates || s.entries).find(
+          (r) => r.Data.Reference === vals.Reference && r.Kind === "template",
+        )?.Revision ??
+        0,
+      Fields: {
+        font: vals.font,
+        footer: vals.footer,
+        margin: vals.margin,
+        header: vals.header,
+        copies: vals.copies,
+        firstColumn: vals.firstColumn,
+        paper: vals.paper,
+      },
+    };
+    await commit(next);
+    show();
+    return;
+  }
+  if (id === "template") {
+    await sync();
+    if (s.role !== "Admin")
+      throw Error("Nur ein Admin kann Vorlagen freigeben.");
+    const target = "template:" + vals.Reference;
+    await queue(
+      "template",
+      {
+        File:
+          s.drafts?.[vals.Reference]?.File ||
+          rows().find((r) => r.ID === target)?.Data.File ||
+          "",
+        Label: vals.Label,
+        Reference: vals.Reference,
+        Note: vals.Note,
+        Fields: {
+          font: vals.font,
+          footer: vals.footer,
+          margin: vals.margin,
+          header: vals.header,
+          copies: vals.copies,
+          firstColumn: vals.firstColumn,
+          paper: vals.paper,
+        },
+        Date: today(),
+      },
+      target,
+      s.drafts?.[vals.Reference]?.baseRevision ??
+        (s.pinnedTemplates || s.entries).find((r) => r.ID === target)
+          ?.Revision ??
+        0,
+    );
+    await sync();
+    if (s.conflicts.some((c) => c.Target === target))
+      throw Error(
+        "Neue Vorlagenfassung ist strittig. Lokaler Entwurf bleibt erhalten.",
+      );
+    const released = s.entries.find((r) => r.ID === target);
+    if (released) {
+      const next = structuredClone(s);
+      next.pinnedTemplates = [
+        ...(next.pinnedTemplates || []).filter((r) => r.ID !== target),
+        released,
+      ];
+      if (next.drafts) delete next.drafts[vals.Reference];
+      await commit(next);
+    }
+  }
+  if (id.startsWith("resolve-")) {
+    const c = s.conflicts.find((c) => c.ID === id.slice(8));
+    await sync({
+      Resolve: c.ID,
+      Account: vals.account || "",
+      Destination: vals.destination || "",
+      Choice: vals.choice,
+      Reason: vals.reason,
+      Last: s.entries.find((r) => r.ID === c.Target)?.Revision || 0,
+    });
+  }
+  if (id === "export") {
+    if (f.dataset.event && f.dataset.event !== s.event.ID)
+      throw Error("Arbeitsbereich hat gewechselt.");
+    const i = Number(vals.profile),
+      original = ["Original", "Korrektur"].includes(vals.format);
+    let previous;
+    if (original) {
+      canWrite();
+      if ([2, 12].includes(i) && !s.donorAccess)
+        throw Error(
+          offlineEnabled
+            ? "Für nummerierte Spendenbelege ist ein vorbereitetes Belegprofil erforderlich."
+            : s.event.General
+              ? "Öffne zuerst die Meldedaten unter Spenden."
+              : "Öffne zuerst die Spendenmeldedaten unter Zahlungen & Kosten.",
+        );
+      if (vals.version === "draft")
+        throw Error("Originalausgabe verlangt die freigegebene Fassung.");
+      if (![0, 1, 2, 11, 12].includes(i) || !vals.subject)
+        throw Error(
+          "Ein Original benötigt eine Rechnung oder einen Spendenbeleg mit Fachvorgang.",
+        );
+      const old = rows().find(
+        (r) =>
+          r.ID ===
+          "original:" + vals.subject + (i >= 11 ? ":confirmation" : ""),
+      );
+      if (vals.format === "Korrektur") {
+        if (!old || vals.revisionReason.trim().length < 3)
+          throw Error(
+            "Ausgestelltes Original und Korrekturgrund erforderlich.",
+          );
+        previous = rows()
+          .filter(
+            (r) =>
+              r.Kind === "original" &&
+              r.Data.Reference === vals.subject &&
+              (r.Data.Fields?.series === "confirmation") === i >= 11,
+          )
+          .sort((a, b) => b.Data.Number - a.Data.Number)[0].Data.Number;
+      }
+      if (old && !previous) {
+        await reprint(old, "PDF");
+        return;
+      }
+      if (
+        rows().find((r) => r.ID === vals.subject)?.Device !== s.device ||
+        availableNumbers(s) === 0
+      )
+        throw Error("Ausstellungsrecht oder Nummernreserve fehlt.");
+    }
+    const snap = snapshot(i, s, rows(), {
+      ...vals,
+      number: original ? s.nextNumber : null,
+    });
+    if (previous) {
+      snap.previousNumber = previous;
+      snap.revisionReason = vals.revisionReason;
+      const correction =
+        "Ersatz für Beleg " + previous + " · " + vals.revisionReason;
+      if (snap.tables) snap.tables.after.push(correction);
+      else snap.lines.push(correction);
+    }
+    const blobs = await renderDocument(snap);
+    if (original) {
+      const next = structuredClone(s);
+      const digest = async (b) =>
+        Array.from(
+          new Uint8Array(
+            await crypto.subtle.digest("SHA-256", await b.arrayBuffer()),
+          ),
+          (n) => n.toString(16).padStart(2, "0"),
+        ).join("");
+      snap.archive = {
+        device: s.device,
+        user: s.user,
+        issuedAt: new Date().toISOString(),
+        renderBuild: __BONFIRE_RENDER_BUILD__,
+        fontPreset: snap.font,
+        pdfSHA256: await digest(blobs.pdf),
+        docxSHA256: await digest(blobs.docx),
+        appAssets: offlineEnabled
+          ? (await caches.keys()).filter((k) => k.startsWith("bonfire-"))
+          : [],
+        sourceRevision: rows().find((r) => r.ID === vals.subject)?.Revision,
+      };
+      const d = {
+        Label: snap.title,
+        Date: snap.date,
+        Reference: vals.subject,
+        Fields: previous
+          ? { previous: String(previous), reason: vals.revisionReason }
+          : {},
+        Number: next.nextNumber++,
+        PDF: await b64(blobs.pdf),
+        DOCX: await b64(blobs.docx),
+        Note: JSON.stringify(snap),
+      };
+      if (i >= 11) d.Fields.series = "confirmation";
+      next.ops.push({
+        LocalTime: new Date().toISOString(),
+        ID: crypto.randomUUID(),
+        Seq: ++next.seq,
+        Target:
+          "original:" +
+          vals.subject +
+          (i >= 11 ? ":confirmation" : "") +
+          (previous ? ":after:" + previous : ""),
+        Base: 0,
+        Kind: "original",
+        Data: d,
+      });
+      await commit(next);
+    }
+    const ext = vals.format === "DOCX" ? "docx" : "pdf";
+    download(
+      blobs[ext],
+      profileID(i) +
+        (snap.number ? "-" + snap.number : "-Arbeitsfassung") +
+        "." +
+        ext,
+    );
+  }
+  show();
+}
+document.addEventListener("change", (e) => {
+  if (e.target.form?.id === "copy" && e.target.name === "year") {
+    const y = years.find((y) => y.ID === e.target.value);
+    if (y) {
+      e.target.form.elements.start.value = y.Starts;
+      e.target.form.elements.end.value = y.Starts;
+    }
+  }
+});
+document.addEventListener("submit", (e) => {
+  if (e.target.closest(".admin-console")) return;
+  e.preventDefault();
+  if (e.target.id === "template")
+    e.target.dataset.mode = e.submitter?.dataset.release ? "release" : "draft";
+  action(async () => {
+    const inEditor = entryDialog.contains(e.target);
+    if (inEditor) entryDialog.querySelector(".entry-error").replaceChildren();
+    await submit(e.target);
+    if (inEditor) closeEditor();
+  });
+});
+function overlapsCountScope(entries, pooled, phase) {
+  return entries.some(
+    (r) =>
+      r.Kind === "count" &&
+      r.Data.Phase !== "Zwischenstand" &&
+      (r.Data.Fields?.countScope === "all") !== pooled &&
+      (r.Data.Phase === phase || (pooled ? phase : r.Data.Phase) === "Anfang"),
+  );
+}
+function updateCountOptions(form) {
+  const e = form.elements;
+  const pooled = e.field_countScope?.value === "all";
+  const manual = e.field_countMode.value === "amount";
+  e.Wallet.closest("label").hidden = e.Wallet.disabled = pooled;
+  e.amount.closest("label").hidden = e.amount.disabled = !manual;
+  e.amount.required = manual;
+  form.querySelector(".count-pieces").hidden = manual;
+  for (const input of form.querySelectorAll(".pieces input"))
+    input.disabled = manual;
+}
+document.addEventListener("change", (e) => {
+  if (e.target.name === "sourceWallet") {
+    const account = e.target.form.elements.Account;
+    account.closest("label").hidden = account.disabled = !!e.target.value;
+  }
+  if (e.target.matches('[name="field_countMode"],[name="field_countScope"]'))
+    updateCountOptions(e.target.form);
+});
+function updateCount(form) {
+  const pieces = {};
+  let valid = true;
+  for (const coin of denom) {
+    const input = form.elements["coin" + coin];
+    const count = Number(input.value || 0);
+    valid = valid && input.validity.valid;
+    pieces[coin] = count;
+    form.querySelector('[data-piece="' + coin + '"]').textContent = input
+      .validity.valid
+      ? eur(coin * count)
+      : "Stückzahl prüfen";
+  }
+  form.querySelector("#count-total").textContent = valid
+    ? eur(totalPieces(pieces))
+    : "Stückzahlen prüfen";
+}
+document.addEventListener("input", (e) => {
+  if (e.target.closest(".admin-console")) return;
+  if (e.target.matches(".pieces input")) updateCount(e.target.form);
+  if (
+    ["export", "template"].includes(e.target.form?.id) &&
+    document.querySelector("#proof-sheet")
+  ) {
+    proofRevision++;
+    document.querySelector("#proof-sheet").replaceChildren();
+    document.querySelector("#proof-status").textContent =
+      "Eingaben geändert. Vorschau aktualisieren.";
+  }
+  if (!e.target.matches("[data-contact-filter]")) return;
+  const query = e.target.value.trim().toLocaleLowerCase("de"),
+    select = e.target.form?.elements.Contact;
+  if (!select) return;
+  for (const option of select.options)
+    option.hidden =
+      !!option.value && !option.text.toLocaleLowerCase("de").includes(query);
+});
+document.addEventListener("change", (e) => {
+  if (e.target.closest(".admin-console")) return;
+  if (e.target.name === "overview-period") {
+    overviewPeriod = e.target.value;
+    show();
+    return;
+  }
+  if (e.target.form?.id === "template" && e.target.name === "Reference") {
+    const f = e.target.form,
+      ref = e.target.value;
+    const cfg =
+      s.drafts?.[ref] ||
+      (s.pinnedTemplates || s.entries).find(
+        (r) => r.Kind === "template" && r.Data.Reference === ref,
+      )?.Data ||
+      {};
+    f.elements.Label.value =
+      cfg.Label || profiles.find((_, i) => profileID(i) === ref) || "";
+    f.elements.Note.value = cfg.Note || "";
+    for (const key of [
+      "font",
+      "footer",
+      "margin",
+      "header",
+      "copies",
+      "firstColumn",
+      "paper",
+    ])
+      f.elements[key].value =
+        cfg.Fields?.[key] ||
+        { font: "helvetica", margin: "15", paper: "Letter" }[key] ||
+        "";
+  }
+  if (e.target.name === "reportPeriod") {
+    chosenPeriod = e.target.value;
+  }
+  if (e.target.name === "type") {
+    if (!entryDialog.open || edit) return;
+    const previous = entryDialog.querySelector("#record");
+    const values = new FormData(previous);
+    kind = e.target.value;
+    previous.outerHTML = recordForm();
+    const current = entryDialog.querySelector("#record");
+    if (current.elements.field_countMode) updateCountOptions(current);
+    loadSponsorChoices(current);
+    for (const name of ["Label", "Date", "amount", "Method", "Note"]) {
+      if (values.has(name) && current.elements.namedItem(name))
+        current.elements.namedItem(name).value = values.get(name);
+    }
+    entryDialog.querySelector(".entry-error").replaceChildren();
+  }
+});
+document.addEventListener("click", (e) => {
+  const disclosure = document.querySelector("#fiscal-switch[open]");
+  if (disclosure && !disclosure.contains(e.target)) disclosure.open = false;
+  const b = e.target.closest("button, a[data-page]");
+  const pageLink = b instanceof HTMLAnchorElement;
+  if (pageLink) {
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey)
+      return;
+    e.preventDefault();
+  }
+  if (
+    !b ||
+    (b.form &&
+      b.type === "submit" &&
+      !b.dataset.page &&
+      !b.dataset.edit &&
+      !b.dataset.file)
+  )
+    return;
+  if (busy) return;
+  if (b.dataset.masterEdit || b.dataset.masterLink) {
+    const id = b.dataset.masterEdit || b.dataset.masterLink;
+    const master = accountCatalog.accounts.find((a) => a.ID === id);
+    if (b.dataset.masterLink) {
+      const spaces = allSpaces.filter(
+        (e) =>
+          !e.Closed && e.Year && !years.find((y) => y.ID === e.Year)?.Closed,
+      );
+      if (!spaces.length) {
+        notice.textContent = "Kein offener Arbeitsbereich vorhanden.";
+        return;
+      }
+      openEditor(
+        b,
+        "Feuerwehrkonto zuordnen · " + master.Name,
+        form(
+          "fire-link",
+          select(
+            "Event",
+            "Arbeitsbereich",
+            spaces.map((e) => [
+              e.ID,
+              (years.find((y) => y.ID === e.Year)?.Name || "") + " · " + e.Name,
+            ]),
+          ) + select("Local", "Lokales Konto", []),
+          "Zuordnen",
+        ),
+      );
+      const f = entryDialog.querySelector("form");
+      f.dataset.master = id;
+      const refresh = () => {
+        f.elements.Local.innerHTML =
+          option("", "Neues Arbeitsbereichskonto anlegen") +
+          accountCatalog.locals
+            .filter((l) => l.Event === f.elements.Event.value && !l.Master)
+            .map((l) => option(l.ID, l.Name))
+            .join("");
+      };
+      f.elements.Event.onchange = refresh;
+      refresh();
+    } else {
+      openEditor(
+        b,
+        master ? "Feuerwehrkonto bearbeiten" : "Feuerwehrkonto anlegen",
+        form(
+          "fire-master",
+          field("Name", "Kontoname", "text", true, master?.Name || "") +
+            (master
+              ? select("Active", "Status", [
+                  ["true", "Aktiv"],
+                  ["false", "Inaktiv"],
+                ])
+              : ""),
+          "Speichern",
+        ),
+      );
+      const f = entryDialog.querySelector("form");
+      f.dataset.master = master?.ID || "";
+      f.dataset.revision = master?.Revision || 0;
+      if (master) f.elements.Active.value = String(master.Active);
+    }
+    return;
+  }
+  if (b.dataset.balanceLines || b.dataset.yearCount) {
+    const v = balanceItems.find(
+      (x) => x.ID === (b.dataset.balanceLines || b.dataset.yearCount),
+    );
+    if (!v) return;
+    if (b.dataset.balanceLines) {
+      openEditor(
+        b,
+        v.Name,
+        balanceLines(v) +
+          '<button type="button" data-act="yearBalances">Zurück zum Kontenabgleich</button>',
+      );
+      return;
+    }
+    const val = (n) => (n == null ? "" : (n / 100).toFixed(2));
+    openEditor(
+      b,
+      "Jahresbestände · " + v.Name,
+      form(
+        "fire-count",
+        select("Action", "Anfangsbestand", [
+          ["count", "Händisch"],
+          ...(v.PriorActual != null
+            ? [["carry", "Vorjahresstand übernehmen · " + eur(v.PriorActual)]]
+            : []),
+        ]) +
+          field("Opening", "Anfang in EUR", "text", false, val(v.Opening)) +
+          field(
+            "Actual",
+            "Gezählter Iststand / Kontoauszug in EUR",
+            "text",
+            false,
+            val(v.Actual),
+          ),
+        "Bestände speichern",
+      ),
+    );
+    const f = entryDialog.querySelector("form");
+    f.dataset.master = v.ID;
+    f.dataset.revision = v.Revision;
+    f.elements.Action.onchange = () => {
+      f.elements.Opening.disabled = f.elements.Action.value === "carry";
+    };
+    return;
+  }
+  if (b.dataset.denomination) {
+    const input = b.form.elements["coin" + b.dataset.denomination];
+    const next = Number(input.value) + Number(b.dataset.step);
+    if (!input.validity.valid || next > Number(input.max)) {
+      input.focus();
+      input.setCustomValidity(
+        "Bitte eine gültige Stückzahl bis 1.000.000 eingeben.",
+      );
+      input.reportValidity();
+      input.setCustomValidity("");
+      return;
+    }
+    input.value = String(next);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    return;
+  }
+  if (
+    b.dataset.adminRoute &&
+    logged &&
+    canOpenConsole(b.dataset.adminRoute, onlineUser.role)
+  ) {
+    adminSearch = b.dataset.adminSearch || "";
+    page = b.dataset.adminRoute;
+    show();
+    return;
+  }
+  if (b.closest(".admin-console")) return;
+  if (b.dataset.openForm) {
+    openEditor(b, b.textContent, b.nextElementSibling.innerHTML);
+    return;
+  }
+  if (b.hasAttribute("data-fiscal")) {
+    action(async () => {
+      donorAccess = false;
+      await selectFiscalWorkspace(b.dataset.fiscal, "");
+      page = selectedYear ? "Übersicht" : "Geschäftsjahre";
+      const mobile = document.body.classList.contains("menu-open");
+      document.body.classList.remove("menu-open");
+      document
+        .querySelector("#menu-toggle")
+        .setAttribute("aria-expanded", "false");
+      show();
+      document
+        .querySelector(mobile ? "#menu-toggle" : "#fiscal-switch summary")
+        ?.focus();
+    });
+    return;
+  }
+  if (b.dataset.yearEdit) {
+    action(async () => {
+      years = await api("years");
+      const y = years.find((item) => item.ID === b.dataset.yearEdit);
+      if (!y || y.Closed) {
+        show();
+        throw Error("This fiscal year can no longer be edited.");
+      }
+      openEditor(
+        b,
+        "Edit fiscal year",
+        form(
+          "year-edit",
+          yearFields(y),
+          "Save changes",
+          button("cancel", "Cancel", true),
+        ),
+      );
+      entryDialog.querySelector("form").dataset.year = y.ID;
+    });
+    return;
+  }
+  if (b.dataset.eventEdit) {
+    const id = b.dataset.eventEdit;
+    const e =
+      s?.event.ID === id && page === "Veranstaltungen"
+        ? s.event
+        : events.find((item) => item.ID === id);
+    if (!e) return;
+    openEditor(
+      b,
+      "Edit event",
+      form(
+        "event-edit",
+        eventFields(e.Name, e.Starts, e.Ends),
+        "Save changes",
+        button("cancel", "Cancel", true),
+      ),
+    );
+    const editor = entryDialog.querySelector("form");
+    editor.dataset.event = id;
+    const year = years.find((y) => y.ID === e.Year);
+    if (year) {
+      for (const input of editor.querySelectorAll("input[type=date]")) {
+        input.min = year.Starts;
+        input.max = year.Ends;
+      }
+    }
+    return;
+  }
+  if (b.dataset.eventCleanup) {
+    const workspace = events.find((e) => e.ID === b.dataset.eventCleanup);
+    if (workspace) action(() => openEventCleanup(b, workspace));
+    return;
+  }
+  if (b.dataset.year || b.dataset.space || b.dataset.bookEvent) {
+    action(async () => {
+      donorAccess = false;
+      await selectFiscalWorkspace(
+        b.dataset.year || selectedYear,
+        b.dataset.space || b.dataset.bookEvent,
+      );
+      if (b.dataset.bookEvent) {
+        page = "Zahlungen";
+        show();
+        if (s.event.General || !writableWorkspace())
+          throw Error("Dieser Arbeitsbereich ist für Buchungen gesperrt.");
+        kind = "income";
+        openRecord(article.querySelector('[data-act="focusEntry"]'));
+        return;
+      }
+      page = b.dataset.space
+        ? s.event.General
+          ? "Journal"
+          : "Veranstaltungen"
+        : "Übersicht";
+      show();
+    });
+    return;
+  }
+  if (b.dataset.page) {
+    if (!s && !logged) {
+      destination = b.dataset.page;
+      show();
+      article.querySelector("input")?.focus();
+      return;
+    }
+    if (b.dataset.page === "Einrichtung")
+      destination = page === "Verwaltung" ? "Übersicht" : page;
+    const requested = b.dataset.page;
+    const sidebar = !!b.closest("#sidebar");
+    const target =
+      !offlineEnabled && sidebar && requested === "Veranstaltungen"
+        ? "Veranstaltungsliste"
+        : requested;
+    document.body.classList.remove("menu-open");
+    document
+      .querySelector("#menu-toggle")
+      .setAttribute("aria-expanded", "false");
+    action(async () => {
+      if (
+        !offlineEnabled &&
+        logged &&
+        s &&
+        !s.event.General &&
+        (sidebar || target === "Journal" || target === "Veranstaltungsliste")
+      ) {
+        donorAccess = false;
+        await selectFiscalWorkspace(selectedYear);
+      }
+      page = target;
+      filter = "";
+      journalFilters = {};
+      edit = null;
+      show();
+      if (pageLink) article.focus();
+    });
+    return;
+  }
+  action(async () => {
+    if (b.dataset.recordDocument) {
+      await openRecordDocument(b);
+      return;
+    }
+    if (b.dataset.shareOriginal) {
+      const row = rows().find((r) => r.ID === b.dataset.shareOriginal);
+      const file = new File(
+        [from64(row.Data.PDF, "application/pdf")],
+        "Beleg-" + row.Data.Number + ".pdf",
+        { type: "application/pdf" },
+      );
+      if (!navigator.canShare?.({ files: [file] }))
+        throw Error("PDF speichern und als Anhang öffnen.");
+      try {
+        await navigator.share({ files: [file], title: row.Data.Label });
+      } catch (err) {
+        if (err.name !== "AbortError") throw err;
+      }
+      return;
+    }
+    if (b.dataset.claimInvoice && page === "Zahlungen") {
+      page = "Dokumente";
+      show();
+      const form = article.querySelector("#export");
+      form.elements.profile.value = "0";
+      form.elements.subject.value = b.dataset.claimInvoice;
+      form.elements.profile.focus();
+      return;
+    }
+    if (b.dataset.walletAction) {
+      openRecord(b);
+      return;
+    }
+    if (b.dataset.edit) {
+      const row = rows().find((r) => r.ID === b.dataset.edit);
+      if (!row) throw Error("Der Eintrag ist nicht mehr verfügbar.");
+      openRecord(b, row);
+      return;
+    }
+    if (b.dataset.lifecycle) {
+      const row = rows().find((r) => r.ID === b.dataset.lifecycle);
+      openReasonEditor(
+        b,
+        row.Data.Retired ? "Eintrag wiederherstellen" : "Eintrag archivieren",
+        row.Data.Label,
+        async (reason) => {
+          if (reason.length < 3) throw Error("Begründung angeben.");
+          await queue(
+            row.Kind,
+            {
+              ...row.Data,
+              Retired: !row.Data.Retired,
+              Fields: {
+                ...row.Data.Fields,
+                lifecycle: row.Data.Retired
+                  ? "Wiederhergestellt"
+                  : "Archiviert",
+                lifecycleReason: reason,
+              },
+            },
+            row.ID,
+            row.Revision,
+          );
+        },
+      );
+      return;
+    }
+    if (b.dataset.settle) {
+      if (b.dataset.settle === "settlement-total") {
+        canWrite();
+        const amount = pooledRevenue(rows()),
+          previous = rows().find((r) => r.ID === "settlement-total");
+        if (amount == null || amount < 0) throw Error("Zählstand prüfen.");
+        openEditor(
+          b,
+          "Geldtaschen gemeinsam abrechnen",
+          "<p>" +
+            esc(s.event.Name) +
+            " · Sammelbareinnahme <strong>" +
+            eur(amount) +
+            "</strong></p><p>Barbuchungen ohne eigene Geldtasche zählen zum gemeinsamen Bestand, sofern kein separates Konto angegeben ist.</p>" +
+            form(
+              "pooled-settlement",
+              (s.event.Accounts
+                ? refs("Account", "Buchungskonto", ["account"])
+                : "") +
+                (previous
+                  ? field("reason", "Reason for correction", "text", true)
+                  : ""),
+              previous ? "Berichtigung buchen" : "Gesamtbetrag buchen",
+              button("cancel", "Abbrechen", true),
+            ),
+        );
+        const f = entryDialog.querySelector("form");
+        f.dataset.event = s.event.ID;
+        f.dataset.amount = String(amount);
+        if (previous && f.elements.Account)
+          f.elements.Account.value = previous.Data.Account;
+        return;
+      }
+      const wallet = rows().find((r) => r.ID === b.dataset.settle);
+      const target = "settlement:" + wallet.ID;
+      const previous = rows().find((r) => r.ID === target);
+      const amount = counted(
+        rows().filter((r) => r.ID !== target),
+        wallet.ID,
+      );
+      if (amount === null || amount < 0)
+        throw Error("Zählungen und zugeordnete Geldbewegungen prüfen.");
+      const end = rows().find(
+        (r) =>
+          r.Kind === "count" &&
+          r.Data.Wallet === wallet.ID &&
+          r.Data.Phase === "Ende",
+      );
+      const saveSettlement = (reason) =>
+        queue(
+          "income",
+          {
+            Label: "Barabrechnung " + wallet.Data.Label,
+            Date: previous?.Data.Date || end.Data.Date,
+            Note: reason,
+            Wallet: wallet.ID,
+            Bar: wallet.Data.Bar,
+            Account: wallet.ID,
+            Amount: amount,
+            Method: "Bar",
+            Reference: "wallet-settlement",
+          },
+          target,
+          previous?.Revision || 0,
+        );
+      if (previous) {
+        openReasonEditor(
+          b,
+          "Sammelbetrag berichtigen",
+          wallet.Data.Label + " · " + eur(amount),
+          saveSettlement,
+        );
+        return;
+      }
+      await saveSettlement("");
+      show();
+      return;
+    }
+    if (b.dataset.attachment) {
+      const v = rows().find((r) => r.ID === b.dataset.attachment)?.Data;
+      if (!v?.File) throw Error("Datei noch nicht vorhanden.");
+      const mime = v.File.startsWith("JVBER")
+        ? "application/pdf"
+        : v.File.startsWith("/9j/")
+          ? "image/jpeg"
+          : "image/png";
+      download(from64(v.File, mime), v.Filename || "Beleg");
+      return;
+    }
+    if (b.dataset.file) {
+      const row = rows().find((r) => r.ID === b.dataset.file);
+      const ext = b.dataset.format;
+      await reprint(row, ext);
+      return;
+    }
+    switch (b.dataset.act) {
+      case "library":
+        await libraryDialog(b);
+        return;
+      case "yearBalances":
+        await openBalances(b);
+        return;
+      case "viewDonors":
+        donorAccess = true;
+        try {
+          await sync();
+        } catch (err) {
+          donorAccess = false;
+          throw err;
+        }
+        break;
+      case "refreshWorkplace":
+        await onlineStart(onlineUser);
+        break;
+      case "profileHelp":
+      case "backLogin":
+      case "changeFactor":
+        profileHelp = b.dataset.act === "profileHelp";
+        if (b.dataset.act === "changeFactor")
+          useRecoveryCode = !useRecoveryCode;
+        else {
+          loginChallenge = "";
+          useRecoveryCode = false;
+        }
+        show();
+        (
+          article.querySelector("[name=otp], [name=user], #unlock input") ||
+          article
+        ).focus();
+        return;
+      case "focusEntry":
+        openRecord(b);
+        return;
+      case "docInputs":
+        document
+          .querySelector(".document-studio")
+          .classList.remove("view-proof");
+        return;
+      case "docProof":
+      case "draftProof":
+        await proofDocument(b.dataset.act === "draftProof");
+        return;
+      case "newProfile":
+        location.href = "/?profil=" + crypto.randomUUID();
+        return;
+      case "pinTemplates":
+        await sync();
+        await commit({
+          ...s,
+          pinnedTemplates: s.entries.filter((r) => r.Kind === "template"),
+        });
+        show();
+        return;
+      case "accountSecurity":
+        page = "Konto und Sicherheit";
+        document.body.classList.remove("menu-open");
+        document
+          .querySelector("#menu-toggle")
+          .setAttribute("aria-expanded", "false");
+        show();
+        return;
+      case "passkeyLogin": {
+        const result = await usePasskey(api);
+        if (result.passwordChange) passwordTicket = result.passwordChange;
+        else {
+          await onlineStart(await api("workplace"));
+          page = destination;
+        }
+        show();
+        return;
+      }
+      case "lock":
+        if (logged) await api("logout", {});
+        location.reload();
+        return;
+      case "csv":
+        download(csv(reportRows()), "Journal.csv");
+        return;
+      case "xlsx":
+        download(workbook(reportRows()), "Journal.xlsx");
+        return;
+      case "evidence":
+        {
+          const reports = {},
+            templates = {};
+          const organization =
+            rows().find((r) => r.Kind === "organization")?.Data.Label || "";
+          for (const [i, name] of [
+            [9, "Pruefbericht"],
+            [10, "Belegjournal"],
+          ]) {
+            const snap = snapshot(i, s, rows(), {
+              period: chosenPeriod,
+              organization,
+            });
+            templates[name] = snap.templateVersionID;
+            const docs = await renderDocument(snap);
+            reports[name + ".pdf"] = docs.pdf;
+            reports[name + ".docx"] = docs.docx;
+          }
+          download(
+            await evidence(s, reportRows(), reports, {
+              period: chosenPeriod,
+              templates,
+            }),
+            "Pruefpaket.zip",
+          );
+        }
+        return;
+      case "donors":
+        if (!s.donorAccess) throw Error("Meldedatenprofil erforderlich.");
+        download(
+          new Blob(
+            [
+              JSON.stringify(
+                donationReport(
+                  rows(),
+                  document.querySelector("[name=donorPeriod]").value.trim(),
+                ),
+                null,
+                2,
+              ),
+            ],
+            { type: "application/json" },
+          ),
+          "Spenden-Pruefliste.json",
+        );
+        return;
+      case "conflictFiles":
+        conflictFiles = {
+          device: s.device,
+          list: await api("manage", { Action: "conflict-originals" }, bearer()),
+        };
+        break;
+      case "numbers": {
+        const ranges = await api("manage", { Action: "numbers" }, bearer());
+        auditRows = ranges.map((x) => ({
+          at: "",
+          username: x.name,
+          action:
+            (x.capacity === 0
+              ? "Keine Digitalnummern"
+              : x.first + "–" + x.last) +
+            " · Papier P-" +
+            x.first +
+            "–P-" +
+            x.paper_last +
+            " · " +
+            x.status +
+            " · Digital: " +
+            (x.used || []).join(", ") +
+            " · Papier: " +
+            (x.paper || []).join(", "),
+        }));
+        break;
+      }
+      case "journalHistory":
+        auditRows = await api("manage", { Action: "journal" }, bearer());
+        break;
+      case "readiness": {
+        const missing = [];
+        for (const path of [
+          "/",
+          "/app.js",
+          "/app.css",
+          "/theme.js",
+          "/manifest.webmanifest",
+          "/logo-original.svg",
+          "/icon-192.png",
+          "/icon-512.png",
+        ])
+          if (!(await caches.match(path))) missing.push(path);
+        const usage = await navigator.storage.estimate();
+        readiness = [
+          missing.length
+            ? "Offlinepaket unvollständig: " + missing.join(", ")
+            : "App, Renderer, Marke und Icons lokal vorhanden",
+          s.synced
+            ? "Fachdaten zuletzt bestätigt: " + s.synced
+            : "Fachdaten noch nicht abgeglichen",
+          Date.parse(s.expires) > Date.now()
+            ? "Gerätefreigabe gültig"
+            : "Gerätefreigabe abgelaufen",
+          "Freie Belegnummern: " + availableNumbers(s),
+          "Geschätzter freier Speicher: " +
+            Math.floor(((usage.quota || 0) - (usage.usage || 0)) / 1048576) +
+            " MiB",
+          (await navigator.storage.persisted())
+            ? "Speichererhalt vom Browser gewährt"
+            : "Speichererhalt vom Browser unbestätigt",
+        ];
+        break;
+      }
+      case "audit":
+        auditRows = await api("manage", { Action: "audit" }, bearer());
+        break;
+      case "accounts":
+        await api(
+          "manage",
+          { Action: "accounts", Accounts: !s.event.Accounts },
+          bearer(),
+        );
+        await sync();
+        break;
+      case "cancel":
+        closeEditor();
+        return;
+      case "sync": {
+        const uncertain = !offlineEnabled && unconfirmedWrites.has(s.event.ID);
+        await sync();
+        if (uncertain) {
+          show();
+          closeEditor();
+          notice.textContent =
+            "Serverstand geladen. Prüfe hier, ob der zuletzt erfasste Vorgang vorhanden ist.";
+          return;
+        }
+        break;
+      }
+      case "seal":
+        if (!confirm("Erfassung dieses Geräts verbindlich beenden?")) return;
+        await commit({ ...s, ending: true });
+        await sync();
+        await sync({ Action: "Ende", Last: s.seq });
+        break;
+      case "close":
+        await sync({ Action: "Abschluss" });
+        break;
+      case "recover": {
+        const v = await readVault();
+        download(
+          new Blob(
+            [
+              JSON.stringify({
+                version: 1,
+                salt: [...v.salt],
+                iv: [...v.iv],
+                ciphertext: await b64(new Blob([v.bytes])),
+              }),
+            ],
+            { type: "application/json" },
+          ),
+          "bonfire-geraetesicherung.json",
+        );
+        break;
+      }
+      default:
+        return;
+    }
+    show();
+  });
+});
+async function tryAutoSync() {
+  if (
+    !offlineEnabled ||
+    !s ||
+    s.recovery ||
+    busy ||
+    backgroundSync ||
+    !navigator.onLine ||
+    document.visibilityState !== "visible"
+  )
+    return;
+  backgroundSync = (async () => {
+    try {
+      await sync();
+      if (page === "Übersicht") show();
+    } catch {
+      state.textContent =
+        s.event.Name + " · Lokaler Stand · Serverabgleich ausständig";
+    }
+  })();
+  try {
+    await backgroundSync;
+  } finally {
+    backgroundSync = null;
+  }
+}
+window.addEventListener("online", tryAutoSync);
+window.addEventListener("online", checkConnection);
+window.addEventListener("offline", checkConnection);
+document.addEventListener("visibilitychange", checkConnection);
+setInterval(checkConnection, 30000);
+void checkConnection();
+if (offlineEnabled) {
+  profilesLocal = await slots();
+  saved = !!(await readVault());
+}
+if (!saved) {
+  try {
+    const identity = await api("workplace");
+    await onlineStart(identity);
+  } catch {
+    /* Anmeldung ist ohne aktive Serversitzung erforderlich. */
+  }
+}
+show();
+
+document.querySelector("#menu-toggle").addEventListener("click", () => {
+  const open = document.body.classList.toggle("menu-open");
+  document
+    .querySelector("#menu-toggle")
+    .setAttribute("aria-expanded", String(open));
+  if (open) document.querySelector("#sidebar a[href], #sidebar summary, #sidebar button")?.focus();
+});
+document.addEventListener("keydown", (e) => {
+  const switcher = document.querySelector("#fiscal-switch[open]");
+  if (e.key === "Escape" && switcher) {
+    switcher.open = false;
+    switcher.querySelector("summary").focus();
+    return;
+  }
+  if (e.key === "Escape" && document.body.classList.contains("menu-open")) {
+    document.body.classList.remove("menu-open");
+    const btn = document.querySelector("#menu-toggle");
+    btn.setAttribute("aria-expanded", "false");
+    btn.focus();
+  }
+});
+document.querySelector("#workspace-picker").addEventListener("change", (e) =>
+  action(async () => {
+    try {
+      const fresh = await api(
+        "workplace?event=" + encodeURIComponent(e.target.value),
+      );
+      overviewPeriod = "";
+      onlineData = fresh;
+      preferredEvent = fresh.event.ID;
+      show();
+    } catch (err) {
+      e.target.value = preferredEvent;
+      throw err;
+    }
+  }),
+);

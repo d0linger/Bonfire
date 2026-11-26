@@ -1,0 +1,126 @@
+.bk .bk-heading,
+.bk-dialog .bk-heading,
+.bk .bk-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+.bk .bk-actions {
+  justify-content: flex-start;
+}
+.bk .bk-heading h2,
+.bk-dialog .bk-heading h2 {
+  margin: 0;
+}
+.bk .bk-pair,
+.bk .bk-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.bk .bk-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  padding: 1rem;
+  margin: 1rem 0;
+}
+.bk .bk-stats > div {
+  padding: 0 0.7rem;
+  border-left: 1px solid var(--line);
+}
+.bk .bk-stats > div:first-child {
+  border: 0;
+}
+.bk .bk-stats strong,
+.bk .bk-stats small,
+.bk table small {
+  display: block;
+}
+.bk .bk-stats strong {
+  font-size: 1.2rem;
+  margin: 0.4rem 0;
+}
+.bk .bk-stats small,
+.bk table small,
+.bk .bk-stats span {
+  color: var(--muted, #56616a);
+  font-size: 0.82rem;
+}
+.bk .bk-badge {
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: var(--okbg);
+  color: var(--ok);
+  padding: 0.22rem 0.55rem;
+  border-radius: 4px;
+}
+.bk .bk-warn {
+  background: var(--warnbg);
+  color: var(--warn);
+}
+.bk dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.6rem;
+}
+.bk dd {
+  justify-self: end;
+  text-align: right;
+}
+.bk fieldset,
+.bk-dialog form {
+  display: flex;
+  align-items: end;
+  gap: 1rem;
+  flex-wrap: wrap;
+  border: 0;
+  padding: 1rem 0;
+  margin: 0;
+}
+.bk-dialog {
+  width: min(580px, 94vw);
+  max-height: 88dvh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 1.5rem;
+  background: var(--surface, #fff);
+  color: inherit;
+}
+.bk-dialog::backdrop {
+  background: #191d246e;
+}
+.bk-dialog form label {
+  flex: 1 1 100%;
+}
+.bk-dialog form input,
+.bk-dialog form select {
+  max-width: 100%;
+}
+.bk [role="status"]:empty,
+.bk-dialog [role="alert"]:empty {
+  display: none;
+}
+.bk-dialog [role="alert"] {
+  color: var(--red);
+}
+@media (max-width: 720px) {
+  .bk .bk-stats,
+  .bk .bk-pair {
+    grid-template-columns: 1fr;
+  }
+  .bk .bk-stats > div {
+    border: 0;
+    padding: 0.4rem 0;
+  }
+  .bk td {
+    overflow-wrap: anywhere;
+  }
+  .bk .bk-heading {
+    align-items: flex-start;
+  }
+}

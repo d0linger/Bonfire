@@ -1,0 +1,7 @@
+[
+  {"name":"R03 counted takings","opening":30000,"closing":42000,"supply":10000,"skim":65000,"expense":5000,"unbooked":72000,"net":72000},
+  {"name":"R04 closing cash returned","opening":30000,"closing":42000,"supply":10000,"skim":65000,"expense":5000,"returned":42000,"unbooked":72000,"net":72000},
+  {"name":"R05 named donation already included","opening":30000,"closing":42000,"supply":10000,"skim":65000,"expense":5000,"donation":10000,"unbooked":62000,"net":72000},
+  {"name":"R06 cash refund","opening":30000,"closing":40000,"supply":10000,"skim":65000,"expense":5000,"refund":2000,"unbooked":72000,"net":70000},
+  {"name":"Neutral deposits","opening":10000,"closing":25000,"deposit":9000,"depositReturn":4000,"unbooked":10000,"net":10000}
+]

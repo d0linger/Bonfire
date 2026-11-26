@@ -1,0 +1,224 @@
+[
+  {
+    "id": "invoice_transfer_a4",
+    "required": [
+      "organization.name",
+      "organization.address",
+      "recipient.display_name",
+      "recipient.address",
+      "document.id",
+      "document.number",
+      "document.issue_date",
+      "document.service_date_or_period",
+      "invoice.lines",
+      "invoice.total_cents",
+      "invoice.due_date",
+      "payment.account_holder",
+      "payment.iban",
+      "payment.reference",
+      "legal.invoice_tax_block_id"
+    ],
+    "optional": [
+      "organization.logo_asset_id",
+      "organization.contact",
+      "event.id",
+      "event.name",
+      "payment.bank_name",
+      "purpose.text_block_id",
+      "document.notes",
+      "recipient.salutation"
+    ]
+  },
+  {
+    "id": "invoice_cash_a4",
+    "required": [
+      "organization.name",
+      "organization.address",
+      "recipient.display_name",
+      "recipient.address",
+      "document.id",
+      "document.number",
+      "document.issue_date",
+      "document.service_date_or_period",
+      "invoice.lines",
+      "invoice.total_cents",
+      "payment.confirmation_id",
+      "payment.received_date",
+      "payment.received_cents",
+      "payment.cash_account_id",
+      "legal.invoice_tax_block_id"
+    ],
+    "optional": [
+      "organization.logo_asset_id",
+      "event.id",
+      "event.name",
+      "purpose.text_block_id",
+      "document.notes",
+      "collector.signature"
+    ]
+  },
+  {
+    "id": "donation_lfk_a6",
+    "required": [
+      "organization.name",
+      "organization.address",
+      "donation.id",
+      "donation.amount_cents",
+      "payment.confirmation_id",
+      "payment.received_date",
+      "payment.received_cents",
+      "document.id",
+      "document.number",
+      "document.issue_date",
+      "document.issue_place",
+      "donor.given_name",
+      "donor.family_name",
+      "donor.address",
+      "collector.display_name",
+      "legal.donation_receipt_block_id"
+    ],
+    "optional": [
+      "collector.signature"
+    ]
+  },
+  {
+    "id": "price_drinks_a4_3up",
+    "required": [
+      "event.id",
+      "event.template_bundle_version_id",
+      "price_list.version_id",
+      "price_list.items[].internal_label",
+      "price_list.items[].variant",
+      "price_list.items[].price_cents",
+      "print_batch.copies"
+    ],
+    "optional": [
+      "print_batch.header_label",
+      "print_batch.header_value",
+      "print_batch.third_column_label"
+    ]
+  },
+  {
+    "id": "price_food_a4_7up",
+    "required": [
+      "event.id",
+      "event.template_bundle_version_id",
+      "price_list.version_id",
+      "price_list.items[].internal_label",
+      "price_list.items[].price_cents",
+      "print_batch.copies"
+    ],
+    "optional": [
+      "print_batch.header_label",
+      "print_batch.header_value",
+      "print_batch.third_column_label"
+    ]
+  },
+  {
+    "id": "guest_poster_letter_or_a4",
+    "required": [
+      "organization.name",
+      "event.id",
+      "event.name",
+      "event.template_bundle_version_id",
+      "price_list.version_id",
+      "price_list.sections",
+      "price_list.items[].guest_label",
+      "price_list.items[].variant",
+      "price_list.items[].unit",
+      "price_list.items[].price_cents"
+    ],
+    "optional": [
+      "organization.logo_asset_id",
+      "event.date_or_period",
+      "price_list.items[].allergens",
+      "price_list.items[].side_or_supplier_note",
+      "purpose.text_block_id"
+    ]
+  },
+  {
+    "id": "donation_letter_a4_new",
+    "required": [
+      "organization.name",
+      "organization.address",
+      "recipient.display_name",
+      "recipient.address",
+      "document.id",
+      "document.issue_date",
+      "donation.id",
+      "donation.amount_cents"
+    ],
+    "optional": [
+      "organization.logo_asset_id",
+      "recipient.salutation",
+      "event.id",
+      "event.name",
+      "purpose.text_block_id",
+      "collector.display_name",
+      "collector.signature",
+      "document.notes"
+    ]
+  },
+  {
+    "id": "cash_allocation_count_a4_new",
+    "required": [
+      "organization.name",
+      "event.id",
+      "event.name",
+      "event.template_bundle_version_id",
+      "wallet.id",
+      "bar.id",
+      "cash_count.phase",
+      "cash_count.lines"
+    ],
+    "optional": [
+      "cash_count.manual_total_cents",
+      "document.notes",
+      "collector.signature"
+    ]
+  },
+  {
+    "id": "event_bar_result_a4_new",
+    "required": [
+      "organization.name",
+      "event.id",
+      "event.name",
+      "event.template_bundle_version_id",
+      "cash_movements",
+      "cash_count.lines"
+    ],
+    "optional": null
+  },
+  {
+    "id": "closing_review_a4_new",
+    "required": [
+      "organization.name",
+      "report.period",
+      "report.closing",
+      "report.review",
+      "report.export_set",
+      "document.id",
+      "document.issue_date"
+    ],
+    "optional": [
+      "organization.logo_asset_id",
+      "report.evidence_items",
+      "document.notes",
+      "collector.signature"
+    ]
+  },
+  {
+    "id": "journal_evidence_a4_landscape_new",
+    "required": [
+      "organization.name",
+      "report.period",
+      "report.export_set",
+      "document.id",
+      "document.issue_date"
+    ],
+    "optional": [
+      "organization.logo_asset_id",
+      "document.notes"
+    ]
+  }
+]
