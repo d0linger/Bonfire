@@ -104,7 +104,7 @@ try {
   const yearRow = page
     .locator(".fiscal-year-row")
     .filter({ has: page.locator('[data-year="' + yearA + '"]') });
-  assert.match(await yearRow.innerText(), /01\.01\.2046.*31\.10\.2046/);
+  assert.match(await yearRow.innerText(), /01\/01\/2046.*31\/10\/2046/);
   await yearRow.getByRole("button", { name: "2046", exact: true }).click();
   await page.getByRole("heading", { name: "Financial overview" }).waitFor();
   const opening = button("Opening balance missing");
@@ -155,7 +155,7 @@ try {
     .getByRole("listitem")
     .filter({ has: button(eventName) });
   await eventRow
-    .getByText("20.08.2046 – 21.08.2046", { exact: true })
+    .getByText("20/08/2046 – 21/08/2046", { exact: true })
     .waitFor();
   await eventRow.getByText("Open for bookings", { exact: true }).waitFor();
   await eventRow
@@ -259,7 +259,7 @@ try {
   await submit("record");
   await page
     .getByRole("alert")
-    .getByText(/Keine Serververbindung/)
+    .getByText(/The server is unreachable/)
     .waitFor();
   await context.setOffline(false);
   await submit("record");
@@ -295,12 +295,12 @@ try {
   await submit("record");
   await page
     .getByRole("alert")
-    .getByText(/nicht bestätigt/)
+    .getByText(/did not confirm this operation/)
     .waitFor();
   await submit("record");
   await page
     .getByRole("alert")
-    .getByText(/zuerst den Serverstand/)
+    .getByText(/Refresh the server records/)
     .waitFor();
   await modal
     .getByRole("button", { name: "Refresh entries" })
@@ -316,7 +316,7 @@ try {
   await opening.click();
   const priorMode = page.getByRole("radio", { name: "Carry forward from prior year" });
   await priorMode.check();
-  await page.getByText(/kein bestätigter Schlussbestand vor/).waitFor();
+  await page.getByText(/no confirmed closing balance/).waitFor();
   await page.getByRole("radio", { name: "Enter manually" }).check();
   assert.ok(await page.getByLabel("Amount in EUR").isVisible());
   await page.keyboard.press("Escape");

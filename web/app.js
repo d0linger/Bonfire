@@ -97,7 +97,7 @@ const select = (n, t, choices, selected) =>
     t,
     '<select name="' +
       esc(n) +
-      '">' +
+      '" aria-label="' + esc(t) + '">' +
       choices
         .map(([v, l]) =>
           selected !== undefined && v === selected
@@ -1523,7 +1523,7 @@ function records() {
                 eur(c.outstanding) +
                 "</td><td>" +
                 (c.originals
-                  .map((o) => "No. " + o.number + " · " + esc(o.dispatch))
+                  .map((o) => "No. " + o.number + " · " + esc(financialLabel(o.dispatch)))
                   .join("<br>") || "No original issued") +
                 (page === "Zahlungen"
                   ? ' <button type="button" class="secondary" data-claim-invoice="' +
