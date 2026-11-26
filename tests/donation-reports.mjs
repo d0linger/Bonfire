@@ -1,32 +1,40 @@
 import assert from "node:assert/strict";
 import { randomInt, randomUUID, createHash } from "node:crypto";
-import { api, admin, auth } from "./local-api.mjs";
-const year = randomInt(4000, 9000),
-  day = year + "-03-17";
-const event = await api("events", admin, {
-  Name: "Allgemeines Übungskassenbuch " + randomUUID().slice(0, 8),
-  General: false,
-  Starts: day,
-  Ends: day,
-});
+import { admin } from "./local-api.mjs";
 
-const prepare = (Name, Donor) =>
-  api("prepare", admin, { Event: event.ID, Name, Donor });
-const device = await prepare("Meldeprüfung", true),
-  basicDevice = await prepare("Normales Gerät", false);
-const period = "Übung-Zeitraum";
-const command = (Action, data = {}, status = 200, d = device) =>
-  api("donation-reports", auth(d), { Action, Period: period, ...data }, status);
-let seq = 0;
-const make = (Kind, Label, data, Target = randomUUID(), Base = 0) => ({
-  ID: randomUUID(),
-  Seq: ++seq,
-  Target,
-  Base,
-  Kind,
-  Data: { Label, Date: day, ...data },
+const base = new URL(process.env.BONFIRE_URL);
+assert.ok(["127.0.0.1", "localhost"].includes(base.hostname) && base.port !== "8137");
+const login = await fetch(new URL("/api/login", base), {
+  method: "POST",
+  headers: { Authorization: admin },
 });
-const send = (...Ops) => api("sync", auth(device), { Ops });
+assert.equal(login.status, 200);
+const cookie = login.headers.getSetCookie()[0].split(";")[0];
+
+async function call(route, body, status = 200, headers = {}) {
+  const response = await fetch(new URL("/api/" + route, base), {
+    method: "POST",
+    headers: { Cookie: cookie, "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+  const value = await response.text();
+  assert.equal(response.status, status, value.slice(0, 160));
+  return status === 200 ? JSON.parse(value) : null;
+}
+const year = randomInt(4000, 9000);
+const day = year + "-03-17";
+const fiscalYear = await call("years", { Name: "Donation exercise " + year, Starts: day, Ends: day });
+const createEvent = (Name) => call("events", { Year: fiscalYear.ID, Name, Starts: day, Ends: day });
+const event = await createEvent("Donation exercise");
+const privileged = { "X-Bonfire-Event": event.ID, "X-Bonfire-Donor": "true" };
+const ordinary = { "X-Bonfire-Event": event.ID };
+const period = "Synthetic reporting period";
+const command = (Action, data = {}, status = 200, headers = privileged) =>
+  call("donation-reports", { Action, Period: period, ...data }, status, headers);
+const make = (Kind, Label, data, Target = randomUUID(), Base = 0) => ({
+  ID: randomUUID(), Target, Base, Kind, Data: { Label, Date: day, ...data },
+});
+const send = (...Ops) => call("online?event=" + event.ID, { Ops }, 200, privileged);
 const name = "Beispiel-" + randomUUID().slice(0, 8);
 const fields = { given: "Mira", family: name, birth: "1990-01-25" };
 const contact = make("contact", name, { Fields: fields }),
@@ -48,7 +56,7 @@ await send(
   missing,
   donor("Andere Periode", 800, { Fields: { reporting: "Vorzeitraum" } }),
 );
-await command("Vorschau", {}, 403, basicDevice);
+await command("Vorschau", {}, 403, ordinary);
 const snapshot = await command("Vorschau");
 assert.equal(snapshot.daten.SummeCent, 700);
 assert.deepEqual(
@@ -117,17 +125,8 @@ const changed = make(
 );
 await send(changed);
 await decide("Exportiert", { Report: replacement }, 422);
-const unrelated = await api("events", admin, {
-  Name: "Getrennte Testveranstaltung",
-  Starts: day,
-  Ends: day,
+const unrelated = await createEvent("Unrelated exercise");
+await command("Datei", { Report: report }, 422, {
+  ...privileged, "X-Bonfire-Event": unrelated.ID,
 });
-const stranger = await api("prepare", admin, {
-  Event: unrelated.ID,
-  Name: "Andere Leitung",
-  Donor: true,
-});
-await command("Datei", { Report: report }, 422, stranger);
-console.log(
-  "PASS Spendenprüfung, Meldezeitraum, Ausschlüsse, externe Statusnachweise, Prüfsumme und unveränderlicher Korrekturverlauf",
-);
+console.log("PASS online donation review, restricted donor data, immutable exports and corrections");
