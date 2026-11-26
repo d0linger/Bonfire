@@ -265,12 +265,18 @@ export async function mountBackup(host, { api }) {
   host.addEventListener("input", (e) => {
     if (e.target.closest('[data-bk-form="schedule"]')) scheduleDirty = true;
   });
+  let refreshRevision = 0;
   async function refresh(poll = false) {
     clearTimeout(timer);
-    state = await api("admin/backup?files=all");
-    if (!host.isConnected) return;
-    if (!poll || (!dialog?.open && !scheduleDirty)) render();
-    if (state.active) {
+    const revision = ++refreshRevision;
+    const latest = await api("admin/backup?files=all");
+    if (!host.isConnected || revision !== refreshRevision) return;
+    const editing = poll && (dialog?.open || scheduleDirty);
+    if (!editing) {
+      state = latest;
+      render();
+    }
+    if (editing || latest.active) {
       timer = setTimeout(() => {
         if (host.isConnected) refresh(true).catch((e) => message(e.message));
       }, 1500);
