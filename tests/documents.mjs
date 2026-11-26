@@ -88,10 +88,11 @@ try {
       "D1",
       "2025",
     );
-    const doc = (x, styles) =>
+    const doc = (x, styles, parts = {}) =>
       new File(
         [
           b.zipSync({
+            ...parts,
             ...(styles ? { "word/styles.xml": b.strToU8('<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' + styles + '</w:styles>') } : {}),
             "word/document.xml": b.strToU8(
               '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' +
@@ -134,6 +135,13 @@ try {
       catch (cause) { error = cause; }
       if (blocked ? error?.message !== "Unsupported Word break: pageBreakBefore" : text !== "Receipt") throw Error("Incorrect inherited paragraph break");
     }
+    const alternate = doc('<w:p><w:r><w:t>Receipt</w:t></w:r></w:p>', null, {
+      "word/_rels/document.xml.rels": b.strToU8('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rS" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="custom/layout.xml"/></Relationships>'),
+      "word/custom/layout.xml": b.strToU8('<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' + styles + '</w:styles>'),
+    });
+    let alternateError;
+    try { await b.importTemplate(alternate); } catch (error) { alternateError = error; }
+    if (alternateError?.message !== "Text import requires styles in word/styles.xml.") throw Error("Alternate styles part was silently ignored");
     let rejected = false;
     try {
       await b.importTemplate(
