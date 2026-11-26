@@ -84,3 +84,47 @@ export function updateFloatInput(form) {
   }
   input.readOnly = counted;
 }
+
+export function denominationFields() {
+  const label = (title, control) => "<label>" + title + control + "</label>";
+  return '<div class="count-pieces"><h3>Denominations</h3><div class="pieces">' +
+      denom
+        .map(
+          (c) =>
+            '<div class="piece-row">' +
+            label(
+              eur(c),
+              '<input name="coin' +
+                c +
+                '" aria-label="Quantity of ' +
+                esc(eur(c)) +
+                '" min="0" max="1000000" inputmode="numeric" type="number" value="0" step="1"><small data-piece="' +
+                c +
+                '">' +
+                esc(eur(0)) +
+                "</small>",
+            ) +
+            '<div class="piece-steps">' +
+            [1, 2, 5, 10]
+              .map(
+                (step) =>
+                  '<button type="button" class="secondary" data-denomination="' +
+                  c +
+                  '" data-step="' +
+                  step +
+                  '" aria-label="Add ' +
+                  step +
+                  " units at " +
+                  esc(eur(c)) +
+                  '">+' +
+                  step +
+                  "</button>",
+              )
+              .join("") +
+            "</div></div>",
+        )
+        .join("") +
+      '</div><p class="count-total">Counted amount <output id="count-total" aria-live="polite">' +
+      esc(eur(0)) +
+      '</output></p></div>';
+}

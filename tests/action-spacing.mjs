@@ -474,6 +474,7 @@ try {
         "Count opening balance",
         "Add change",
         "Count closing balance",
+        "Bulk wallet entry",
       ]);
       await actions.getByText("More actions", { exact: true }).click();
       await check("More wallet actions", actions);

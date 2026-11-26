@@ -1,6 +1,7 @@
+import { bulkWalletFields, bindWalletBatch, clearWalletBatches, submitWalletBatch } from "./wallet-batch.js";
 import { fiscalPicker } from "./fiscal-picker.js";
 import { fireDirectory, balanceTable, balanceLines } from "./fire-accounts.js";
-import { floatFields, openingFloatHint, suggestedFloat, updateFloatInput, walletDirectory, walletPicker } from "./wallet-catalog.js";
+import { denominationFields, floatFields, openingFloatHint, suggestedFloat, updateFloatInput, walletDirectory, walletPicker } from "./wallet-catalog.js";
 import { mountAccountSecurity } from "./account-security.js";
 import { supportsPasskeys, usePasskey } from "./personal-passkeys.js";
 import { canOpenConsole } from "./workplace.js";
@@ -259,6 +260,7 @@ async function api(path, body, token = auth) {
   if (!response.ok) {
     const message = (await response.text()).slice(0, 240);
     if (!offlineEnabled && response.status === 401 && logged) {
+      clearWalletBatches();
       closeEditor();
       s = null;
       onlineUser = null;
@@ -266,8 +268,12 @@ async function api(path, body, token = auth) {
       donorAccess = false;
       show();
     }
-    throw Error(message);
+    throw Object.assign(new Error(message), {
+      status: response.status,
+      walletBatchCommitted: path === "events/wallet-batch" && response.headers.get("X-Bonfire-Wallet-Batch") === "committed",
+    });
   }
+  if (path === "logout") clearWalletBatches();
   return response.json();
 }
 import { donationReport } from "./donors.js";
@@ -1311,46 +1317,7 @@ function formFields(k, countPhase = "") {
           '<input name="amount" inputmode="decimal" placeholder="0,00">',
         );
     f +=
-      '</div><div class="count-pieces"><h3>Denominations</h3><div class="pieces">' +
-      denom
-        .map(
-          (c) =>
-            '<div class="piece-row">' +
-            label(
-              eur(c),
-              '<input name="coin' +
-                c +
-                '" aria-label="Quantity of ' +
-                esc(eur(c)) +
-                '" min="0" max="1000000" inputmode="numeric" type="number" value="0" step="1"><small data-piece="' +
-                c +
-                '">' +
-                esc(eur(0)) +
-                "</small>",
-            ) +
-            '<div class="piece-steps">' +
-            [1, 2, 5, 10]
-              .map(
-                (step) =>
-                  '<button type="button" class="secondary" data-denomination="' +
-                  c +
-                  '" data-step="' +
-                  step +
-                  '" aria-label="Add ' +
-                  step +
-                  " units at " +
-                  esc(eur(c)) +
-                  '">+' +
-                  step +
-                  "</button>",
-              )
-              .join("") +
-            "</div></div>",
-        )
-        .join("") +
-      '</div><p class="count-total">Counted amount <output id="count-total" aria-live="polite">' +
-      esc(eur(0)) +
-      '</output></p></div><div class="form">';
+      '</div>' + denominationFields() + '<div class="form">';
   }
   if (edit) f += field("Note", "Reason for correction", "text", true);
   else extra += field("Note", "Note / text snippet");
@@ -1780,6 +1747,7 @@ function walletActions() {
     walletButton("count:Anfang", "Count opening balance") +
     walletButton("supply", "Add change") +
     walletButton("count:Ende", "Count closing balance") +
+    (!offlineEnabled && !s.event.General ? '<button type="button" class="secondary" data-act="bulkWallets" aria-haspopup="dialog">Bulk wallet entry</button>' : "") +
     '</div><details class="wallet-more"' +
     (article.querySelector(".wallet-more[open]") ? " open" : "") +
     '><summary>More actions</summary><div class="wallet-actions">' +
@@ -4079,6 +4047,18 @@ async function submit(f) {
       Active: vals.Active !== "false", ...suggestedFloat(f),
     });
   }
+  if (id === "bulk-wallets") {
+    canWrite();
+    if (offlineEnabled || s.event.General || page !== "Geldtaschen" || s.event.ID !== f.dataset.event)
+      throw Error("Reopen this dialog in the original event.");
+    const close = await submitWalletBatch(f, api, async () => {
+      await sync();
+      return rows();
+    });
+    if (close === false) return false;
+    show();
+    return;
+  }
   if (id === "assign-wallets") {
     canWrite();
     if (s.event.ID !== f.dataset.event || s.event.General) throw Error("Reopen the event wallet list.");
@@ -5200,8 +5180,8 @@ document.addEventListener("submit", (e) => {
   action(async () => {
     const inEditor = entryDialog.contains(e.target);
     if (inEditor) entryDialog.querySelector(".entry-error").replaceChildren();
-    await submit(e.target);
-    if (inEditor) closeEditor();
+    const close = await submit(e.target);
+    if (inEditor && close !== false) closeEditor();
   });
 });
 function overlapsCountScope(entries, pooled, phase) {
@@ -5627,6 +5607,17 @@ document.addEventListener("click", (e) => {
   action(async () => {
     if (b.dataset.catalogEdit) {
       openCatalogEditor(b);
+      return;
+    }
+    if (b.dataset.act === "bulkWallets") {
+      canWrite();
+      if (offlineEnabled || s.event.General || page !== "Geldtaschen") return;
+      const event = s.event, entries = rows();
+      openEditor(b, "Bulk wallet entry",
+        '<p class="booking-target">Event <strong>' + esc(event.Name) + '</strong></p>' +
+        form("bulk-wallets", bulkWalletFields(event, entries, defaultDay(event), select, field),
+          "Save wallet entries", button("cancel", "Cancel", true)));
+      bindWalletBatch(entryDialog.querySelector("form"), event, entries, onlineUser.user);
       return;
     }
     if (b.dataset.act === "pickWallets") {
