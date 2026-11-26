@@ -103,10 +103,8 @@ const auditProjection = `WITH projected AS (
              ELSE 'Facheintrag' END || ' · ' || a.action
       WHEN a.action LIKE 'grant %' THEN 'Zugriff zugewiesen'
       WHEN a.action LIKE 'revoke %' THEN 'Zugriff entzogen'
-      WHEN a.action LIKE 'reopen %' OR a.action LIKE 'Arbeitsbereich wieder geöffnet %' THEN 'Arbeitsbereich wieder geöffnet'
-      WHEN a.action LIKE 'Geschäftsjahr wieder geöffnet %' THEN 'Geschäftsjahr wieder geöffnet'
-      WHEN a.action LIKE 'Kontozuordnung aktiviert %' THEN 'Kontozuordnung aktiviert'
-      WHEN a.action LIKE 'Kontozuordnung deaktiviert %' THEN 'Kontozuordnung deaktiviert'
+      WHEN a.action LIKE 'reopen %' THEN 'Arbeitsbereich wieder geöffnet'
+      WHEN management.prefix IS NOT NULL THEN management.prefix
       ELSE left(split_part(split_part(a.action,' · ',1),': ',1),160) END AS action,
  CASE WHEN a.action IN ('Anmeldung erfolgreich','Abmeldung') AND a.subject='Sitzung' THEN 'Session'
       WHEN a.action='Anmeldung abgewiesen' AND a.subject='Passwort oder zweiter Faktor' THEN 'Password or second factor'
@@ -122,7 +120,8 @@ const auditProjection = `WITH projected AS (
       WHEN a.action='Anmeldung abgewiesen' THEN 'Abgewiesen'
       ELSE coalesce(o.outcome,'') END AS outcome, o.base,
  o.local_time, a.event AS event_id,e.fiscal_year AS year_id,o.id AS op_id,
- CASE WHEN a.action LIKE ANY(ARRAY['Eintrag entfernt · %','Buchung storniert · %','Eintrag umgebucht · %','Umbuchung aus Veranstaltung · %'])
+ CASE WHEN management.prefix IS NOT NULL THEN substr(a.action,length(management.prefix)+2)
+      WHEN a.action LIKE ANY(ARRAY['Eintrag entfernt · %','Buchung storniert · %','Eintrag umgebucht · %','Umbuchung aus Veranstaltung · %'])
       THEN substr(a.action,strpos(a.action,' · ')+3)
       WHEN a.action LIKE 'Storno und Ersatz · %' THEN substr(a.action,length('Storno und Ersatz · ')+1)
       WHEN a.action LIKE 'beibehalten: %' OR a.action LIKE 'übernehmen: %' OR a.action LIKE 'Periode wieder geöffnet: %' THEN substr(a.action,strpos(a.action,': ')+2)
@@ -130,6 +129,11 @@ const auditProjection = `WITH projected AS (
       WHEN a.action LIKE 'grant %' OR a.action LIKE 'revoke %' OR a.action LIKE 'reopen %' THEN substr(a.action,strpos(a.action,' ')+1)
       ELSE '' END AS reason
  ` + auditJoins + `
+ LEFT JOIN LATERAL (
+   SELECT prefix FROM unnest(ARRAY['Arbeitsbereich wieder geöffnet','Geschäftsjahr wieder geöffnet',
+     'Kontozuordnung aktiviert','Kontozuordnung deaktiviert']) AS actions(prefix)
+   WHERE starts_with(a.action,prefix || ' ')
+ ) management ON true
  WHERE ($1='Admin' OR EXISTS (SELECT 1 FROM grants_event g WHERE g.event=a.event AND g.username=$2))
  AND ($3='' OR e.fiscal_year=nullif($3,'')::uuid) AND ($4='' OR a.event=nullif($4,'')::uuid)
  AND ($5='' OR a.username=$5)
