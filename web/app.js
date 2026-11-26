@@ -4531,8 +4531,6 @@ async function submit(f) {
     );
   }
   if (id === "preview") {
-    imported = [];
-    importFile = null;
     const result = vals.sourceRole === "Journal"
       ? await preview(vals.file, rows())
       : await historyPreview(vals.file, vals.sourceRole, vals.year);

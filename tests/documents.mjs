@@ -88,6 +88,16 @@ try {
       "D1",
       "2025",
     );
+    const budgetOnly = b.strFromU8(variant[sheet])
+      .replace("Ausgaben", "Globalbudget 2025")
+      .replace("Marktgemeinde Musterort", "Globalbudget 2025");
+    const budgetRows = await b.historyPreview(
+      new File([b.zipSync({ ...variant, [sheet]: b.strToU8(budgetOnly) })], "budget.xlsx"),
+      "D1",
+      "2025",
+    );
+    if (budgetRows.some((r) => r.cell === "C2" || r.cell === "D2"))
+      throw Error("A dated budget column appeared in the journal preview");
     const doc = (x, styles, parts = {}) =>
       new File(
         [

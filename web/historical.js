@@ -131,9 +131,9 @@ export async function historyPreview(file, role, year) {
           ),
         ) &&
         texts.some((c) =>
-          /^(einnahmen?|ausgaben?|betrag|soll|haben|eingang|ausgang|globalbudget|gemeinde)$/i.test(
+          /^(einnahmen?|ausgaben?|betrag|soll|haben|eingang|ausgang)$/i.test(
             c.value.trim(),
-          ),
+          ) || excluded(c.value),
         );
       if (header) {
         headings = new Map(texts.map((c) => [c.col, c.value.trim()]));
