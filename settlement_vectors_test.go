@@ -107,3 +107,28 @@ func TestPooledSettlementCompleteness(t *testing.T) {
 		t.Fatal("closing with missing attachment accepted")
 	}
 }
+
+func TestWalletTransferBetweenOpeningCounts(t *testing.T) {
+	n := int64(100)
+	zero := int64(0)
+	day := "2026-06-01"
+	rows := []row{
+		{ID: "a", Kind: "wallet"}, {ID: "b", Kind: "wallet"},
+		{Kind: "count", Data: data{Wallet: "a", Phase: "Anfang", Date: day, PostingOrder: 2, Amount: &zero}},
+		{Kind: "count", Data: data{Wallet: "b", Phase: "Anfang", Date: day, PostingOrder: 4, Amount: &zero}},
+		{Kind: "supply", Data: data{Wallet: "a", Date: day, PostingOrder: 1, Amount: &n}},
+		{Kind: "transfer", Data: data{Account: "a", To: "b", Date: day, PostingOrder: 3, Amount: &n}},
+		{Kind: "count", Data: data{Phase: "Ende", Fields: map[string]string{"countScope": "all"}, Date: day, PostingOrder: 5, Amount: &zero}},
+	}
+	if got, known := pooledRevenue(rows); !known || got != n {
+		t.Fatalf("pooled settlement %d (%t)", got, known)
+	}
+	rows = append(rows, row{Kind: "donation", Data: data{Method: "Bar", Date: day, PostingOrder: 3, Amount: &n}})
+	if _, known := pooledRevenue(rows); known {
+		t.Fatal("unassigned cash between wallet openings must be reviewed")
+	}
+	rows = append(rows, row{Kind: "count", Data: data{Phase: "Ende", Wallet: "a", Date: day, PostingOrder: 5, Amount: &zero}})
+	if got, known := walletRevenue(rows, "a"); !known || got != n {
+		t.Fatalf("wallet settlement %d (%t)", got, known)
+	}
+}

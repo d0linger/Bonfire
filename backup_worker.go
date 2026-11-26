@@ -326,7 +326,9 @@ func (b *backupWorker) run(q backupCommand, actor, key string, days int, pr *bac
 	if err != nil {
 		result.Outcome = "failed"
 		result.Message = safeBackupError(err)
-		if errors.Is(err, errRestoredPending) {
+		if errors.Is(err, errRestoreUnconfirmed) {
+			result.Message = "The database was switched, but the connection could not be verified. The recovery journal was retained."
+		} else if errors.Is(err, errRestoredPending) {
 			result.Outcome = "warning"
 			result.Message = "Restored database is live. Audit or journal cleanup is pending."
 		}
@@ -522,18 +524,18 @@ func runBackupWorker() error {
 		if removeErr != nil {
 			return removeErr
 		}
-		directory, err := os.Open(backupKeyDirectory)
-		if err != nil {
-			return err
-		}
-		if err = errors.Join(directory.Sync(), directory.Close()); err != nil {
-			return err
-		}
 		b.key, err = os.ReadFile(backupKeyPath)
 		if err != nil {
 			return err
 		}
 	} else if err != nil {
+		return err
+	}
+	directory, err := os.Open(backupKeyDirectory)
+	if err != nil {
+		return err
+	}
+	if err = errors.Join(directory.Sync(), directory.Close()); err != nil {
 		return err
 	}
 	if len(b.key) != 32 {

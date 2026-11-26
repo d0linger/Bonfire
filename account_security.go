@@ -138,6 +138,7 @@ func (a *app) reserveSecurityAttempt(key string) error {
 	defer a.mu.Unlock()
 	if time.Now().After(a.reset) {
 		clear(a.attempts)
+		a.overflowAttempts = false
 		a.reset = time.Now().Add(time.Minute)
 	}
 	if a.attempts[key] >= 8 {
