@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -45,4 +47,25 @@ func FuzzOnlineRequest(f *testing.F) {
 			}
 		}
 	})
+}
+
+func TestOnlineFailureMetric(t *testing.T) {
+	for _, tc := range []struct {
+		method, path string
+		code         int
+		increment    uint64
+	}{
+		{"POST", "/api/online", 500, 1}, {"POST", "/api/online", 503, 1},
+		{"POST", "/api/online", 409, 0}, {"POST", "/api/online", 401, 0},
+		{"POST", "/api/sync", 500, 0}, {"GET", "/api/online", 500, 0},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		before := onlineSaveErrors.Load()
+		route(func(context.Context, http.ResponseWriter, *http.Request) (any, error) {
+			return nil, problem{tc.code, "fixture"}
+		})(httptest.NewRecorder(), req)
+		if got := onlineSaveErrors.Load() - before; got != tc.increment {
+			t.Errorf("%s %s %d: increment %d", tc.method, tc.path, tc.code, got)
+		}
+	}
 }

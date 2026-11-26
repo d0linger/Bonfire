@@ -860,5 +860,6 @@ func (a *app) metrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain")
+	fmt.Fprintf(w, "bonfire_online_request_errors_total %d\n", onlineSaveErrors.Load())
 	fmt.Fprintf(w, "bonfire_devices_unsealed %d\nbonfire_conflicts_open %d\nbonfire_database_bytes %d\nbonfire_last_backup_timestamp_seconds %d\nbonfire_devices_stale %d\nbonfire_sync_errors_total %d\nbonfire_request_errors_total %d\n", open, clashes, dbBytes, backupAt, stale, rejectedSync.Load(), failedRequests.Load())
 }
