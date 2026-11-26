@@ -819,7 +819,7 @@ func checkBalance(entries []row, accounts bool) error {
 		for _, posting := range postings[k] {
 			knownOrder := posting.BalanceOrder > 0 && v.BalanceOrder > 0
 			if posting.Date > v.Date || knownOrder && posting.BalanceOrder >= v.BalanceOrder ||
-				!knownOrder && posting.Date != "" && posting.Date == v.Date {
+				!knownOrder && posting.Date != "" {
 				return fail("Confirm the observed balance again after the final posting.")
 			}
 		}
