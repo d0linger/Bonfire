@@ -217,7 +217,7 @@ func (b *backupWorker) startIfDue(q backupCommand, actor, schedule string) error
 		}
 		if q.Action == "promote" {
 			pr := b.state.Probe
-			if q.Confirmation != "WIEDERHERSTELLEN" || pr == nil || pr.Name != q.Name || pr.Target != q.Target || pr.Manifest.Installation == "" || time.Since(pr.At) > time.Hour {
+			if !confirmedRestore(q.Confirmation) || pr == nil || pr.Name != q.Name || pr.Target != q.Target || pr.Manifest.Installation == "" || time.Since(pr.At) > time.Hour {
 				return errors.New("Aktuelle bestandene Probe dieser Sicherung und Bestätigung erforderlich")
 			}
 		}
