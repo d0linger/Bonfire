@@ -137,7 +137,7 @@ try {
     "2046-01-01",
     "175,50",
   );
-  await go("Veranstaltungen");
+  await go("Events");
   await button("Veranstaltung anlegen").click();
   await page.getByRole("dialog", { name: "Veranstaltung anlegen" }).waitFor();
   const event = page.locator("#event");
@@ -151,7 +151,7 @@ try {
     "2046-08-20",
     "0,00",
   );
-  await go("Veranstaltungen");
+  await go("Events");
   const eventRow = page
     .getByRole("listitem")
     .filter({ has: button(eventName) });
@@ -218,7 +218,7 @@ try {
       .evaluate((el) => el === document.activeElement),
     true,
   );
-  await go("Kassenbuch");
+  await go("Cashbook");
   await page
     .getByRole("heading", { name: "Cashbook", exact: true })
     .waitFor();
@@ -266,7 +266,7 @@ try {
   await submit("record");
   await page.getByRole("cell", { name: booking, exact: true }).waitFor();
   await page.reload();
-  await go("Kassenbuch");
+  await go("Cashbook");
   await page.getByRole("cell", { name: booking, exact: true }).waitFor();
   await page
     .getByRole("row")
@@ -359,7 +359,7 @@ try {
     await page.locator(".kpi.featured strong").innerText(),
     /228,50/,
   );
-  await go("Veranstaltungen");
+  await go("Events");
   await page
     .getByText("Für dieses Geschäftsjahr gibt es noch keine Veranstaltung.")
     .waitFor();
@@ -404,7 +404,7 @@ try {
       ops[0].Kind + ": " + (await setup.text()),
     );
   }
-  await go("Veranstaltungen");
+  await go("Events");
   await button(closingFest).click();
   const closeDialog = async (name, reason) => {
     await button(name).click();
@@ -416,25 +416,25 @@ try {
   };
   await closeDialog("Veranstaltung abschließen");
   await button("Veranstaltung wieder öffnen").waitFor();
-  await go("Übersicht");
+  await go("Overview");
   await closeDialog("Geschäftsjahr abschließen");
   await page
     .getByText("Geschäftsjahr abgeschlossen · Nur Lesen", { exact: true })
     .waitFor();
-  await go("Veranstaltungen");
+  await go("Events");
   await button(closingFest).waitFor();
   assert.equal(await button("Veranstaltung anlegen").count(), 0);
   assert.equal(await button("Veranstaltungsbuchung erfassen").count(), 0);
   await button(closingFest).click();
   assert.equal(await button("Veranstaltung wieder öffnen").count(), 0);
-  await go("Übersicht");
+  await go("Overview");
   await closeDialog("Geschäftsjahr wieder öffnen", "Korrektur im Test");
-  await go("Veranstaltungen");
+  await go("Events");
   await button(closingFest).click();
   await closeDialog("Veranstaltung wieder öffnen", "Beleg ergänzen");
   await button("Veranstaltung abschließen").waitFor();
   await chooseYear(yearA);
-  await go("Veranstaltungen");
+  await go("Events");
   const figures = eventRow.locator(".event-figures");
   await figures.waitFor();
   assert.deepEqual(await figures.locator("dt").allTextContents(), [

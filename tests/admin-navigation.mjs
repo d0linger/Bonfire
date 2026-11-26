@@ -72,7 +72,7 @@ try {
     assert.equal(await page.locator("#workspace-picker select").count(), 0);
     if (name === "Backup") {
       await view
-        .getByRole("button", { name: "Wiederherstellen", exact: true })
+        .getByRole("button", { name: "Restore", exact: true })
         .click();
       await view.locator("dialog[open]").waitFor();
       await page.keyboard.press("Escape");
@@ -166,7 +166,7 @@ try {
   await page.locator("#menu-toggle").click();
   await group.getByRole("button", { name: "Backup", exact: true }).click();
   await view
-    .getByRole("button", { name: "Jetzt sichern", exact: true })
+    .getByRole("button", { name: "Back up now", exact: true })
     .waitFor();
   assert.ok(
     await page.evaluate(

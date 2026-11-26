@@ -78,3 +78,32 @@ func TestCountCutoff(t *testing.T) {
 		t.Fatalf("pooled settlement = %d, valid = %v", got, ok)
 	}
 }
+
+func TestPooledSettlementCompleteness(t *testing.T) {
+	zero, end := int64(0), int64(500)
+	wallet := row{ID: "w", Kind: "wallet"}
+	opening := row{Kind: "count", Data: data{Wallet: "w", Phase: "Anfang", Amount: &zero}}
+	closing := row{Kind: "count", Data: data{Phase: "Ende", Amount: &end, Fields: map[string]string{"countScope": "all"}}}
+	settlement := row{ID: pooledSettlement, Kind: "income", Data: data{Amount: &end}}
+	if err := validateSettlement([]row{wallet, opening, closing, settlement}); err != nil {
+		t.Fatal(err)
+	}
+	pooledStart := row{Kind: "count", Data: data{Phase: "Anfang", Amount: &zero, Fields: map[string]string{"countScope": "all"}}}
+	for _, rows := range [][]row{
+		{wallet, closing},
+		{wallet, opening, closing, pooledStart},
+		{wallet, opening, closing, {Kind: "count", Data: data{Wallet: "w", Phase: "Ende", Amount: &end}}},
+		{wallet, opening, closing, {ID: "settlement:w", Kind: "income", Data: data{Amount: &end}}},
+		{wallet, closing, {Kind: "count", Data: data{Wallet: "other", Phase: "Anfang", Amount: &zero}}},
+	} {
+		if _, known := pooledRevenue(rows); known {
+			t.Fatal("ambiguous or missing pooled opening accepted")
+		}
+	}
+	if err := validateSettlement([]row{wallet, opening, closing}); err == nil {
+		t.Fatal("closing without a booked pooled settlement accepted")
+	}
+	if err := validateSettlement([]row{{Kind: "attachment"}}); err == nil {
+		t.Fatal("closing with missing attachment accepted")
+	}
+}

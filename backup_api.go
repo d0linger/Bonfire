@@ -22,6 +22,8 @@ type backupCommand struct {
 	Confirmation string `json:"confirmation"`
 }
 
+func confirmedRestore(value string) bool { return value == "RESTORE" || value == "WIEDERHERSTELLEN" }
+
 type backupAuthorization struct {
 	backupCommand
 	Password string `json:"password,omitempty"`
@@ -91,7 +93,7 @@ func (a *app) proxyBackup(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if command.Action == "promote" {
-				if command.Confirmation != "WIEDERHERSTELLEN" || command.Password == "" {
+				if !confirmedRestore(command.Confirmation) || command.Password == "" {
 					http.Error(w, "Passwort und ausdrückliche Bestätigung erforderlich.", 422)
 					return
 				}

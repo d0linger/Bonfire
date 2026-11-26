@@ -61,6 +61,22 @@ try {
     await page.locator('#login button').click();
     await page.locator('#fiscal-switch').waitFor({state:"attached"});
     await audit("workspace");
+    async function openNavigation() {
+      if (!(await page.locator("nav").isVisible())) await page.locator("#menu-toggle").click();
+    }
+    await openNavigation();
+    await page.locator('nav [data-act="accountSecurity"]').click();
+    await page.locator('[data-personal="password"]').click();
+    await page.getByRole("dialog").getByLabel("Current password").waitFor();
+    await audit("password change dialog");
+    await page.keyboard.press("Escape");
+    await openNavigation();
+    const administration = page.locator("#admin-navigation");
+    if ((await administration.getAttribute("open")) === null) await administration.locator("summary").click();
+    await administration.locator('[data-page="Audit-Log"]').click();
+    await page.locator("button[data-entry]").first().click();
+    await page.locator(".ops-detail:not([hidden])").waitFor();
+    await audit("expanded audit event");
     await page.reload();
     await page.locator('#fiscal-switch').waitFor({state:"attached"});
     assert.equal(await page.locator("#login").count(),0);
