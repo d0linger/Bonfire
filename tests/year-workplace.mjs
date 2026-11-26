@@ -66,7 +66,7 @@ try {
     await f.locator("[name=Ends]").fill(end);
     await submit("fiscal-year");
     await page
-      .getByRole("heading", { name: "Finanzen im Überblick" })
+      .getByRole("heading", { name: "Financial overview" })
       .waitFor();
     assert.ok(
       (await page.locator("#workspace-picker").innerText()).includes(
@@ -106,7 +106,7 @@ try {
     .filter({ has: page.locator('[data-year="' + yearA + '"]') });
   assert.match(await yearRow.innerText(), /01\.01\.2046.*31\.10\.2046/);
   await yearRow.getByRole("button", { name: "2046", exact: true }).click();
-  await page.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
+  await page.getByRole("heading", { name: "Financial overview" }).waitFor();
   const opening = button("Opening balance missing");
   const enterOpening = async (target, date, amount) => {
     await opening.click();
@@ -124,7 +124,7 @@ try {
     await dialog.getByLabel("Amount in EUR").fill(amount);
     await submit("record");
     await page
-      .getByText("Mit erfasstem Anfangsbestand", { exact: true })
+      .getByText("Opening balance recorded", { exact: true })
       .waitFor();
     assert.equal(await opening.count(), 0);
     assert.ok(
@@ -203,7 +203,7 @@ try {
   const home = page.locator("a.brand-home");
   await home.focus();
   await home.press("Enter");
-  await page.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
+  await page.getByRole("heading", { name: "Financial overview" }).waitFor();
   assert.ok(
     (await page.locator(".kpi.featured strong").innerText()).includes("175,50"),
   );
@@ -352,7 +352,7 @@ try {
   assert.match(await page.locator(".year-carry-preview").innerText(), /228,50/);
   await submit("year-carry");
   await page
-    .getByText("Mit erfasstem Anfangsbestand", { exact: true })
+    .getByText("Opening balance recorded", { exact: true })
     .waitFor();
   assert.match(
     await page.locator(".kpi.featured strong").innerText(),
@@ -453,12 +453,12 @@ try {
   assert.equal(
     await page
       .locator(".kpi")
-      .filter({ hasText: "Veranstaltungsergebnis" })
+      .filter({ hasText: "Event result" })
       .locator("strong")
       .innerText(),
     listedResult,
   );
-  await button("Veranstaltungsbuchungen öffnen").click();
+  await button("Open event transactions").click();
   await page.getByRole("cell", { name: eventBooking, exact: true }).waitFor();
   assert.equal(
     await page.getByRole("cell", { name: booking, exact: true }).count(),
@@ -509,7 +509,7 @@ try {
   await writer.getByRole("button", { name: "Veranstaltungen öffnen" }).click();
   await writer.getByRole("button", { name: eventName, exact: true }).click();
   await writer
-    .getByRole("button", { name: "Veranstaltungsbuchungen öffnen" })
+    .getByRole("button", { name: "Open event transactions" })
     .click();
   await writer.getByRole("cell", { name: eventBooking, exact: true }).waitFor();
   await writer

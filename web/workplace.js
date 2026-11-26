@@ -282,9 +282,9 @@ export function flowAmount(r) {
 }
 export function ledger(rows) {
   if (!rows.length)
-    return '<p class="empty">Hier liegen noch keine Buchungen vor.</p>';
+    return '<p class="empty">No transactions recorded yet.</p>';
   return (
-    '<div class="list ledger-list"><table><thead><tr><th>Datum</th><th>Bezeichnung</th><th>Vorgang</th><th class="num">Betrag</th></tr></thead><tbody>' +
+    '<div class="list ledger-list"><table><thead><tr><th>Date</th><th>Description</th><th>Type</th><th class="num">Amount</th></tr></thead><tbody>' +
     rows
       .map(
         (r) =>
@@ -332,11 +332,11 @@ export function moduleList(page, all) {
   );
   const formats = {
     Kontakte: [
-      ["Person oder Firma", "Anschrift"],
+      ["Person or company", "Address"],
       (r) => [r.Data.Label, r.Data.Address || "Offen"],
     ],
     Preise: [
-      ["Artikel", "Sortiment", "Einheit", "Preis", "Freigabe"],
+      ["Item", "Category", "Unit", "Price", "Approval"],
       (r) => [
         r.Data.Label,
         r.Data.Category || "—",
@@ -346,11 +346,11 @@ export function moduleList(page, all) {
       ],
     ],
     Perioden: [
-      ["Bezeichnung", "Von", "Bis"],
+      ["Description", "From", "To"],
       (r) => [r.Data.Label, dat(r.Data.Date), dat(r.Data.To)],
     ],
     Sponsoring: [
-      ["Forderung", "Zugesagt / gefordert", "Bezahlt", "Offen"],
+      ["Receivable", "Pledged or invoiced", "Paid", "Outstanding"],
       (r) => {
         const paid = all
           .filter((p) => p.Kind === "payment" && p.Data.Reference === r.ID)
@@ -374,7 +374,7 @@ export function moduleList(page, all) {
           : true,
     );
   if (!show.length)
-    return '<p class="empty">Noch keine Einträge in diesem Arbeitsbereich.</p>';
+    return '<p class="empty">No entries in this workspace yet.</p>';
   return (
     '<div class="list"><table><thead><tr>' +
     headers.map((h) => "<th>" + h + "</th>").join("") +
@@ -410,7 +410,7 @@ export function walletTable(rows, actions = "") {
       if (pooled)
         return overall
           ? eur(pooled.Data.Amount) + status(pooled)
-          : "Nur gesamt erfasst";
+          : "Combined count only";
       const counts = group.map((w) =>
         rows.find(
           (r) =>
@@ -427,7 +427,7 @@ export function walletTable(rows, actions = "") {
     }
     let revenue = "Offen";
     if (allEnd || allStart) {
-      if (!overall) revenue = "Nur gesamt erfasst";
+      if (!overall) revenue = "Combined count only";
       else revenue = eur(pooledRevenue(rows));
     } else {
       const values = group.map((w) =>
@@ -453,10 +453,10 @@ export function walletTable(rows, actions = "") {
   }
   return (
     "<section>" +
-    head("Geldtaschen") +
+    head("Wallets") +
     (wallets.length || allStart || allEnd
-      ? '<div class="list"><table><thead><tr><th>Bereich</th><th class="num">Anfangsbestand</th><th class="num">Endbestand</th><th class="num">Sammelbareinnahme</th></tr></thead><tbody>' +
-        subtotal("Alle Geldtaschen", wallets, true) +
+      ? '<div class="list"><table><thead><tr><th>Area</th><th class="num">Opening balance</th><th class="num">Closing balance</th><th class="num">Cash takings</th></tr></thead><tbody>' +
+        subtotal("All wallets", wallets, true) +
         [...groupsByBar]
           .map(
             ([bar, group]) =>
@@ -471,7 +471,7 @@ export function walletTable(rows, actions = "") {
           )
           .join("") +
         "</tbody></table></div>"
-      : '<p class="empty">Noch keine Geldtaschen erfasst.</p>') +
+      : '<p class="empty">No wallets recorded yet.</p>') +
     actions +
     "</section>"
   );
@@ -541,7 +541,7 @@ export function overview(
         (r.Data.Date >= period.Data.Date && r.Data.Date <= period.Data.To),
     );
   const scope = periods.length
-    ? '<label class="period-picker">Auswertungszeitraum<select name="overview-period"><option value="">Gesamter Arbeitsbereich</option>' +
+    ? '<label class="period-picker">Reporting period<select name="overview-period"><option value="">Entire workspace</option>' +
       periods
         .map(
           (r) =>
@@ -572,7 +572,7 @@ export function overview(
     new Set(opening.map((r) => (e.Accounts ? r.Data.Account || "" : "gesamt")))
       .size === opening.length;
   const openingText = uniqueOpening
-    ? "Mit erfasstem Anfangsbestand"
+    ? "Opening balance recorded"
     : opening.length && covered
       ? "Multiple opening balances · Check the period"
       : canAddOpening
@@ -595,7 +595,7 @@ export function overview(
         "Wallet",
         account.label,
         account.theoretical_cents == null
-          ? "Zuordnung offen"
+          ? "Account not assigned"
           : eur(account.theoretical_cents),
       ),
     )
@@ -624,9 +624,9 @@ export function overview(
     "</button>";
   return (
     '<div class="page-head"><div><h1>' +
-    (eventMode ? esc(e.Name) : "Finanzen im Überblick") +
+    (eventMode ? esc(e.Name) : "Financial overview") +
     "</h1><p>" +
-    esc(eventMode ? "Veranstaltungsabrechnung" : e.Name) +
+    esc(eventMode ? "Event settlement" : e.Name) +
     " · " +
     dat(e.Starts) +
     " – " +
@@ -642,8 +642,8 @@ export function overview(
             : "Einrichtung",
           device
             ? online && !e.General
-              ? "Veranstaltungsbuchungen öffnen"
-              : "Kassenbuch öffnen"
+              ? "Open event transactions"
+              : "Open cashbook"
             : setupAction,
           "primary",
           device ? "BookOpen" : "Laptop",
@@ -655,38 +655,38 @@ export function overview(
       : "") +
     scope +
     '<div class="kpis">' +
-    kpi("Bestand laut Buchungen", balance, openingText, "featured") +
-    kpi("Einnahmen", eur(a.receipts), "Ausgaben " + eur(a.paid), "") +
+    kpi("Book balance", balance, openingText, "featured") +
+    kpi("Income", eur(a.receipts), "Expenses " + eur(a.paid), "") +
     kpi(
-      eventMode ? "Veranstaltungsergebnis" : "Einnahmenüberschuss",
+      eventMode ? "Event result" : "Net receipts",
       eur(eventMode ? a.result : a.ear),
       eventMode
-        ? "Erlöse abzüglich direkter und weiterer Kosten"
-        : "Zahlungswirksame Einnahmen und Ausgaben",
+        ? "Receipts less direct and other costs"
+        : "Cash received less payments made",
       (eventMode ? a.result : a.ear) < 0 ? "negative" : "result",
     ) +
     "</div>" +
     '<div class="columns"><section>' +
-    head("Deine Geldbestände") +
+    head("Account balances") +
     accounts +
-    line("Landmark", "Anfangsbestand", uniqueOpening ? eur(start) : "Offen") +
-    line("Wallet", "Offene Privatauslagen", eur(a.outstanding)) +
+    line("Landmark", "Opening balance", uniqueOpening ? eur(start) : "Offen") +
+    line("Wallet", "Unreimbursed expenses", eur(a.outstanding)) +
     '<p class="panel-foot">' +
     esc(
       e.Accounts
-        ? "Kontozuordnung aktiviert"
-        : "Gesamtbestand ohne Kontozuordnung",
+        ? "Account assignment enabled"
+        : "Combined balance without account assignment",
     ) +
     "</p></section><section>" +
-    head("Noch zu erledigen") +
+    head("Next steps") +
     task(
       "Perioden",
       "ClipboardCheck",
-      "Abrechnung prüfen",
+      "Review settlement",
       e.Closed
         ? "Abgeschlossen"
         : online
-          ? "Bestände und Abrechnung prüfen"
+          ? "Bestände und Review settlement"
           : pending === 1
             ? "Ein Gerät mit offenem Erfassungsende"
             : pending + " Geräte mit offenem Erfassungsende",
@@ -695,8 +695,8 @@ export function overview(
       ? task(
           "Veranstaltungsliste",
           "CalendarDays",
-          "Veranstaltungen",
-          "Veranstaltungen dieses Geschäftsjahrs öffnen",
+          "Events",
+          "Open events in this fiscal year",
         )
       : task(
           device ? "Gerät & Sync" : e.Closed ? "Perioden" : "Einrichtung",
@@ -723,21 +723,21 @@ export function overview(
       ? walletTable(rows)
       : '<section class="event-strip">' +
         icon(e.General ? "BookOpen" : "CalendarDays") +
-        "<div><small>Aktiver Arbeitsbereich</small><h2>" +
+        "<div><small>Current workspace</small><h2>" +
         esc(e.Name) +
         "</h2></div>" +
         route(
           e.General ? "Journal" : "Veranstaltungen",
-          e.General ? "Zum Kassenbuch" : "Veranstaltung öffnen",
+          e.General ? "Go to cashbook" : "Open event",
           "secondary",
         ) +
         "</section>") +
     "<section>" +
     head(
-      "Letzte Buchungen",
+      "Recent transactions",
       route(
         online && !e.General ? "Zahlungen" : "Journal",
-        "Alle Buchungen",
+        "All transactions",
         "text-button",
       ),
     ) +

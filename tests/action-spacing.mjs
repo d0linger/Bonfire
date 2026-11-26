@@ -134,7 +134,7 @@ try {
     },
   ]);
   await page.reload();
-  await page.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
+  await page.getByRole("heading", { name: "Financial overview" }).waitFor();
   async function nav(key) {
     const btn = page.locator('nav [data-page="' + key + '"]');
     if (!(await btn.isVisible()))
