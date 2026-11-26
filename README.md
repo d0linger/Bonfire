@@ -18,7 +18,8 @@
 
 - Define fiscal years with arbitrary start and end dates. Choose a year in the sidebar and open its general cashbook or a specific event before posting.
 - Record income, expenses, donors, invoice issuers and purchasing notes. Internal transfers move balances between accounts without changing profit. Account allocation is configurable.
-- Group event wallets by bar, record opening cash, replenish change and settle individual wallets or the pooled balance. Track claims, partial payments, private advances and reimbursements.
+- Keep reusable physical wallets in **Administration → Wallet list**. Either cashier can select several under **Events → [event] → Wallets → Add from wallet list**. A wallet can have a usual bar and a suggested float, entered as a total or by denomination. Record the actual opening cash separately for each event. Later changes to the list preserve existing event records.
+- Group event wallets by bar, replenish change and settle individual wallets or the pooled balance. Track claims, partial payments, private advances and reimbursements.
 - Use the central contact directory on documents. The document library includes eleven standard profiles. Numbered originals, working copies and reprints have different purposes.
 - Review audit events, manage users, inspect system health and configure encrypted local or S3-compatible backups in the administration area.
 
