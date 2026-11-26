@@ -500,6 +500,7 @@ assert.ok(posted.entries.some((row) => row.ID === payment.Target));
 const transfer = make("transfer", "Wechselgeld intern", 75);
 Object.assign(transfer.Data, { Account: "Tresor", To: "Festkassa" });
 const outlay = make("outlay", "Privater Einkauf", 50);
+const observedBalance = make("actual", "Istbestand", 410);
 await send({
   Ops: [
     transfer,
@@ -507,7 +508,7 @@ await send({
     make("expense", "Material", 40),
     make("refund", "Rückzahlung", 15),
     make("opening", "Anfang", 0),
-    make("actual", "Istbestand", 410),
+    observedBalance,
   ],
 });
 const [beforeReimbursement] = await call(
@@ -524,6 +525,8 @@ await send({ Action: "Abschluss" }, 422);
 const sponsorPayment = make("payment", "Rechnung beglichen", 300);
 sponsorPayment.Data.Reference = bill.Target;
 await send({ Ops: [sponsorPayment] });
+await send({ Action: "Abschluss" }, 422);
+await send({ Ops: [{ ...observedBalance, ID: randomUUID(), Base: 1, Data: { ...observedBalance.Data, Note: "Count verified after sponsor payment" } }] });
 const ledgerPath = "online?event=" + ledger.ID;
 const finalizeYear = { Action: "Geschäftsjahr abschließen" };
 await call(ledgerPath, cash, finalizeYear, 409);

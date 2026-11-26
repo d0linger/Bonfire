@@ -181,8 +181,11 @@ test("equal and opposite postings require a new same-day observation", () => {
   const movement=(k,n,order)=>row(k,{Date:"2026-06-11",Amount:n,BalanceOrder:order});
   const values=[movement("opening",100,"1"),movement("actual",100,"2"),movement("income",25,"3"),movement("expense",25,"4")];
   assert.equal(closure(values,false,true)["report.review"].status,"preparation");
+  values[2].Data.Date = values[3].Data.Date = "2026-06-10";
+  assert.equal(closure(values,false,true)["report.review"].status,"preparation");
   values[1].Data.BalanceOrder="5";
   assert.equal(closure(values,false,true)["report.review"].status,"approved");
+  values[2].Data.Date = values[1].Data.Date;
   delete values[2].Data.BalanceOrder;
   assert.equal(closure(values,false,true)["report.review"].status,"preparation");
 });
