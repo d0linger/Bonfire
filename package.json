@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "docx": "^9",
-    "docx-preview": "0.3.7",
+    "docx-preview": "0.4.1",
     "fflate": "^0.8.2",
     "html2canvas": "1.4.1",
     "jspdf": "^4",
