@@ -314,6 +314,7 @@ func retainIssuedNumbers(ctx context.Context, frozen, staged *pgx.Conn) error {
 	return rows.Err()
 }
 
+var errRestoreUnconfirmed = errors.New("restored database connection unconfirmed")
 var errRestoredPending = errors.New("restore committed with pending recovery bookkeeping")
 
 func (b *backupWorker) recoverSwap(ctx context.Context, c *pgx.Conn) error {
@@ -350,7 +351,7 @@ func (b *backupWorker) recoverSwap(ctx context.Context, c *pgx.Conn) error {
 	if oid == j.Staged {
 		dest, err := b.connect(ctx, b.db.Database)
 		if err != nil {
-			return errors.Join(errRestoredPending, err)
+			return errors.Join(errRestoreUnconfirmed, err)
 		}
 		defer dest.Close(ctx)
 		if _, err = dest.Exec(ctx, "INSERT INTO audit(username,action,subject) SELECT $1,'Wiederherstellung übernommen',$2 WHERE NOT EXISTS(SELECT FROM audit WHERE action='Wiederherstellung übernommen' AND subject=$2)", j.User, j.FallbackDB); err != nil {
