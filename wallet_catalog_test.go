@@ -52,10 +52,22 @@ func (f *transactionFixture) checkWalletCatalog(year, day string) {
 	}
 	target := makeEvent("Concurrent event with drawers")
 	assignment.Event = target
-	before := f.snapshot()
-	warning, err := f.request(t.Context(), a.walletCatalog, path, assignment)
-	if err != nil || len(warning.(*walletAssignment).Overlaps) != 1 || !maps.Equal(before, f.snapshot()) {
-		t.Fatalf("Expected an overlap warning with unchanged data, got %v, %v", warning, err)
+	checkWarning := func() {
+		t.Helper()
+		before := f.snapshot()
+		warning, err := f.request(t.Context(), a.walletCatalog, path, assignment)
+		if err != nil || len(warning.(*walletAssignment).Overlaps) != 1 || !maps.Equal(before, f.snapshot()) {
+			t.Fatalf("Expected an overlap warning with unchanged data, got %v, %v", warning, err)
+		}
+	}
+	checkWarning()
+	// Imported historical events can still be open before a fiscal year is assigned.
+	if _, err := f.owner.Exec(t.Context(), "UPDATE event_records SET fiscal_year=NULL WHERE id=$1", e); err != nil {
+		t.Fatal(err)
+	}
+	checkWarning()
+	if _, err := f.owner.Exec(t.Context(), "UPDATE event_records SET fiscal_year=$2 WHERE id=$1", e, year); err != nil {
+		t.Fatal(err)
 	}
 	assignment.ConfirmOverlap = true
 	save(assignment)

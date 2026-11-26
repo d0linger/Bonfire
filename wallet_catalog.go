@@ -247,8 +247,8 @@ func assignCatalogWallets(ctx context.Context, tx pgx.Tx, r *http.Request, q wal
 	}
 	rows, err := tx.Query(ctx, `SELECT `+walletColumns+`,coalesce(l.local_id,''),
 		coalesce((SELECT min(b.id) FROM entries b WHERE b.event=e.id AND b.kind='bar' AND w.default_bar<>'' AND lower(btrim(b.data->>'Label'))=lower(btrim(w.default_bar)) HAVING count(*)=1),''),
-		EXISTS(SELECT FROM event_catalog_wallets other JOIN events open ON open.id=other.event JOIN fiscal_years y ON open.fiscal_year=y.id
-			WHERE other.wallet=w.id AND other.event<>e.id AND NOT open.closed AND NOT y.closed AND open.starts<=e.ends AND e.starts<=open.ends)
+		EXISTS(SELECT FROM event_catalog_wallets other JOIN events open ON open.id=other.event LEFT JOIN fiscal_years y ON open.fiscal_year=y.id
+			WHERE other.wallet=w.id AND other.event<>e.id AND NOT open.closed AND y.closed IS NOT TRUE AND open.starts<=e.ends AND e.starts<=open.ends)
 		FROM wallet_catalog w CROSS JOIN events e LEFT JOIN event_catalog_wallets l ON l.event=e.id AND l.wallet=w.id
 		WHERE w.id=ANY($1::uuid[]) AND w.active AND e.id=$2 ORDER BY lower(w.name),w.id`, q.IDs, q.Event)
 	if err != nil {
