@@ -37,3 +37,4 @@ Donation reporting runs through the online session API with synthetic donors. Th
 ### Historical journal review
 
 Enter the year printed on the source when reviewing a historical workbook. Compare its opening date and closing date with the selected fiscal year. The preview excludes municipal budget worksheets and columns. A municipality named as the counterparty of a cashbook transaction remains visible. The browser regression in `tests/documents.mjs` covers this case using a fictional counterparty and a separate budget column.
+In the review dialog, select a source row to populate the supported booking type and date. Verify both values before submitting. Selecting a different row refreshes both fields. A missing date or unrecognized type requires manual input.

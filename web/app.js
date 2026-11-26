@@ -2182,14 +2182,15 @@ function exchange() {
                   select(
                     "ix",
                     "Individually reviewed row",
-                    imported.map((r, i) => [
+                    [["", "Select a source row"], ...imported.map((r, i) => [
                       i,
                       (r.sheet ? r.sheet + "!" + r.cell : r.row) +
                         " · " +
                         r.label,
-                    ]),
+                    ])],
                   ) +
                     select("kind", "Booking type", [
+                      ["", "Select a booking type"],
                       ["income", "Income"],
                       ["expense", "Expense"],
                     ]) +
@@ -4567,6 +4568,8 @@ async function submit(f) {
   if (id === "importRow") {
     if (s.role !== "Admin")
       throw Error("An administrator must approve the import.");
+    if (vals.ix === "" || !["income", "expense"].includes(vals.kind))
+      throw Error("Select a source row and verify its booking type.");
     const r = imported[Number(vals.ix)];
     if (!r || r.blocked || r.amount == null || importRole === "D8")
       throw Error("This source row is blocked from posting.");
@@ -5157,6 +5160,11 @@ async function submit(f) {
   show();
 }
 document.addEventListener("change", (e) => {
+  if (e.target.form?.id === "importRow" && e.target.name === "ix") {
+    const row = e.target.value === "" ? null : imported[Number(e.target.value)];
+    e.target.form.elements.kind.value = ["income", "expense"].includes(row?.kind) ? row.kind : "";
+    e.target.form.elements.date.value = row?.date || "";
+  }
   if (e.target.form?.id === "assign-wallets" && e.target.name === "wallet") {
     delete e.target.form.dataset.overlapSelection;
     e.target.form.querySelector(".catalog-confirm").replaceChildren();
