@@ -34,7 +34,7 @@ func (a *app) eventInventory(ctx context.Context, w http.ResponseWriter, r *http
 	}
 	rows, err := a.db.Query(ctx, `SELECT j.id,j.kind,j.data->>'Label',j.data->>'Date',j.revision,(j.data->>'Amount')::bigint,
 		coalesce(j.data->>'Wallet',''),coalesce(j.data->>'Bar',''),coalesce(j.data->>'Account',''),coalesce(j.data->>'To',''),
-		j.kind=ANY($2), j.kind=ANY($3)
+		j.kind=ANY($2) AND NOT EXISTS(SELECT FROM event_catalog_wallets w WHERE w.event=j.event AND w.local_id=j.id), j.kind=ANY($3)
 		FROM entries j JOIN events e ON e.id=j.event WHERE j.event=$1 ORDER BY j.data->>'Date',j.data->>'Label',j.id`, id, portableKinds, removableKinds)
 	if err != nil {
 		return nil, err
@@ -75,11 +75,12 @@ func entryChangeAllowed(ctx context.Context, tx pgx.Tx, source device, current r
 		  OR EXISTS(SELECT FROM entries WHERE event=$1 AND id<>$2 AND ($2 IN (data->>'Bar',data->>'Wallet',data->>'Account',data->>'To',data->>'Reference',data->'Fields'->>'sale') OR data->'Allocations' ? $2))
 		  THEN 'Other entries or original documents reference this entry. Review the linked records first.'
 		WHEN EXISTS(SELECT FROM fire_account_links WHERE event=$1 AND local_id=$2) THEN 'This account is linked to a fire brigade account.'
+		WHEN $6 AND EXISTS(SELECT FROM event_catalog_wallets WHERE event=$1 AND local_id=$2) THEN 'Add this physical wallet from the catalogue in the destination event.'
         WHEN $3<>'' AND EXISTS(SELECT FROM entries WHERE event=$1 AND id='settlement:' || $3) THEN 'This wallet has already been settled.'
 		WHEN ($3<>'' OR $4='count') AND EXISTS(SELECT FROM entries WHERE event=$1 AND id='settlement-total') THEN 'The wallets have been settled together.'
 		WHEN $4='period' AND EXISTS(SELECT FROM period_closures WHERE period_id=$2) THEN 'A closing record already exists for this period.'
 		WHEN $4='donation' AND EXISTS(SELECT FROM donation_reports WHERE event=$1 AND period=$5) THEN 'A donation review already exists for this reporting period.'
-		ELSE '' END`, source.Event, current.ID, v.Wallet, current.Kind, donationPeriod(v)).Scan(&blocker)
+		ELSE '' END`, source.Event, current.ID, v.Wallet, current.Kind, donationPeriod(v), moving).Scan(&blocker)
 	if err != nil {
 		return err
 	}
