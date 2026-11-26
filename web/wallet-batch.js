@@ -79,6 +79,18 @@ export function clearWalletBatches() {
 
 function refreshBatch(form) {
   const { entries, pending, previousID, alreadySaved, saving } = drafts.get(form);
+  if (alreadySaved) {
+    const inputs = form.querySelector(".bulk-inputs");
+    inputs.disabled = inputs.hidden = true;
+    form.querySelector(".bulk-preview").hidden = true;
+    const acknowledge = form.querySelector(".actions button");
+    acknowledge.disabled = false;
+    acknowledge.textContent = "Acknowledge saved batch";
+    const status = form.querySelector(".bulk-retry");
+    status.hidden = false;
+    status.textContent = "The previous batch was already recorded in this event. No additional entries were saved. Acknowledge this result before starting another batch.";
+    return;
+  }
   const e = form.elements;
   const opening = e.Mode.value === "opening";
   const pieces = e.AmountMode.value === "pieces";
@@ -136,17 +148,17 @@ function refreshBatch(form) {
   const retry = form.querySelector(".bulk-retry");
   retry.textContent = saving ? "" : pending ? "Retry the same entries to confirm their status. Each wallet will be booked once." :
     previousID ? "A previous save was interrupted. Re-enter the intended details to confirm it." :
-    alreadySaved ? "The previous wallet entries have already been recorded." : "";
+    "";
   retry.hidden = !retry.textContent;
 }
 
 export function bindWalletBatch(form, event, entries, user) {
   form.dataset.event = event.ID;
   const storageKey = prefix + user + ":" + event.ID;
-  const draft = { entries, storageKey, pending: pendingBatches.get(storageKey) || null,
-    previousID: storedID(storageKey), alreadySaved: false };
+  const retained = pendingBatches.get(storageKey);
+  const draft = { entries, storageKey, pending: retained?.Mode ? retained : null,
+    previousID: retained?.Request || storedID(storageKey), alreadySaved: false };
   if (draft.previousID && entries.some((r) => r.Data.Fields?.walletBatch === draft.previousID)) {
-    clearPending(draft);
     draft.alreadySaved = true;
   }
   drafts.set(form, draft);
@@ -171,6 +183,10 @@ export function bindWalletBatch(form, event, entries, user) {
 
 export async function submitWalletBatch(form, api, sync) {
   const draft = drafts.get(form);
+  if (draft.alreadySaved) {
+    clearPending(draft);
+    return true;
+  }
   if (!draft.pending) {
     const e = form.elements;
     const Wallets = [...form.querySelectorAll('[name="wallet"]:checked:enabled')].map((w) => w.value);
@@ -194,10 +210,20 @@ export async function submitWalletBatch(form, api, sync) {
     clearPending(draft);
   } catch (error) {
     if (!accepted && [400, 403, 404, 409, 422].includes(error.status)) {
-      clearPending(draft);
-      if (error.status === 409 || error.status === 422) {
-        try { draft.entries = await sync(); } catch { /* Keep the original rejection visible. */ }
+      const request = draft.pending.Request;
+      if (error.status === 409 || error.status === 422 || draft.previousID) {
+        // A refresh failure leaves the original request and payload available for retry.
+        draft.entries = await sync();
+        if (error.walletBatchCommitted || draft.entries.some((r) => r.Data.Fields?.walletBatch === request)) {
+          draft.alreadySaved = true;
+          return false;
+        }
       }
+      // A corrected submission after rejection can safely reuse this ID. A late commit
+      // of the previous attempt will then return its receipt instead of a second booking.
+      draft.previousID = request;
+      draft.pending = null;
+      pendingBatches.set(draft.storageKey, { Request: request });
     }
     throw error;
   } finally {

@@ -268,7 +268,10 @@ async function api(path, body, token = auth) {
       donorAccess = false;
       show();
     }
-    throw Object.assign(new Error(message), { status: response.status });
+    throw Object.assign(new Error(message), {
+      status: response.status,
+      walletBatchCommitted: path === "events/wallet-batch" && response.headers.get("X-Bonfire-Wallet-Batch") === "committed",
+    });
   }
   if (path === "logout") clearWalletBatches();
   return response.json();
@@ -4048,10 +4051,11 @@ async function submit(f) {
     canWrite();
     if (offlineEnabled || s.event.General || page !== "Geldtaschen" || s.event.ID !== f.dataset.event)
       throw Error("Reopen this dialog in the original event.");
-    await submitWalletBatch(f, api, async () => {
+    const close = await submitWalletBatch(f, api, async () => {
       await sync();
       return rows();
     });
+    if (close === false) return false;
     show();
     return;
   }
@@ -5176,8 +5180,8 @@ document.addEventListener("submit", (e) => {
   action(async () => {
     const inEditor = entryDialog.contains(e.target);
     if (inEditor) entryDialog.querySelector(".entry-error").replaceChildren();
-    await submit(e.target);
-    if (inEditor) closeEditor();
+    const close = await submit(e.target);
+    if (inEditor && close !== false) closeEditor();
   });
 });
 function overlapsCountScope(entries, pooled, phase) {

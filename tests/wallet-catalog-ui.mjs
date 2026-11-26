@@ -131,6 +131,56 @@ try {
       }
     }
   }
+  const batchPath = "**/api/events/wallet-batch";
+  async function enterTopUp(amount) {
+    await button(page, "Bulk wallet entry").click();
+    await dialog.getByLabel("Action", { exact: true }).selectOption("topup");
+    await dialog.getByLabel("Change source").selectOption("main-cashbox");
+    await dialog.getByRole("checkbox", { name: new RegExp(first) }).check();
+    await dialog.getByLabel("Amount per wallet in EUR").fill(amount);
+  }
+  let delayed;
+  await enterTopUp("7.50");
+  await page.route(batchPath, async (route) => {
+    delayed = route.request().postDataJSON();
+    await route.abort("failed");
+  }, { times: 1 });
+  await button(dialog, "Save wallet entries").click();
+  await dialog.locator(".entry-error:not(:empty)").waitFor();
+  await page.reload(); // Lose in-memory details, retain the opaque ID in this tab.
+  await page.locator("#menu-toggle").click();
+  await button(page.locator("nav"), "Events").click();
+  await page.locator('[data-space="' + event.ID + '"]').click();
+  await button(page.locator(".tabs"), "Wallets").click();
+  await enterTopUp("9.00");
+  // The original transaction commits only after the reloaded dialog read its event.
+  await manager("events/wallet-batch", delayed);
+  const storedRequest = () => page.evaluate((id) => Object.keys(sessionStorage)
+    .some((key) => key.startsWith("bonfire-wallet-batch:") && sessionStorage.getItem(key) === id), delayed.Request);
+  await page.route("**/api/online?event=" + event.ID, (route) => route.abort("failed"), { times: 1 });
+  const mismatch = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/events/wallet-batch");
+  await button(dialog, "Save wallet entries").click();
+  assert.equal((await mismatch).status(), 409);
+  await dialog.locator(".entry-error:not(:empty)").waitFor();
+  assert.ok(await storedRequest(), "failed reconciliation must retain the committed request ID");
+  const retry = page.waitForRequest((r) => new URL(r.url()).pathname === "/api/events/wallet-batch");
+  await button(dialog, "Retry wallet entries").click();
+  assert.equal((await retry).postDataJSON().Request, delayed.Request);
+  await button(dialog, "Acknowledge saved batch").waitFor();
+  assert.ok(await storedRequest(), "confirmation alone must not clear the ID before acknowledgement");
+  assert.equal(await dialog.getByLabel("Amount per wallet in EUR").isVisible(), false);
+  await page.keyboard.press("Escape");
+  await button(page, "Bulk wallet entry").click();
+  assert.equal(await button(dialog, "Save wallet entries").count(), 0);
+  await button(dialog, "Acknowledge saved batch").click();
+  await dialog.waitFor({ state: "hidden" });
+  assert.equal(await storedRequest(), false);
+  const recorded = (await eventState()).entries.filter((r) => r.Kind === "supply");
+  assert.equal(recorded.length, walletIDs.length + 1, "reconciliation must not create a duplicate top-up");
+  const original = recorded.filter((r) => r.Data.Fields.walletBatch === delayed.Request);
+  assert.equal(original.length, 1);
+  assert.equal(original[0].Data.Amount, 750);
+  console.log("PASS late wallet commit, changed details after reload, failed reconciliation and explicit acknowledgement");
   console.log("PASS mobile event bulk entry previews the per-wallet and combined total and saves opening counts and change deliveries");
   console.log("PASS create reusable wallets on desktop, select several on mobile, identify assigned wallets and view the suggested opening float");
 } finally {
