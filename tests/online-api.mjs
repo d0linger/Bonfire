@@ -360,7 +360,12 @@ const first = make("income", "Barzahlung", 100),
   });
   const donation = make("donation", "Barspende im Gesamtbestand", 2000);
   donation.Data.Method = "Bar";
-  await post([topup, internal, donation, end]);
+  const lateTopUp = make("supply", "Change delivered after closing count", 700);
+  Object.assign(lateTopUp.Data, { Wallet: a.Target, Account: "Hauptkassa", To: a.Target });
+  const receipt = await post([topup, internal, donation, end, lateTopUp]);
+  const order = (op) => BigInt(receipt.entries.find((entry) => entry.ID === op.Target).Data.PostingOrder);
+  assert.ok(order(topup) < order(end) && order(end) < order(lateTopUp));
+
   await post([count(b.Target, "Ende", 10000)], 409);
   const settlement = make("income", "Gemeinsame Barabrechnung", 18000);
   settlement.Target = "settlement-total";

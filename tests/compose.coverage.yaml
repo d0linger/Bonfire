@@ -12,3 +12,11 @@ services:
       GOCOVERDIR: /coverage
     volumes:
       - ./test-results/integration-counters:/coverage
+  backup:
+    build:
+      args:
+        BONFIRE_COVER: "true"
+    environment:
+      GOCOVERDIR: /coverage
+    volumes:
+      - ./test-results/integration-counters:/coverage

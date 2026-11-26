@@ -52,6 +52,7 @@ jobs:
           python3 ops/check-coverage.py test-results/unit.cover test-results/integration.cover test-results/combined.cover
           go tool cover -html=test-results/combined.cover -o test-results/combined.html
           grep -Eq 'login[[:space:]]+[1-9][0-9]*([.][0-9]+)?%' test-results/integration-functions.txt
+          grep -Eq 'runBackupWorker[[:space:]]+[1-9][0-9]*([.][0-9]+)?%' test-results/integration-functions.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: integration-coverage

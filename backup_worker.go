@@ -11,10 +11,12 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -55,6 +57,8 @@ type backupState struct {
 	Probe     *backupReceipt            `json:"receipt"`
 }
 type backupWorker struct {
+	service        context.Context
+	jobs           sync.WaitGroup
 	db             *pgx.ConnConfig
 	key            []byte
 	s3             *minio.Client
@@ -193,6 +197,9 @@ func (b *backupWorker) start(q backupCommand, actor string) error {
 func (b *backupWorker) startIfDue(q backupCommand, actor, schedule string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.service.Err() != nil {
+		return errors.New("Backup service is stopping")
+	}
 	if schedule != "" && !b.health(schedule, backupNow()).Due {
 		return nil
 	}
@@ -253,12 +260,12 @@ func (b *backupWorker) startIfDue(q backupCommand, actor, schedule string) error
 	}
 	prev := b.state.Probe
 	days := b.state.Schedules[q.Target].Days
-	go b.run(q, actor, key, days, prev)
+	b.jobs.Go(func() { b.run(q, actor, key, days, prev) })
 	return nil
 }
 
 func (b *backupWorker) run(q backupCommand, actor, key string, days int, pr *backupReceipt) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+	ctx, cancel := context.WithTimeout(b.service, 2*time.Hour)
 	defer cancel()
 	var archiveDigest string
 	var receipt *backupReceipt
@@ -487,7 +494,9 @@ func runBackupWorker() error {
 	if err != nil {
 		return errors.New("Datenbankkonfiguration ungültig")
 	}
-	b := &backupWorker{db: cfg}
+	service, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	b := &backupWorker{db: cfg, service: service}
 	b.key, err = os.ReadFile(backupKeyPath)
 	if os.IsNotExist(err) {
 		data := make([]byte, 32)
@@ -588,12 +597,35 @@ func runBackupWorker() error {
 	mux.HandleFunc("POST /{$}", b.command)
 	mux.HandleFunc("GET /file", b.download)
 	mux.HandleFunc("POST /upload", b.upload)
+	server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	drained := make(chan struct{})
 	go func() {
-		t := time.NewTicker(30 * time.Second)
-		defer t.Stop()
-		for range t.C {
-			b.tick()
+		defer close(drained)
+		timer := time.NewTicker(30 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case <-timer.C:
+				b.tick()
+			case <-service.Done():
+				ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+				defer cancel()
+				if err := server.Shutdown(ctx); err != nil {
+					log.Print("Backup HTTP shutdown timed out")
+				}
+				return
+			}
 		}
 	}()
-	return (&http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}).Serve(listener)
+	err = server.Serve(listener)
+	stop()
+	<-drained
+	// Synchronize with any submission that passed the stopping check before cancellation.
+	b.mu.Lock()
+	b.mu.Unlock()
+	b.jobs.Wait()
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
 }
