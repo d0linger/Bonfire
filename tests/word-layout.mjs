@@ -108,6 +108,7 @@ try {
       requestAnimationFrame(() => requestAnimationFrame(() => read.call(this, blob)));
     };
     window.addEventListener("message", (event) => {
+      if (event.origin !== location.origin || event.source !== window) return;
       if (event.data.id === "vml-test" && !event.data.docx) {
         document.documentElement.dataset.preview = event.data.error || String(event.data.pages);
       }
