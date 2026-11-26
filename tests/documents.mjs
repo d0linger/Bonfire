@@ -78,7 +78,7 @@ try {
         textCell("C1", "Ausgaben") +
         textCell("D1", "Globalbudget") +
         '</row><row r="2"><c r="A2"><v>45999</v></c>' +
-        textCell("B2", "Marktgemeinde Musterort") +
+        textCell("B2", "Marktgemeinde Musterort") + textCell("E2", "Beschreibung") +
         '<c r="C2"><v>0</v></c><c r="D2"><v>19</v></c></row><row r="3">' +
         textCell("B3", "Fehlender Wert") +
         '<c r="C3"/></row><row r="4"><c r="C4"><v>-12.50</v></c></row></sheetData></worksheet>',

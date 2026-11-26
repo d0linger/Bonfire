@@ -365,6 +365,7 @@ export function snapshot(index, s, rows, opts) {
   };
   result.tables = tablesFor(index, result, rows, opts.subject, {
     ...opts,
+    workspaceName: s.event.Name,
     starts: s.event.Starts,
     ends: s.event.Ends,
     closed: s.closed,

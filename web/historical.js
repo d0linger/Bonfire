@@ -133,7 +133,7 @@ export async function historyPreview(file, role, year) {
         texts.some((c) =>
           /^(einnahmen?|ausgaben?|betrag|soll|haben|eingang|ausgang)$/i.test(
             c.value.trim(),
-          ) || excluded(c.value),
+          ) || /^(?:gemeinde(?:\s+\d{4})?$|globalbudget\b)/i.test(c.value.trim()),
         );
       if (header) {
         headings = new Map(texts.map((c) => [c.col, c.value.trim()]));

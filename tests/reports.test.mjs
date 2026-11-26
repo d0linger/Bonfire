@@ -16,6 +16,12 @@ test("journal exports identify the workspace and place early bookings first", ()
   });
   assert.equal(journal.intro, "General cashbook · 2042-01-01 – 2042-09-30");
   assert.deepEqual(journal.blocks[0].rows.map(line => line[2]), ["Collection", "Supplies"]);
+  const period = row("period", { Label: "Q1", Date: "2042-01-01", To: "2042-03-31" });
+  const limited = tablesFor(10, { event: "General cashbook" }, [...records, period], "", {
+    period: period.ID, workspaceName: "Brigade cashbook",
+  });
+  assert.equal(limited.intro, "Brigade cashbook · Q1 · 2042-01-01 – 2042-03-31");
+  assert.deepEqual(limited.blocks[0].rows.map(line => line[2]), ["Collection"]);
 });
 test("Gemeinsames Zählblatt mit erfasstem Betrag lässt unbekannte Stückzahlen leer", () => {
   const count = row(

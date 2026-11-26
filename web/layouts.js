@@ -302,7 +302,7 @@ export function tablesFor(i, s, rows, subject, opts) {
     const dates = [period?.Data.Date || opts.starts, period?.Data.To || opts.ends]
       .filter(Boolean).join(" – ");
     return {
-      intro: [period?.Data.Label || s.event, dates].filter(Boolean).join(" · "),
+      intro: [opts.workspaceName || s.event, period?.Data.Label, dates].filter(Boolean).join(" · "),
       blocks: [
         {
           headers: ["Date", "Type", "Description", "Payment method", "Amount"],
