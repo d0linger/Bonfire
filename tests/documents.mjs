@@ -89,6 +89,7 @@ try {
       "2025",
     );
     const budgetOnly = b.strFromU8(variant[sheet])
+      .replace('</row><row r="2">', '<c r="F1"><v>2025</v></c></row><row r="2">')
       .replace("Ausgaben", "Globalbudget 2025")
       .replace("Marktgemeinde Musterort", "Globalbudget 2025");
     const budgetRows = await b.historyPreview(
