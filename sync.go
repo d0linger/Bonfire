@@ -396,6 +396,13 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 	}
 	if o.Kind == "wallet" {
 		delete(o.Data.Fields, "owner")
+		if o.Base > 0 {
+			hints, err := catalogWalletFields(ctx, tx, d.Event, o.Target, o.Data.Fields)
+			if err != nil {
+				return "", err
+			}
+			o.Data.Fields = hints
+		}
 	}
 	if err = retainPrior(ctx, tx, d, o); err != nil {
 		return "", err

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -29,6 +30,31 @@ type walletCommand struct {
 	Active                                    *bool
 	IDs                                       []string
 	ConfirmOverlap                            bool
+}
+
+// Use the snapshot saved at assignment, even if the catalogue defaults have since changed.
+func catalogWalletFields(ctx context.Context, tx pgx.Tx, eventID, localID string, edited map[string]string) (map[string]string, error) {
+	var saved map[string]string
+	err := tx.QueryRow(ctx, `SELECT j.data->'Fields' FROM entries j JOIN event_catalog_wallets l ON (l.event,l.local_id)=(j.event,j.id)
+		WHERE j.event=$1 AND j.id=$2`, eventID, localID).Scan(&saved)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return edited, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := maps.Clone(edited)
+	if out == nil {
+		out = map[string]string{}
+	}
+	for _, key := range []string{"suggestedFloatCents", "suggestedPieces", "suggestedBar"} {
+		if v, ok := saved[key]; ok {
+			out[key] = v
+		} else {
+			delete(out, key)
+		}
+	}
+	return out, nil
 }
 
 func (a *app) walletCatalog(ctx context.Context, _ http.ResponseWriter, r *http.Request) (any, error) {

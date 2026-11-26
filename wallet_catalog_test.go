@@ -68,6 +68,34 @@ func (f *transactionFixture) checkWalletCatalog(year, day string) {
 	if got := f.value("SELECT data->>'Label' FROM entries WHERE event=$1 AND id=$2", e, local); got != "Physical drawer" {
 		t.Fatal("Editing catalogue changed an existing wallet")
 	}
+	edit := op{Target: local, Kind: "wallet", Data: data{Date: day, Label: "East counter", Note: "Corrected local label"}}
+	for i, fields := range []map[string]string{nil, {"suggestedFloatCents": "1", "suggestedBar": "Other", "suggestedPieces": "{}", "localSetting": "current"}} {
+		edit.ID, edit.Base, edit.Data.Fields = uuid(), int64(i+1), fields
+		f.atomic(a.syncEvent, "/api/online?event="+e, request{Ops: []op{edit}})
+		var stored data
+		if err := f.owner.QueryRow(t.Context(), "SELECT data FROM entries WHERE event=$1 AND id=$2", e, local).Scan(&stored); err != nil {
+			t.Fatal(err)
+		}
+		if stored.Label != edit.Data.Label || stored.Fields["suggestedFloatCents"] != "2000" || stored.Fields["suggestedBar"] != "Tea tent" ||
+			stored.Fields["suggestedPieces"] != `{"500":4}` || stored.Fields["localSetting"] != fields["localSetting"] {
+			t.Fatalf("Wallet edit lost its original hints or editable details: %+v", stored.Fields)
+		}
+	}
+	oneOff := op{ID: uuid(), Target: uuid(), Kind: "wallet", Data: data{Date: day, Label: "Temporary till", Fields: map[string]string{"localSetting": "previous"}}}
+	post := func(o op) {
+		t.Helper()
+		if _, err := f.request(t.Context(), a.syncEvent, "/api/online?event="+e, request{Ops: []op{o}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	post(oneOff)
+	oneOff.ID, oneOff.Base = uuid(), 1
+	oneOff.Data.Note = "Cleared local setting"
+	oneOff.Data.Fields = nil
+	post(oneOff)
+	if hasFields := f.value("SELECT (data ? 'Fields')::text FROM entries WHERE event=$1 AND id=$2", e, oneOff.Target); hasFields != "false" {
+		t.Fatal("Editing a one-off wallet retained cleared settings or added catalogue hints")
+	}
 	save(walletCommand{Action: "retire", ID: w.ID, Revision: 2})
 	items := f.atomic(a.walletCatalog, path+"?event="+e, nil).(map[string]any)["wallets"].([]catalogWallet)
 	if len(items) != 1 || items[0].Active || !items[0].Used || items[0].Revision != 3 {
