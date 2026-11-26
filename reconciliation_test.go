@@ -162,12 +162,14 @@ func (f *transactionFixture) completeAuthenticatorSetup(seed, password string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	counter := binary.BigEndian.AppendUint64(nil, uint64(time.Now().Unix()/30))
-	mac := hmac.New(sha1.New, key)
-	mac.Write(counter)
-	digest := mac.Sum(nil)
-	code := fmt.Sprintf("%06d", (binary.BigEndian.Uint32(digest[digest[len(digest)-1]&15:])&0x7fffffff)%1000000)
-	codes := f.atomic(a.mfa, "/api/mfa", map[string]string{"Code": code, "Secret": seed}).([]string)
+	codes := f.atomicWithBody(a.mfa, "/api/mfa", func() any {
+		counter := binary.BigEndian.AppendUint64(nil, uint64(time.Now().Unix()/30))
+		mac := hmac.New(sha1.New, key)
+		mac.Write(counter)
+		digest := mac.Sum(nil)
+		code := fmt.Sprintf("%06d", (binary.BigEndian.Uint32(digest[digest[len(digest)-1]&15:])&0x7fffffff)%1000000)
+		return map[string]string{"Code": code, "Secret": seed}
+	}).([]string)
 	if len(codes) != 8 {
 		t.Fatal("Missing recovery codes after enrollment")
 	}

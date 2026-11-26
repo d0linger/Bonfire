@@ -95,6 +95,28 @@ func TestIssuedDocumentMustMatchBothArchivedFiles(t *testing.T) {
 	const day = "2029-07-31"
 	good := sampleInvoice(t, uuid(), day, 100)
 	cashier := device{ID: uuid(), Donor: true}
+	digest := func(encoded string) string {
+		t.Helper()
+		content, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return digestHex(content)
+	}
+	pdfHash, docxHash := digest(good.PDF), digest(good.DOCX)
+	var snapshot map[string]any
+	if err := json.Unmarshal([]byte(good.Note), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	snapshot["archive"] = map[string]string{"device": cashier.ID, "pdfsha256": pdfHash, "docxsha256": docxHash}
+	note, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	good.Note = string(note)
+	if _, _, err := checkArchive(cashier, good); err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range []struct {
 		name   string
 		change func(*data)
@@ -106,23 +128,11 @@ func TestIssuedDocumentMustMatchBothArchivedFiles(t *testing.T) {
 		{"incomplete pdf", func(v *data) { v.PDF = base64.StdEncoding.EncodeToString([]byte("%PDF-1.4")) }},
 		{"invalid word encoding", func(v *data) { v.DOCX = "??" }},
 		{"wrong word format", func(v *data) { v.DOCX = v.PDF }},
-		{"different archived original", func(v *data) {
-			var snap map[string]any
-			if err := json.Unmarshal([]byte(v.Note), &snap); err != nil {
-				t.Fatal(err)
-			}
-			snap["archive"] = map[string]string{"device": cashier.ID, "pdfsha256": "different"}
-			n, err := json.Marshal(snap)
-			if err != nil {
-				t.Fatal(err)
-			}
-			v.Note = string(n)
-		}},
+		{"wrong issuing device", func(v *data) { v.Note = strings.Replace(v.Note, cashier.ID, uuid(), 1) }},
+		{"wrong PDF digest", func(v *data) { v.Note = strings.Replace(v.Note, pdfHash, docxHash, 1) }},
+		{"wrong DOCX digest", func(v *data) { v.Note = strings.Replace(v.Note, docxHash, pdfHash, 1) }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			if _, _, err := checkArchive(cashier, good); err != nil {
-				t.Fatal(err)
-			}
 			changed := good
 			c.change(&changed)
 			pdf, word, err := checkArchive(cashier, changed)

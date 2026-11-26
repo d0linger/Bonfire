@@ -110,6 +110,31 @@ const legacyReason = "Synthetic private donor detail";
 execFileSync("docker", ["compose", "-p", project, "exec", "-T", "db", "psql", "-X", "-v", "ON_ERROR_STOP=1",
   "-U", "bonfire", "-d", "bonfire", "-v", "event=" + e.ID, "-v", "operation=" + donation.ID, "-v", "reason=" + legacyReason],
   { input: "INSERT INTO audit(event,username,action,subject) SELECT :'event'::uuid,'leitung',decision || ': ' || :'reason',:'operation' FROM unnest(ARRAY['beibehalten','übernehmen']) AS decision;" });
+// Older installations store management reasons as a space-delimited suffix.
+const managementActions = {
+  "Arbeitsbereich wieder geöffnet": "Workspace reopened",
+  "Geschäftsjahr wieder geöffnet": "Fiscal year reopened",
+  "Kontozuordnung aktiviert": "Account assignment enabled",
+  "Kontozuordnung deaktiviert": "Account assignment disabled",
+};
+const reason = "Correct closing date · verified";
+const managementSubject = "management-" + randomUUID();
+execFileSync("docker", ["compose", "-p", project, "exec", "-T", "db", "psql", "-X", "-v", "ON_ERROR_STOP=1",
+  "-U", "bonfire", "-d", "bonfire", "-v", "event=" + e.ID, "-v", "prefixes=" + JSON.stringify(Object.keys(managementActions)),
+  "-v", "subject=" + managementSubject, "-v", "reason=" + reason], {
+  input: `INSERT INTO audit(event,username,action,subject)
+    SELECT :'event'::uuid,'leitung',prefix || suffix,:'subject'
+    FROM jsonb_array_elements_text(:'prefixes'::jsonb) AS actions(prefix)
+    CROSS JOIN (VALUES (''),(' '),(' ' || :'reason')) AS reasons(suffix);`,
+});
+const managementFilter = "?event=" + e.ID + "&q=" + managementSubject;
+const managementRows = (await api("admin/audit" + managementFilter, manager)).rows;
+const managementCSV = (await api("admin/audit/export" + managementFilter, manager, {})).csv;
+for (const label of Object.values(managementActions)) {
+  const matches = managementRows.filter(row => row.Action === label);
+  assert.deepEqual(matches.map(row => row.Reason).sort(), ["", "", reason]);
+  assert.ok(managementCSV.split("\n").some(line => line.includes(label) && line.includes(reason)));
+}
 const otherExport = await api("admin/audit/export?event=" + other.ID, manager, {});
 assert.ok(otherExport.csv.includes(other.Name));
 for (const Role of ["Read", "Write"]) {
