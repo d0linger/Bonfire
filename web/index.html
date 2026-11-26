@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#20242b" />
+    <script src="/theme.js"></script>
+    <title>BONFIRE · Fire Brigade Finance</title>
+    <link rel="icon" href="/icon-32.png" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/app.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body class="auth-screen">
+    <a class="skip" href="#content">Skip to content</a>
+    <aside id="sidebar">
+      <a
+        class="brand-home"
+        href="/"
+        data-page="Übersicht"
+        title="Overview"
+      >
+        <header>
+          <img src="/logo-original.svg" alt="" />
+          <div><strong>BONFIRE</strong><small>Fire Brigade Finance</small></div>
+        </header>
+      </a>
+      <div class="stripe" aria-hidden="true"></div>
+      <div id="sidebar-year"></div>
+      <nav aria-label="Workspaces"></nav>
+    </aside>
+    <main>
+      <div class="topbar">
+        <button
+          id="menu-toggle"
+          type="button"
+          aria-label="Toggle navigation"
+          aria-expanded="false"
+          aria-controls="sidebar"
+        >
+          Menu</button
+        ><span id="station" class="station"></span><span id="crumb"></span
+        ><span id="connection"></span>
+        <button
+          id="theme-mode"
+          type="button"
+          aria-label="Dark mode"
+          aria-pressed="false"
+        >
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            fill="none"
+          >
+            <circle
+              cx="12"
+              cy="12"
+              r="9"
+              stroke="currentColor"
+              stroke-width="2"
+            />
+            <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" />
+          </svg>
+        </button>
+      </div>
+      <div class="work-area">
+        <div class="workspace-line">
+          <div id="workspace-picker"></div>
+          <div id="state" role="status"></div>
+        </div>
+        <div id="notice" role="alert"></div>
+        <article id="content" tabindex="-1"></article>
+      </div>
+    </main>
+    <dialog
+      id="entry-dialog"
+      class="record-editor entry-modal"
+      aria-labelledby="entry-title"
+    ></dialog>
+  </body>
+</html>

@@ -1,0 +1,131 @@
+name: BONFIRE CI
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: bonfire-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  test:
+    name: Online acceptance
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify the original documentation logo
+        run: echo "f12b47ae30d1c088420b3407eae7ad912218208440d851c8c848772ec7f46119  docs/logo-original.svg" | sha256sum --check
+      - run: make lint
+      - run: make test
+      - name: Check document pagination and overflow
+        run: node tests/layout-limits.mjs
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Prepare disposable integration coverage directory
+        run: install -d -m 0777 test-results/integration-counters
+      - name: Exercise the instrumented online application
+        shell: pwsh
+        env:
+          COMPOSE_FILE: compose.yaml:tests/compose.coverage.yaml
+        run: |
+          ./ops/init.ps1
+          if ([IO.File]::GetUnixFileMode((Resolve-Path .env)) -ne [IO.UnixFileMode]'UserRead,UserWrite') { throw 'Generated credentials must have mode 0600.' }
+          ./ops/accept-online.ps1
+      - name: Prove that broken amount, duplicate and gate checks are detected
+        run: python3 ops/test-mutations.py
+      - name: Report application coverage from the Compose run
+        run: |
+          go tool covdata textfmt -i=test-results/integration-counters -o=test-results/integration.cover
+          go tool cover -func=test-results/integration.cover | tee test-results/integration-functions.txt
+          go tool cover -html=test-results/integration.cover -o test-results/integration.html
+          go test -covermode=set -count=1 -coverprofile=test-results/unit.cover .
+          python3 ops/check-coverage.py test-results/unit.cover test-results/integration.cover test-results/combined.cover
+          go tool cover -html=test-results/combined.cover -o test-results/combined.html
+          grep -Eq 'login[[:space:]]+[1-9][0-9]*([.][0-9]+)?%' test-results/integration-functions.txt
+          grep -Eq 'runBackupWorker[[:space:]]+[1-9][0-9]*([.][0-9]+)?%' test-results/integration-functions.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: integration-coverage
+          path: |
+            test-results/integration.cover
+            test-results/integration-functions.txt
+            test-results/integration.html
+            test-results/combined.cover
+            test-results/combined.html
+          if-no-files-found: error
+      - name: Preserve synthetic export samples
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: synthetic-document-profiles
+          path: test-results/online-exports/
+          retention-days: 7
+          if-no-files-found: error
+  coverage:
+    name: Go and browser-domain coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Measure Go unit coverage
+        run: |
+          mkdir -p coverage
+          go test -count=1 -coverprofile=coverage/go.out ./...
+          go tool cover -func=coverage/go.out | tee coverage/go-functions.txt
+          go tool cover -html=coverage/go.out -o coverage/go.html
+      - name: Measure browser-domain unit coverage
+        run: node --experimental-test-coverage --test-coverage-include='web/*.js' --test-reporter=lcov --test-reporter-destination=coverage/web.lcov --test tests/*.test.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unit-coverage
+          path: coverage/
+          if-no-files-found: error
+  recovery:
+    uses: $/.github/workflows/extended-checks.yml
+  analysis:
+    uses: $/.github/workflows/source-analysis.yml
+    permissions:
+      contents: read
+      security-events: write
+  browser:
+    uses: $/.github/workflows/browser-checks.yml
+  container:
+    uses: $/.github/workflows/container.yml
+  security:
+    uses: $/.github/workflows/security.yml
+    permissions:
+      contents: read
+      pull-requests: read
+  gate:
+    name: BONFIRE required checks
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    needs: [test, security, container, analysis, browser, recovery, coverage]
+    env:
+      JOB_RESULTS: ${{ toJSON(needs) }}
+    steps:
+      - name: Require every prerequisite to pass
+        run: jq -e 'length > 0 and all(.[]; .result == "success")' <<< "$JOB_RESULTS"

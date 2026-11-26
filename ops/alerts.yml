@@ -1,0 +1,17 @@
+groups:
+  - name: bonfire
+    rules:
+      - alert: BonfireUnavailable
+        expr: up{job="bonfire"} == 0
+        for: 2m
+      - alert: BonfireBackupOverdue
+        expr: time() - bonfire_last_backup_timestamp_seconds > 86400
+        for: 15m
+      - alert: BonfireUnresolvedConflicts
+        expr: bonfire_conflicts_open > 0
+        for: 1h
+      - alert: BonfireStaleDevices
+        expr: bonfire_devices_stale > 0
+        for: 30m
+      - alert: BonfireOnlineRequestErrors
+        expr: increase(bonfire_online_request_errors_total[15m]) > 5
