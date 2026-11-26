@@ -31,10 +31,11 @@ import (
 var migrations embed.FS
 
 type app struct {
-	db       *pgxpool.Pool
-	mu       sync.Mutex
-	attempts map[string]int
-	reset    time.Time
+	db                *pgxpool.Pool
+	mu                sync.Mutex
+	attempts          map[string]int
+	verificationSlots chan struct{}
+	reset             time.Time
 }
 type problem struct {
 	code    int
@@ -103,12 +104,52 @@ type authDB interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
-func loginBucket(r *http.Request, name string) string {
+func loginSource(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		host = r.RemoteAddr
+		return r.RemoteAddr
 	}
-	return host + "|" + name
+	return host
+}
+
+func loginBucket(r *http.Request, name string) string { return "pair|" + loginSource(r) + "|" + name }
+
+// A distributed burst tightens the per-source allowance on this account.
+// A fresh source can still authenticate while the account is under pressure.
+func (a *app) reservePasswordAttempt(r *http.Request, name string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if time.Now().After(a.reset) {
+		clear(a.attempts)
+		a.reset = time.Now().Add(time.Minute)
+	}
+	pair, source, account := loginBucket(r, name), "source|"+loginSource(r), "account|"+name
+	limit := 12
+	if a.attempts[account] >= 36 {
+		limit = 2
+	}
+	if a.attempts[pair] >= limit || a.attempts[source] >= 60 || len(a.attempts) >= 16384 && a.attempts[pair] == 0 {
+		return false
+	}
+	a.attempts[pair]++
+	a.attempts[source]++
+	a.attempts[account]++
+	return true
+}
+
+func (a *app) clearPasswordAttempts(r *http.Request, name string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	pair := loginBucket(r, name)
+	n := a.attempts[pair]
+	delete(a.attempts, pair)
+	for _, key := range []string{"source|" + loginSource(r), "account|" + name} {
+		if a.attempts[key] <= n {
+			delete(a.attempts, key)
+		} else {
+			a.attempts[key] -= n
+		}
+	}
 }
 
 func (a *app) authenticate(ctx context.Context, db authDB, r *http.Request) (string, string, error) {
@@ -130,18 +171,15 @@ func (a *app) authenticate(ctx context.Context, db authDB, r *http.Request) (str
 	if !ok || !validLoginName(name) || len(pw) > 72 {
 		return "", "", deny
 	}
-	bucket := loginBucket(r, name)
-	a.mu.Lock()
-	if time.Now().After(a.reset) {
-		clear(a.attempts)
-		a.reset = time.Now().Add(time.Minute)
+	select {
+	case a.verificationSlots <- struct{}{}:
+		defer func() { <-a.verificationSlots }()
+	default:
+		return "", "", problem{429, "Sign-in is busy. Try again shortly."}
 	}
-	if a.attempts[bucket] >= 12 || (a.attempts[bucket] == 0 && len(a.attempts) >= 16384) {
-		a.mu.Unlock()
-		return "", "", problem{429, "Bitte später erneut anmelden."}
+	if !a.reservePasswordAttempt(r, name) {
+		return "", "", problem{429, "Too many sign-in attempts. Try again shortly."}
 	}
-	a.attempts[bucket]++
-	a.mu.Unlock()
 	var digest, role, account string
 	query := "SELECT password,role,name FROM users WHERE coalesce(login_alias,name)=$1 AND active AND (NOT password_change_required OR $2)"
 	if _, transactional := db.(pgx.Tx); transactional {
@@ -157,9 +195,7 @@ func (a *app) authenticate(ctx context.Context, db authDB, r *http.Request) (str
 	if err := factor(ctx, db, account, r.Header.Get("X-Bonfire-OTP")); err != nil {
 		return "", "", err
 	}
-	a.mu.Lock()
-	delete(a.attempts, bucket)
-	a.mu.Unlock()
+	a.clearPasswordAttempts(r, name)
 	return account, role, nil
 }
 
@@ -451,7 +487,7 @@ func main() {
 	if err = db.Ping(ctx); err != nil {
 		log.Fatal("Datenbank nicht bereit")
 	}
-	a := &app{db: db, attempts: map[string]int{}}
+	a := &app{db: db, attempts: map[string]int{}, verificationSlots: make(chan struct{}, 8)}
 	mux := http.NewServeMux()
 	a.registerBackup(mux)
 	a.registerUsers(mux)
