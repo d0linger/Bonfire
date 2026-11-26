@@ -60,7 +60,10 @@ func withinCount(movement, closing data) bool {
 	return movement.PostingOrder == 0 || closing.PostingOrder == 0 || movement.PostingOrder <= closing.PostingOrder
 }
 
-// Rows without a recoverable same-day posting order retain the legacy date-only behavior.
+func unknownOrder(movement, boundary data) bool {
+	return boundary.Date != "" && movement.Date == boundary.Date && (boundary.PostingOrder == 0 || movement.PostingOrder == 0)
+}
+
 func afterOpening(movement, opening data) bool {
 	if movement.Date != opening.Date {
 		return opening.Date == "" || movement.Date > opening.Date
@@ -89,7 +92,11 @@ func walletRevenue(rows []row, wallet string) (int64, bool) {
 	total := *end - *start
 	for _, r := range rows {
 		if afterOpening(r.Data, opening) && withinCount(r.Data, cutoff) {
-			total += cashAdjustment(r, func(id string) bool { return id != "" && id == wallet }, false)
+			adjustment := cashAdjustment(r, func(id string) bool { return id != "" && id == wallet }, false)
+			if adjustment != 0 && (unknownOrder(r.Data, opening) || unknownOrder(r.Data, cutoff)) {
+				return 0, false
+			}
+			total += adjustment
 		}
 	}
 	return total, true
@@ -149,6 +156,9 @@ func pooledRevenue(rows []row) (int64, bool) {
 		if start == nil && r.Data.Wallet == "" && r.Data.Account == "" && cashAdjustment(r, func(string) bool { return false }, true) != 0 {
 			active := 0
 			for _, o := range openings {
+				if unknownOrder(r.Data, o) {
+					return 0, false
+				}
 				if afterOpening(r.Data, o) {
 					active++
 				}
@@ -158,7 +168,20 @@ func pooledRevenue(rows []row) (int64, bool) {
 			}
 			unassigned = active == len(openings)
 		}
-		total += cashAdjustment(r, func(id string) bool { return wallets[id] && afterOpening(r.Data, openings[id]) }, unassigned)
+		uncertain := false
+		adjustment := cashAdjustment(r, func(id string) bool {
+			if !wallets[id] {
+				return false
+			}
+			if unknownOrder(r.Data, openings[id]) && cashAdjustment(r, func(candidate string) bool { return candidate == id }, false) != 0 {
+				uncertain = true
+			}
+			return afterOpening(r.Data, openings[id])
+		}, unassigned)
+		if uncertain || adjustment != 0 && (unknownOrder(r.Data, opening) || unknownOrder(r.Data, cutoff)) {
+			return 0, false
+		}
+		total += adjustment
 	}
 	return total, true
 }

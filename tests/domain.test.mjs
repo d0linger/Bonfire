@@ -213,3 +213,18 @@ test("a pooled transfer adjusts only the wallet whose opening count preceded it"
   rows.push(move("donation",3,{Method:"Bar",Amount:100}));
   assert.equal(pooledRevenue(rows),null);
 });
+
+test("historical cash on a boundary date needs a known posting order", () => {
+  for (const date of ["2026-05-01","2026-05-03"]) {
+    const count = (phase, day, order) => ({Kind:"count",Data:{ Phase:phase, Date:day, PostingOrder:order, Wallet:"w", Amount:100 }});
+    const rows = [{ID:"w",Kind:"wallet",Data:{}},count("Anfang","2026-05-01",1),count("Ende","2026-05-03",3),
+      {Kind:"supply",Data:{Date:date,Wallet:"w",Amount:100}}];
+    assert.equal(counted(rows,"w"),null);
+    rows[2].Data.Wallet=""; rows[2].Data.Fields={countScope:"all"};
+    assert.equal(pooledRevenue(rows),null);
+    rows[1].Data.Wallet=""; rows[1].Data.Fields={countScope:"all"};
+    assert.equal(pooledRevenue(rows),null);
+    rows[3].Data.Date="2026-05-02";
+    assert.equal(pooledRevenue(rows),-100);
+  }
+});
