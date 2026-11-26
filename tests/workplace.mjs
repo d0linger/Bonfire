@@ -103,7 +103,7 @@ try {
       await main.getByText("Kuchenstand", { exact: true }).waitFor();
     if (name === "Veranstaltungen")
       await main
-        .getByRole("button", { name: "Geldtaschen", exact: true })
+        .getByRole("button", { name: "Wallets", exact: true })
         .click();
     if (name === "Dokumente")
       assert.equal(await page.locator(".catalog li").count(), 11);
@@ -123,7 +123,7 @@ try {
     fullPage: true,
   });
   await page.locator("#menu-toggle").click();
-  await page.locator("nav").getByRole("button", { name: "Kassenbuch" }).click();
+  await page.locator("nav").getByRole("button", { name: "Cashbook" }).click();
   assert.ok(!(await page.locator("nav").isVisible()));
   await page.context().setOffline(true);
   await page.getByText("Offline", { exact: true }).waitFor();

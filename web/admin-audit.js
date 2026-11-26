@@ -1,17 +1,17 @@
 import { esc } from "./workplace.js";
 
-const money = new Intl.NumberFormat("de-AT", {
+const money = new Intl.NumberFormat("en-GB", {
   style: "currency",
   currency: "EUR",
 });
-const clock = new Intl.DateTimeFormat("de-AT", {
+const clock = new Intl.DateTimeFormat("en-GB", {
   dateStyle: "medium",
   timeStyle: "medium",
   timeZone: "Europe/Vienna",
 });
 const when = (value) => (value ? clock.format(new Date(value)) : "–");
 const bytes = (value) =>
-  new Intl.NumberFormat("de-AT", { maximumFractionDigits: 1 }).format(
+  new Intl.NumberFormat("en-GB", { maximumFractionDigits: 1 }).format(
     value / 1048576,
   ) + " MiB";
 const num = (value) => (Number.isFinite(value) ? String(value) : "–");
@@ -55,16 +55,21 @@ const pageHead = (heading, lead, buttons) =>
 const badge = (label, tone = "ok") =>
   '<span class="ops-badge ' + tone + '">' + esc(label) + "</span>";
 
+const outcomeLabel = (value) => ({
+  Übernommen: "Accepted", Konflikt: "Conflict", Geklärt: "Resolved",
+  Abgewiesen: "Rejected", Erfolgreich: "Successful", Fehlgeschlagen: "Failed",
+}[value] || value);
+
 function integrity(checks, at) {
   return (
     checks
       .map((c) =>
         row(
-          "Prüfkette " + c.Lane,
-          (c.OK ? "Intakt" : "Unterbrochen") + " · " + c.Entries + " Einträge",
+          "Audit chain " + c.Lane,
+          (c.OK ? "Intact" : "Broken") + " · " + c.Entries + " entries",
         ),
       )
-      .join("") + row("Prüfzeitpunkt", when(at))
+      .join("") + row("Verified at", when(at))
   );
 }
 
@@ -95,21 +100,21 @@ export function mountAudit(host, { api, identity, search = "" }) {
   function render() {
     root.innerHTML =
       pageHead(
-        "Audit-Log",
-        "Finanzbuchungen, Zugriffsänderungen und Betriebsvorgänge nachvollziehen.",
-        (isAdmin ? button("integrity", "Prüfketten prüfen") : "") +
-          button("csv", "CSV exportieren"),
+        "Audit log",
+        "Review financial postings, access changes and system events.",
+        (isAdmin ? button("integrity", "Verify audit chains") : "") +
+          button("csv", "Export CSV"),
       ) +
-      '<form class="ops-filter"><label>Suche<input name="q" maxlength="256" value="' +
+      '<form class="ops-filter"><label>Search<input name="q" maxlength="256" value="' +
       esc(filters.q) +
-      '" placeholder="Aktion, Objekt oder Ereignis"></label>' +
-      '<label>Aktion<input name="action" maxlength="256" value="' +
+      '" placeholder="Action, object or event"></label>' +
+      '<label>Action<input name="action" maxlength="256" value="' +
       esc(filters.action) +
       '"></label>' +
-      '<label>Benutzer<input name="user" maxlength="256" value="' +
+      '<label>User<input name="user" maxlength="256" value="' +
       esc(filters.user) +
-      '"></label><label><span id="audit-outcome-label">Ergebnis</span><select name="outcome" aria-labelledby="audit-outcome-label">' +
-      option("", "Alle Ergebnisse", filters.outcome) +
+      '"></label><label><span id="audit-outcome-label">Outcome</span><select name="outcome" aria-labelledby="audit-outcome-label">' +
+      option("", "All outcomes", filters.outcome) +
       [
         "Übernommen",
         "Konflikt",
@@ -118,36 +123,36 @@ export function mountAudit(host, { api, identity, search = "" }) {
         "Erfolgreich",
         "Fehlgeschlagen",
       ]
-        .map((value) => option(value, value, filters.outcome))
+        .map((value) => option(value, outcomeLabel(value), filters.outcome))
         .join("") +
       "</select></label>" +
-      '<label>Geschäftsjahr<select name="auditYear">' +
-      option("", "Alle Geschäftsjahre", filters.year) +
+      '<label>Fiscal year<select name="auditYear">' +
+      option("", "All fiscal years", filters.year) +
       years.map((y) => option(y.ID, y.Name, filters.year)).join("") +
       "</select></label>" +
-      '<label>Arbeitsbereich<select name="event">' +
+      '<label>Workspace<select name="event">' +
       eventOptions(filters.year, filters.event) +
       "</select></label>" +
-      '<label>Von<input type="date" name="from" value="' +
+      '<label>From<input type="date" name="from" value="' +
       esc(filters.from) +
       '"></label>' +
-      '<label>Bis einschließlich<input type="date" name="until" value="' +
+      '<label>Through<input type="date" name="until" value="' +
       esc(filters.until) +
       '"></label>' +
-      '<div class="actions"><button>Filtern</button>' +
-      button("clear", "Zurücksetzen") +
+      '<div class="actions"><button>Filter</button>' +
+      button("clear", "Reset") +
       "</div></form>" +
       '<p class="ops-notice" role="status"></p>' +
       (proof
-        ? panel("Integritätsprüfung", integrity(proof.chains, proof.at))
+        ? panel("Integrity check", integrity(proof.chains, proof.at))
         : "") +
       panel(
-        "Protokolleinträge",
+        "Audit entries",
         !loaded
-          ? '<p class="ops-empty">Protokoll wird geladen …</p>'
+          ? '<p class="ops-empty">Loading audit entries…</p>'
           : !items.length
-            ? '<p class="ops-empty">Keine Einträge für diese Auswahl.</p>'
-            : '<div class="list"><table><thead><tr><th>Serverzeit</th><th>Aktion</th><th>Ausgeführt von</th><th>Arbeitsbereich</th></tr></thead><tbody>' +
+            ? '<p class="ops-empty">No entries match these filters.</p>'
+            : '<div class="list"><table><thead><tr><th>Server time</th><th>Action</th><th>Performed by</th><th>Workspace</th></tr></thead><tbody>' +
               items
                 .map(
                   (e) =>
@@ -177,19 +182,19 @@ export function mountAudit(host, { api, identity, search = "" }) {
                 )
                 .join("") +
               "</tbody></table></div>" +
-              '<div class="ops-pages"><span>Seite ' +
+              '<div class="ops-pages"><span>Page ' +
               cursors.length +
               " · " +
               items.length +
-              ' Einträge</span><div class="actions">' +
-              (cursors.length > 1 ? button("prev", "Neuere") : "") +
-              (more ? button("next", "Ältere") : "") +
+              ' entries</span><div class="actions">' +
+              (cursors.length > 1 ? button("prev", "Newer") : "") +
+              (more ? button("next", "Older") : "") +
               "</div></div>",
       );
   }
   function eventOptions(year, value) {
     return (
-      option("", "Alle Arbeitsbereiche", value) +
+      option("", "All workspaces", value) +
       events
         .filter((e) => !year || e.Year === year)
         .map((e) => option(e.ID, e.Name, value))
@@ -198,25 +203,25 @@ export function mountAudit(host, { api, identity, search = "" }) {
   }
   function details(e) {
     const cols = [
-      ["Aktion", e.Action],
-      ["Benutzer", e.User],
-      ["Bezug", e.Subject],
-      ["Arbeitsbereich", e.Event || "Installation"],
-      ["Geschäftsjahr", e.Year],
-      ["Herkunft", e.Source],
-      ["Serverannahme", when(e.At)],
-      ["Lokale Erfassung", e.LocalTime ? when(e.LocalTime) : ""],
-      ["Ergebnis", e.Outcome],
-      ["Ausgangsrevision", e.Base],
-      ["Zielrevision", e.Revision],
-      ["Betrag vorher", e.PreviousCents != null ? cash(e.PreviousCents) : ""],
-      ["Betrag nachher", e.Cents != null ? cash(e.Cents) : ""],
-      ["Quellkonto", e.Origin],
-      ["Zielkonto", e.Destination],
-      ["Begründung", e.Reason],
+      ["Action", e.Action],
+      ["User", e.User],
+      ["Reference", e.Subject],
+      ["Workspace", e.Event || "Installation"],
+      ["Fiscal year", e.Year],
+      ["Source", e.Source],
+      ["Received by server", when(e.At)],
+      ["Entered locally", e.LocalTime ? when(e.LocalTime) : ""],
+      ["Outcome", outcomeLabel(e.Outcome)],
+      ["Previous revision", e.Base],
+      ["New revision", e.Revision],
+      ["Previous amount", e.PreviousCents != null ? cash(e.PreviousCents) : ""],
+      ["New amount", e.Cents != null ? cash(e.Cents) : ""],
+      ["Source account", e.Origin],
+      ["Destination account", e.Destination],
+      ["Reason", e.Reason],
     ];
     return panel(
-      "Ereignis " + e.ID,
+      "Event " + e.ID,
       cols
         .filter(([, v]) => v != null && v !== "")
         .map(([k, v]) => row(k, v))
@@ -244,7 +249,7 @@ export function mountAudit(host, { api, identity, search = "" }) {
       await fn();
     } catch (err) {
       const msg = root.querySelector(".ops-notice");
-      if (msg) msg.textContent = err.message || "Protokoll nicht erreichbar.";
+      if (msg) msg.textContent = err.message || "Audit log unavailable.";
     }
   }
   root.addEventListener("change", (e) => {
@@ -325,17 +330,17 @@ export function mountAudit(host, { api, identity, search = "" }) {
 }
 
 function backupStatus(target, probe = false) {
-  if (!target) return "Unbekannt";
+  if (!target) return "Unknown";
   if (!probe && !target.enabled)
     return target.lastSuccess
-      ? "Zeitplan aus · letzter Erfolg " + when(target.lastSuccess)
-      : "Zeitplan deaktiviert";
+      ? "Schedule off · last success " + when(target.lastSuccess)
+      : "Schedule disabled";
   if (target.outcome === "failed")
-    return "Fehlgeschlagen · " + when(target.lastAttempt);
+    return "Failed · " + when(target.lastAttempt);
   if (target.due)
-    return "Überfällig · letzter Erfolg " + when(target.lastSuccess);
-  if (target.lastSuccess) return "Erfolgreich · " + when(target.lastSuccess);
-  return "Noch nie erfolgreich geprüft";
+    return "Overdue · last success " + when(target.lastSuccess);
+  if (target.lastSuccess) return "Successful · " + when(target.lastSuccess);
+  return "No successful check recorded";
 }
 
 export function mountStatus(host, { api }) {
@@ -343,15 +348,15 @@ export function mountStatus(host, { api }) {
   root.className = "ops-admin";
   host.replaceChildren(root);
   const intro = pageHead(
-    "Systemstatus",
-    "Betriebszustand der Installation und Ergebnisse der letzten Prüfungen.",
-    button("refresh", "Aktualisieren"),
+    "System status",
+    "Service health and results of the latest checks.",
+    button("refresh", "Refresh"),
   );
   let generation = 0;
   async function refresh() {
     const token = ++generation;
     root.innerHTML =
-      intro + '<p role="status">Betriebsdaten werden geladen …</p>';
+      intro + '<p role="status">Loading system status…</p>';
     try {
       const [s, backup, failures] = await Promise.all([
         api("admin/status"),
@@ -364,69 +369,69 @@ export function mountStatus(host, { api }) {
       );
       const uptime =
         hours < 1
-          ? "Unter einer Stunde"
-          : Math.floor(hours / 24) + " Tage, " + (hours % 24) + " Stunden";
+          ? "Less than an hour"
+          : Math.floor(hours / 24) + " days, " + (hours % 24) + " hours";
       const links =
-        '<div class="actions"><button type="button" class="secondary" data-admin-route="Backup">Backup öffnen</button>' +
-        '<button type="button" class="secondary" data-admin-route="Audit-Log">Zum Audit-Log</button></div>';
+        '<div class="actions"><button type="button" class="secondary" data-admin-route="Backup">Open backups</button>' +
+        '<button type="button" class="secondary" data-admin-route="Audit-Log">Open audit log</button></div>';
       const failed = [backup?.local, backup?.s3, backup?.probe].some(
         (x) => x?.outcome === "failed",
       );
       const warning = failed
-        ? '<div class="ops-warning"><strong>Sicherung oder Restore-Probe fehlgeschlagen.</strong> <button type="button" class="secondary" data-admin-route="Audit-Log" data-admin-search="Backup">Backup-Ereignisse ansehen</button></div>'
+        ? '<div class="ops-warning"><strong>Backup or restore test failed.</strong> <button type="button" class="secondary" data-admin-route="Audit-Log" data-admin-search="Backup">View backup events</button></div>'
         : "";
       root.innerHTML =
         intro +
         warning +
         '<div class="ops-pair">' +
         panel(
-          "Anwendung",
-          row("Betriebsart", s.offline ? "Gerätebetrieb" : "Onlinebetrieb") +
-            row("Laufzeit", uptime) +
-            row("Server-Build", s.build) +
-            row("Go-Laufzeit", s.runtime) +
+          "Application",
+          row("Operating mode", s.offline ? "Device mode" : "Online") +
+            row("Uptime", uptime) +
+            row("Server build", s.build) +
+            row("Go runtime", s.runtime) +
             row(
-              "App-Dateisystem frei",
+              "Free application disk space",
               s.appDisk
-                ? bytes(s.appDisk.free) + " von " + bytes(s.appDisk.total)
-                : "Keine Messung verfügbar",
+                ? bytes(s.appDisk.free) + " of " + bytes(s.appDisk.total)
+                : "Measurement unavailable",
             ) +
             row(
-              "Fehlgeschlagene HTTP-Anfragen seit Start",
+              "Failed HTTP requests since startup",
               num(s.failedRequests),
             ),
-          badge("Erreichbar"),
+          badge("Reachable"),
         ) +
         panel(
           "PostgreSQL",
           row("Version", s.postgres) +
             row("Schema", "Migration " + s.schema) +
-            row("Datenbankgröße", bytes(s.databaseBytes)) +
+            row("Database size", bytes(s.databaseBytes)) +
             row(
-              "Verbindungen im App-Pool",
+              "Application pool connections",
               s.usedConnections +
-                " aktiv / " +
+                " active / " +
                 s.openConnections +
-                " offen / " +
+                " open / " +
                 s.maxConnections +
-                " maximal",
+                " maximum",
             ) +
-            row("Aktive Sitzungen", num(s.sessions)),
-          badge("Bereit"),
+            row("Active sessions", num(s.sessions)),
+          badge("Ready"),
         ) +
         "</div>" +
         panel(
-          "Betriebsprüfungen",
-          row("Lokales Backup", backupStatus(backup?.local)) +
-            row("S3-Sicherung", backupStatus(backup?.s3)) +
-            row("Wiederherstellungsprobe", backupStatus(backup?.probe, true)) +
+          "Operational checks",
+          row("Local backup", backupStatus(backup?.local)) +
+            row("S3 backup", backupStatus(backup?.s3)) +
+            row("Restore test", backupStatus(backup?.probe, true)) +
             integrity(s.chains, s.at) +
-            row("Offene finanzielle Klärfälle", num(s.conflicts)) +
+            row("Unresolved financial conflicts", num(s.conflicts)) +
             links,
         ) +
         (failures?.rows.length
           ? panel(
-              "Letzte fehlgeschlagene Aufträge",
+              "Recent failed jobs",
               failures.rows
                 .slice(0, 5)
                 .map(
@@ -447,7 +452,7 @@ export function mountStatus(host, { api }) {
         root.innerHTML =
           intro +
           '<p role="alert">' +
-          esc(err.message || "Status konnte nicht geladen werden.") +
+          esc(err.message || "Could not load system status.") +
           "</p>";
     }
   }

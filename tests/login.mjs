@@ -51,7 +51,7 @@ try {
     Secret: secret,
     Code: code(secret),
   });
-  await click("Arbeitsplatz schließen");
+  await click("Sign out");
   await login(pw + "x");
   await page.getByText("Anmeldung fehlgeschlagen.", { exact: true }).waitFor();
   assert.equal(await page.locator("[name=otp]").count(), 0);
@@ -71,7 +71,7 @@ try {
   await click("Bestätigen");
   await page.getByRole("heading", { name: "Finanzen im Überblick" }).waitFor();
   await page.setViewportSize({ width: 1280, height: 800 });
-  await click("Arbeitsplatz schließen");
+  await click("Sign out");
   await login();
   await click("Recoverycode verwenden");
   await factor.fill("keinRecoverycode");

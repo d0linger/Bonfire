@@ -220,7 +220,7 @@ try {
   );
   await go("Kassenbuch");
   await page
-    .getByRole("heading", { name: "Kassenbuch", exact: true })
+    .getByRole("heading", { name: "Cashbook", exact: true })
     .waitFor();
   assert.equal(
     await page.getByRole("cell", { name: eventBooking, exact: true }).count(),
@@ -495,7 +495,7 @@ try {
     .click();
   await writer
     .locator("nav")
-    .getByRole("button", { name: "Kassenbuch", exact: true })
+    .getByRole("button", { name: "Cashbook", exact: true })
     .click();
   await writer
     .getByText(

@@ -66,7 +66,7 @@ try {
   const group = page.locator("#admin-navigation");
   await group.locator("summary").click();
   const view = page.locator("article .admin-console").first();
-  for (const name of ["Backup", "Users", "Audit-Log", "Systemstatus"]) {
+  for (const name of ["Backup", "Users", "Audit log", "System status"]) {
     await group.getByRole("button", { name, exact: true }).click();
     await view.getByRole("heading", { name, exact: true, level: 1 }).waitFor();
     assert.equal(await page.locator("#workspace-picker select").count(), 0);
@@ -85,7 +85,7 @@ try {
         .getByRole("heading", { name: "Sign-in policy", exact: true })
         .waitFor();
     }
-    if (name === "Audit-Log") {
+    if (name === "Audit log") {
       const panel = view.locator(".ops-panel").first();
       assert.equal(await background(panel), "rgb(34, 39, 48)");
       await appearance.click();
@@ -93,7 +93,7 @@ try {
       assert.equal(await background(panel), "rgb(255, 255, 255)");
       await view
         .locator(".ops-pages, .ops-empty")
-        .filter({ hasNotText: "geladen" })
+        .filter({ hasNotText: "Loading" })
         .first()
         .waitFor();
       for (const width of [1360, 390]) {
@@ -107,7 +107,7 @@ try {
         );
         await detail
           .getByRole("heading", {
-            name: "Ereignis " + (await entry.getAttribute("data-entry")),
+            name: "Event " + (await entry.getAttribute("data-entry")),
             exact: true,
           })
           .waitFor();
@@ -127,8 +127,8 @@ try {
       await page.setViewportSize({ width: 1360, height: 900 });
       const entry = view.locator("button[data-entry]").first();
       const id = await entry.getAttribute("data-entry");
-      await view.getByLabel("Suche", { exact: true }).fill("#" + id);
-      await view.getByRole("button", { name: "Filtern", exact: true }).click();
+      await view.getByLabel("Search", { exact: true }).fill("#" + id);
+      await view.getByRole("button", { name: "Filter", exact: true }).click();
       await view.locator("#audit-detail-" + id).waitFor();
       assert.equal(
         await view
@@ -136,9 +136,9 @@ try {
           .getAttribute("aria-expanded"),
         "true",
       );
-      await view.getByLabel("Suche", { exact: true }).fill("");
+      await view.getByLabel("Search", { exact: true }).fill("");
       await view
-        .getByLabel("Ergebnis", { exact: true })
+        .getByLabel("Outcome", { exact: true })
         .selectOption("Konflikt");
       await Promise.all([
         page.waitForResponse(
@@ -146,12 +146,12 @@ try {
             new URL(res.url()).searchParams.get("outcome") === "Konflikt" &&
             res.status() === 200,
         ),
-        view.getByRole("button", { name: "Filtern", exact: true }).click(),
+        view.getByRole("button", { name: "Filter", exact: true }).click(),
       ]);
       await view
-        .getByRole("button", { name: "Prüfketten prüfen", exact: true })
+        .getByRole("button", { name: "Verify audit chains", exact: true })
         .click();
-      await view.getByText("Prüfzeitpunkt", { exact: true }).waitFor();
+      await view.getByText("Verified at", { exact: true }).waitFor();
     }
   }
   await page.setViewportSize({ width: 390, height: 844 });
