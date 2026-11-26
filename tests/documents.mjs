@@ -88,10 +88,11 @@ try {
       "D1",
       "2025",
     );
-    const doc = (x) =>
+    const doc = (x, styles) =>
       new File(
         [
           b.zipSync({
+            ...(styles ? { "word/styles.xml": b.strToU8('<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' + styles + '</w:styles>') } : {}),
             "word/document.xml": b.strToU8(
               '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' +
                 x +
@@ -121,6 +122,17 @@ try {
       if (["false", "off", "0"].includes(value)) {
         if (text !== "Receipt") throw Error("Disabled page break changed the imported paragraph");
       } else if (error?.message !== "Unsupported Word break: pageBreakBefore") throw Error("Expected paragraph break rejection");
+    }
+    const styles = '<w:style w:type="paragraph" w:styleId="Base"><w:pPr><w:pageBreakBefore/></w:pPr></w:style>' +
+      '<w:style w:type="paragraph" w:styleId="Receipt" w:default="1"><w:basedOn w:val="Base"/></w:style>';
+    for (const [properties, blocked] of [
+      ["", true], ['<w:pStyle w:val="Receipt"/>', true],
+      ['<w:pStyle w:val="Receipt"/><w:pageBreakBefore w:val="0"/>', false],
+    ]) {
+      let text, error;
+      try { text = await b.importTemplate(doc(`<w:p><w:pPr>${properties}</w:pPr><w:r><w:t>Receipt</w:t></w:r></w:p>`, styles)); }
+      catch (cause) { error = cause; }
+      if (blocked ? error?.message !== "Unsupported Word break: pageBreakBefore" : text !== "Receipt") throw Error("Incorrect inherited paragraph break");
     }
     let rejected = false;
     try {
