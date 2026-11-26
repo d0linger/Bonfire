@@ -1,4 +1,5 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from "fflate";
+import { closure } from "./context.js";
 import { types, cents } from "./domain.js";
 const XML = (s) =>
   String(s ?? "").replace(
@@ -27,7 +28,7 @@ const columns = [
   "Bezug",
   "Formatversion",
 ];
-function table(rows) {
+function table(rows, version = "1") {
   return [
     columns,
     ...rows
@@ -41,17 +42,17 @@ function table(rows) {
         d.To || "",
         d.Category || "",
         d.Reference || "",
-        "1",
+        version,
       ]),
   ];
 }
 export function csv(rows) {
   const safe = (s) =>
-    '"' + (/^[=+@\-\t\r]/.test(s) ? "'" : "") + s.replaceAll('"', '""') + '"';
+    '"' + (/^['=+@\-\t\r]/.test(s) ? "'" : "") + s.replaceAll('"', '""') + '"';
   return new Blob(
     [
       "\ufeff" +
-        table(rows)
+        table(rows, "2")
           .map((r) => r.map(safe).join(";"))
           .join("\r\n"),
     ],
@@ -201,7 +202,9 @@ export async function preview(file, existing) {
     records = [...xml(sheet).querySelectorAll("sheetData row")].map((row) => {
       const values = [];
       for (const c of row.children) {
-        const i = (c.getAttribute("r") || "A").charCodeAt(0) - 65;
+        const ref = /^([A-I])[1-9]\d*$/.exec(c.getAttribute("r") || "");
+        if (!ref) continue;
+        const i = ref[1].charCodeAt(0) - 65;
         values[i] = c.querySelector("f")
           ? "[Formel prüfen]"
           : c.getAttribute("t") === "s"
@@ -210,7 +213,14 @@ export async function preview(file, existing) {
       }
       return values;
     });
-  } else records = csvRows(new TextDecoder().decode(buf));
+  } else {
+    records = csvRows(new TextDecoder().decode(buf));
+    for (const r of records) {
+      if (r[8] === "2") {
+        for (let i = 0; i < 8; i++) if (/^'['=+@\-\t\r]/.test(r[i])) r[i] = r[i].slice(1);
+      }
+    }
+  }
   if (
     !records.length ||
     columns
@@ -225,6 +235,7 @@ export async function preview(file, existing) {
     new Uint8Array(await crypto.subtle.digest("SHA-256", buf)),
     (v) => v.toString(16).padStart(2, "0"),
   ).join("");
+  const existingKeys = new Set(existing.map(({ Kind, Data: d }) => JSON.stringify([d.Date, Kind, d.Label, d.Amount])));
   const seen = new Set();
   return records.slice(1).map((r, i) => {
     let Amount = null;
@@ -238,16 +249,10 @@ export async function preview(file, existing) {
     } catch {
       // Keep invalid amounts null for the import review.
     }
-    const sig = [r[0], r[1], r[2], Amount].join("|");
-    const dup =
-      seen.has(sig) ||
-      existing.some(
-        (x) =>
-          x.Data.Date === r[0] &&
-          x.Kind === r[1] &&
-          x.Data.Label === r[2] &&
-          x.Data.Amount === Amount,
-      );
+    const sig = JSON.stringify([r[0], r[1], r[2], Amount]);
+    const dup = seen.has(sig) || existingKeys.has(sig);
+    const day = new Date(r[0] + "T00:00:00Z");
+    const validDay = /^\d{4}-\d{2}-\d{2}$/.test(r[0]) && Number.isFinite(day.getTime()) && day.toISOString().slice(0, 10) === r[0];
     seen.add(sig);
     return {
       source: hash,
@@ -257,7 +262,7 @@ export async function preview(file, existing) {
       kind: r[1],
       amount: Amount,
       status:
-        Amount == null || !types[r[1]] || !/^\d{4}-\d{2}-\d{2}$/.test(r[0])
+        Amount == null || !types[r[1]] || !validDay
           ? "Klärung"
           : dup
             ? "Mögliche Dublette"
@@ -313,6 +318,7 @@ export async function evidence(s, rows, reports = {}, scope = {}) {
     return [];
   });
   const approved =
+    closure(rows, !!s.event?.Accounts, s.closed)["report.review"].status === "approved" &&
     s.closed === true &&
     !scope.period &&
     s.pending === 0 &&

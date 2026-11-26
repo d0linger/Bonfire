@@ -564,14 +564,17 @@ export function overview(
     opening = rows.filter((r) => r.Kind === "opening"),
     sum = (r) => r.reduce((n, x) => n + (x.Data.Amount || 0), 0),
     start = sum(opening);
+  const openingIDs = new Set(opening.map((r) => r.Data.Account));
+  const covered = !e.Accounts || rows.filter((r) => ["account", "wallet"].includes(r.Kind)).every((r) => openingIDs.has(r.ID));
   const uniqueOpening =
+    covered &&
     opening.length > 0 &&
     new Set(opening.map((r) => (e.Accounts ? r.Data.Account || "" : "gesamt")))
       .size === opening.length;
   const openingText = uniqueOpening
     ? "Mit erfasstem Anfangsbestand"
-    : opening.length
-      ? "Mehrere Eröffnungen · Zeitraum prüfen"
+    : opening.length && covered
+      ? "Multiple opening balances · Check the period"
       : canAddOpening
         ? '<button type="button" class="opening-action" data-act="focusEntry" aria-haspopup="dialog">Opening balance missing</button>'
         : "Opening balance missing";

@@ -40,8 +40,8 @@ export async function importTemplate(file) {
       throw Error("Nicht unterstützter Word-Inhalt: " + tag);
   const body = [...doc.getElementsByTagNameNS("*", "p")]
     .map((p) =>
-      [...p.getElementsByTagNameNS("*", "t")]
-        .map((t) => t.textContent)
+      [...p.getElementsByTagNameNS("*", "*")]
+        .map((t) => t.localName === "t" ? t.textContent : t.localName === "tab" ? "\t" : ["br", "cr"].includes(t.localName) ? "\n" : "")
         .join(""),
     )
     .join("\n")
@@ -56,7 +56,7 @@ export async function importTemplate(file) {
 }
 export function mergeText(text, values) {
   return (text || "").replace(/\{\{([^{}]+)\}\}/g, (_, k) => {
-    if (values[k] == null) throw Error("Vorlagenwert fehlt: " + k);
+    if (!Object.hasOwn(values, k) || values[k] == null) throw Error("Vorlagenwert fehlt: " + k);
     return String(values[k]);
   });
 }

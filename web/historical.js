@@ -22,17 +22,20 @@ function simpleSum(formula, cells) {
   const m = /^(?:SUM|SUMME)\(\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)\)$/i.exec(
     formula.trim(),
   );
-  if (!m || m[1] !== m[3] || +m[2] > +m[4] || +m[4] - m[2] > 10000) return null;
-  let total = 0;
-  for (let i = +m[2]; i <= +m[4]; i++) {
+  if (!m || m[1] !== m[3]) return null;
+  const start = Number(m[2]), end = Number(m[4]);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) ||
+      start < 1 || end > 1048576 || start > end || end - start > 10000) return null;
+  let total = 0n;
+  for (let i = start; i <= end; i++) {
     const cell = cells.get(m[1].toUpperCase() + i);
     if (!cell || (cell.value === "" && cell.formula === null)) continue;
     if (cell.formula !== null || cell.type !== "n") return null;
     const n = sourceCents(cell.value);
     if (n === null) return null;
-    total += n;
+    total += BigInt(n);
   }
-  return Number.isSafeInteger(total) ? total : null;
+  return Number.isSafeInteger(Number(total)) ? Number(total) : null;
 }
 export async function historyPreview(file, role, year) {
   if (file.size > 4 << 20) throw Error("Datei übersteigt 4 MiB.");
@@ -220,7 +223,7 @@ export async function historyPreview(file, role, year) {
         );
         const check = c.formula !== null ? simpleSum(c.formula, byRef) : null;
         const blocked =
-          role === "D8" || c.formula !== null || aggregate || amount === null;
+          role === "D8" || c.formula !== null || aggregate || signed === null || signed < 0;
         const kind = /einnahm|eingang/i.test(heading)
           ? "income"
           : /ausgab|ausgang/i.test(heading)
@@ -255,7 +258,7 @@ export async function historyPreview(file, role, year) {
                     ? "Summen- oder Übertragszeile"
                     : amount === null
                       ? "Betrag fehlt oder unlesbar"
-                      : "Einzelzuordnung prüfen",
+                      : signed < 0 ? "Negative source amount requires manual reconciliation" : "Review individual booking",
           blocked,
         });
       }

@@ -129,6 +129,7 @@ export function snapshot(index, s, rows, opts) {
           ? [297, 210]
           : [210, 297];
   const lines = [];
+  const priceCards = [];
   const add = (...parts) => lines.push(parts.map(fmt).join("   "));
   const data = opts.bar ? rows.filter((r) => r.Data.Bar === opts.bar) : rows;
   const money = summary(data);
@@ -216,7 +217,7 @@ export function snapshot(index, s, rows, opts) {
       throw Error(
         "Enter the approved receipt text, donor details and collection.",
       );
-    if (index === 2 && contact?.Fields?.birth)
+    if (index === 2 && s.donorAccess && contact?.Fields?.birth)
       add("Date of birth", contact.Fields.birth);
     if (index === 2 && org?.Fields?.donationLegal)
       add(org.Fields.donationLegal);
@@ -231,11 +232,12 @@ export function snapshot(index, s, rows, opts) {
     );
     if (!prices.length)
       throw Error("Approve event prices before generating a price list.");
-    for (const r of prices)
-      add(
-        [r.Data.Label, r.Data.Variant, r.Data.Unit].filter(Boolean).join(" · "),
-        eur(r.Data.Amount),
-      );
+    for (const r of prices) {
+      const label = [r.Data.Label, r.Data.Variant, r.Data.Unit].filter(Boolean).join(" · ");
+      const price = eur(r.Data.Amount);
+      priceCards.push([label, price]);
+      add(label, price);
+    }
   } else if (index === 7) {
     if (chosen && !["count", "plan"].includes(chosen.Kind))
       throw Error("Select a cash count or change float plan.");
@@ -297,7 +299,9 @@ export function snapshot(index, s, rows, opts) {
     profileID(index) +
     "@" +
     (opts.version === "draft" ? "entwurf" : (tpl?.Revision ?? "standard"));
+  const copies = Math.min(index === 3 ? 3 : 7, Math.max(1, Math.trunc(Number(config.Fields?.copies)) || (index === 3 ? 3 : 7)));
   const context = exportContext(index, s, rows, {
+    copies,
     ...opts,
     title,
     versionID,
@@ -318,7 +322,7 @@ export function snapshot(index, s, rows, opts) {
               opts.number || "Draft",
               [org?.Label, org?.Address].filter(Boolean).join(", "),
               [contact?.Label, contact?.Address].filter(Boolean).join(", "),
-              contact?.Fields?.birth || "",
+              s.donorAccess ? contact?.Fields?.birth || "" : "",
               today(),
             ],
           }
@@ -345,10 +349,8 @@ export function snapshot(index, s, rows, opts) {
     wordLayout: index === 6 ? config.File || null : null,
     cardHeader: config.Fields?.header || s.event.Name,
     guestCopies: index === 5 && Number(opts.guestCopies) === 2 ? 2 : 1,
-    copies: Math.min(
-      index === 3 ? 3 : 7,
-      Math.max(1, Number(config.Fields?.copies) || (index === 3 ? 3 : 7)),
-    ),
+    copies,
+    priceCards,
     firstColumn: Math.min(
       75,
       Math.max(40, Number(config.Fields?.firstColumn) || 60),
@@ -440,9 +442,12 @@ export async function render(s) {
         pdf.addPage();
         doc.push(new Paragraph({ pageBreakBefore: true }));
       }
-      const content = s.lines
-        .slice(offset, offset + cap)
-        .map((l) => l.split("   "));
+      const content = s.priceCards
+        ? s.priceCards.slice(offset, offset + cap)
+        : s.lines.slice(offset, offset + cap).map((line) => {
+            const split = line.lastIndexOf("   ");
+            return split < 0 ? [line, ""] : [line.slice(0, split), line.slice(split + 3)];
+          });
       while (content.length < cap) content.push(["", ""]);
       for (let slot = 0; slot < Math.min(per, s.copies || per); slot++) {
         let cy = top + slot * (h + gap);
