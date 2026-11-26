@@ -6,6 +6,17 @@ import { donationReport } from "../web/donors.js";
 import { sponsorshipStatus } from "../web/sponsorship.js";
 import { tablesFor } from "../web/layouts.js";
 const row = (Kind, Data, ID = Kind) => ({ ID, Kind, Data });
+test("journal exports identify the workspace and place early bookings first", () => {
+  const records = [
+    row("expense", { Date: "2042-07-08", Amount: 520, Label: "Supplies" }),
+    row("income", { Date: "2042-01-09", Amount: 700, Label: "Collection" }),
+  ];
+  const journal = tablesFor(10, { event: "General cashbook" }, records, "", {
+    starts: "2042-01-01", ends: "2042-09-30",
+  });
+  assert.equal(journal.intro, "General cashbook · 2042-01-01 – 2042-09-30");
+  assert.deepEqual(journal.blocks[0].rows.map(line => line[2]), ["Collection", "Supplies"]);
+});
 test("Gemeinsames Zählblatt mit erfasstem Betrag lässt unbekannte Stückzahlen leer", () => {
   const count = row(
     "count",

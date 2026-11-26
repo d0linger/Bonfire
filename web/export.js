@@ -365,6 +365,8 @@ export function snapshot(index, s, rows, opts) {
   };
   result.tables = tablesFor(index, result, rows, opts.subject, {
     ...opts,
+    starts: s.event.Starts,
+    ends: s.event.Ends,
     closed: s.closed,
     accounts: s.event.Accounts,
     pending: s.pending,

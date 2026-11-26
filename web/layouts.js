@@ -299,10 +299,10 @@ export function tablesFor(i, s, rows, subject, opts) {
     };
   }
   if (i === 10) {
+    const dates = [period?.Data.Date || opts.starts, period?.Data.To || opts.ends]
+      .filter(Boolean).join(" – ");
     return {
-      intro: period
-        ? period.Data.Label
-        : "Event records",
+      intro: [period?.Data.Label || s.event, dates].filter(Boolean).join(" · "),
       blocks: [
         {
           headers: ["Date", "Type", "Description", "Payment method", "Amount"],
@@ -326,6 +326,7 @@ export function tablesFor(i, s, rows, subject, opts) {
                 "payout",
               ].includes(r.Kind),
             )
+            .sort((a, b) => (a.Data.Date || "").localeCompare(b.Data.Date || ""))
             .map((r) => [
               r.Data.Date,
               types[r.Kind],
