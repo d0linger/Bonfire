@@ -96,7 +96,7 @@ try {
       "D1",
       "2025",
     );
-    if (budgetRows.some((r) => r.cell === "C2" || r.cell === "D2"))
+    if (budgetRows.some((r) => /^[CD]\d+$/.test(r.cell)))
       throw Error("A dated budget column appeared in the journal preview");
     const doc = (x, styles, parts = {}) =>
       new File(

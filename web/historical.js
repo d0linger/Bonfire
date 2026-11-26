@@ -125,6 +125,7 @@ export async function historyPreview(file, role, year) {
         (c) => ["s", "inlineStr", "str"].includes(c.type) && c.value.trim(),
       );
       const header =
+        !row.cells.some((c) => c.formula !== null || (c.type === "n" && c.value !== "") || c.type === "d") &&
         texts.some((c) =>
           /^(datum|buchungsdatum|bezeichnung|beschreibung|buchungstext)$/i.test(
             c.value.trim(),
