@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { admin, basic } from "./local-api.mjs";
 const url = new URL(process.env.BONFIRE_URL);
@@ -94,6 +95,15 @@ await send({
 const safe = await api("admin/audit/export?event=" + e.ID, manager, {});
 assert.ok(!safe.csv.includes(sensitive));
 assert.ok(safe.csv.includes("Sensible Angabe ausgeblendet"));
+// Historical conflict decisions are retained when an installation switches to online mode.
+const donation = { ...operation, Kind: "donation", ID: randomUUID(), Target: randomUUID() };
+await send(donation);
+const project = process.env.COMPOSE_PROJECT_NAME;
+assert.match(project, /^bonfire-online-[a-f0-9]{32}$/);
+const legacyReason = "Synthetic private donor detail";
+execFileSync("docker", ["compose", "-p", project, "exec", "-T", "db", "psql", "-X", "-v", "ON_ERROR_STOP=1",
+  "-U", "bonfire", "-d", "bonfire", "-v", "event=" + e.ID, "-v", "operation=" + donation.ID, "-v", "reason=" + legacyReason],
+  { input: "INSERT INTO audit(event,username,action,subject) SELECT :'event'::uuid,'leitung',decision || ': ' || :'reason',:'operation' FROM unnest(ARRAY['beibehalten','übernehmen']) AS decision;" });
 const otherExport = await api("admin/audit/export?event=" + other.ID, manager, {});
 assert.ok(otherExport.csv.includes(other.Name));
 for (const Role of ["Read", "Write"]) {
@@ -105,6 +115,10 @@ for (const Role of ["Read", "Write"]) {
   await api("admin/audit/integrity", cookie, undefined, 403);
   const allowedExport = await api("admin/audit/export?event=" + e.ID, cookie, {});
   assert.ok(allowedExport.csv.includes(e.Name));
+  assert.ok(!allowedExport.csv.includes(legacyReason));
+  const decisions = (await api("admin/audit?event=" + e.ID, cookie)).rows.filter(r => ["beibehalten","übernehmen"].includes(r.Action));
+  assert.equal(decisions.length, 2);
+  assert.ok(decisions.every(r => r.Kind === "donation" && r.Reason === "Sensible Angabe ausgeblendet."));
   const scoped = await api("admin/audit", cookie);
   assert.ok(scoped.rows.length);
   assert.ok(scoped.rows.every((row) => row.Event === e.Name));

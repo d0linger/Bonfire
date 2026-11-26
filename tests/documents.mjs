@@ -142,6 +142,15 @@ try {
     let alternateError;
     try { await b.importTemplate(alternate); } catch (error) { alternateError = error; }
     if (alternateError?.message !== "Text import requires styles in word/styles.xml.") throw Error("Alternate styles part was silently ignored");
+    for (const [count, message] of [[1, "The Word styles part is missing."], [2, "The Word document declares multiple styles parts."]]) {
+      const links = Array.from({length:count}, (_, i) => `<Relationship Id="r${i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`).join("");
+      const invalid = doc("<w:p><w:r><w:t>Test</w:t></w:r></w:p>", null, {
+        "word/_rels/document.xml.rels": b.strToU8('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + links + '</Relationships>'),
+      });
+      let reason;
+      try { await b.importTemplate(invalid); } catch (error) { reason = error.message; }
+      if (reason !== message) throw Error("Expected styles relationship validation: " + message);
+    }
     let rejected = false;
     try {
       await b.importTemplate(

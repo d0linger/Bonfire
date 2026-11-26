@@ -553,8 +553,9 @@ try {
           Ende: 3400,
         },
       );
+      // The 25 EUR delivery preceded the opening count: 34 EUR closing less 4 EUR opening.
       await page
-        .getByText(/Tasche Süd · Weitere Sammelbareinnahme\s+(?:€\s*)?5,00/)
+        .getByText(/Tasche Süd · Weitere Sammelbareinnahme\s+(?:€\s*)?30,00/)
         .waitFor();
     }
   }
