@@ -143,7 +143,11 @@ func (a *app) authenticate(ctx context.Context, db authDB, r *http.Request) (str
 	a.attempts[bucket]++
 	a.mu.Unlock()
 	var digest, role, account string
-	err := db.QueryRow(ctx, "SELECT password,role,name FROM users WHERE coalesce(login_alias,name)=$1 AND active AND (NOT password_change_required OR $2)", name, r.URL.Path == "/api/login").Scan(&digest, &role, &account)
+	query := "SELECT password,role,name FROM users WHERE coalesce(login_alias,name)=$1 AND active AND (NOT password_change_required OR $2)"
+	if _, transactional := db.(pgx.Tx); transactional {
+		query += " FOR UPDATE"
+	}
+	err := db.QueryRow(ctx, query, name, r.URL.Path == "/api/login").Scan(&digest, &role, &account)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", "", err
 	}

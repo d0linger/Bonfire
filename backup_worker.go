@@ -59,6 +59,7 @@ type backupWorker struct {
 	key            []byte
 	s3             *minio.Client
 	bucket, prefix string
+	uploadSlot     sync.Mutex
 	mu             sync.Mutex
 	state          backupState
 	active         bool
@@ -79,6 +80,8 @@ func badBackup(w http.ResponseWriter, msg string) { http.Error(w, msg, http.Stat
 func (b *backupWorker) health(target string, now time.Time) backupHealth {
 	sched := b.state.Schedules[target]
 	h := b.state.Last[target]
+	h.Due = false
+	h.Next = nil
 	h.Enabled = sched.Cron != "" && (target != "s3" || b.s3 != nil)
 	if !h.Enabled {
 		return h
@@ -149,8 +152,9 @@ func (b *backupWorker) command(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if q.Cron != "" {
-			if _, err := cron.ParseStandard(q.Cron); err != nil {
-				badBackup(w, "Ungültiger Cron-Ausdruck.")
+			schedule, err := cron.ParseStandard(q.Cron)
+			if err != nil || schedule.Next(backupNow().In(time.Local)).IsZero() {
+				badBackup(w, "Enter a valid schedule with a future occurrence.")
 				return
 			}
 		}
@@ -236,7 +240,9 @@ func (b *backupWorker) startIfDue(q backupCommand, actor, schedule string) error
 		h.Outcome = "running"
 		b.state.Last[key] = h
 	}
-	if err := b.persist(); err != nil {
+	if err := b.persist(); errors.Is(err, errBackupStatePublished) {
+		log.Print("Backup start record published with uncertain directory durability")
+	} else if err != nil {
 		b.active = false
 		if existed {
 			b.state.Last[key] = previous
@@ -254,6 +260,7 @@ func (b *backupWorker) startIfDue(q backupCommand, actor, schedule string) error
 func (b *backupWorker) run(q backupCommand, actor, key string, days int, pr *backupReceipt) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
+	var archiveDigest string
 	var receipt *backupReceipt
 	result := backupResult{q.Action, q.Target, time.Now().UTC(), "ok", "Abgeschlossen", actor}
 	do := func() error {
@@ -275,7 +282,7 @@ func (b *backupWorker) run(q backupCommand, actor, key string, days int, pr *bac
 			result.Message = "S3-Bucket erreichbar"
 			return nil
 		case "backup":
-			result.Message, err = b.makeArchive(ctx, b.db.Database, q.Target)
+			result.Message, archiveDigest, err = b.makeArchive(ctx, b.db.Database, q.Target)
 			if err != nil {
 				return err
 			}
@@ -317,12 +324,11 @@ func (b *backupWorker) run(q backupCommand, actor, key string, days int, pr *bac
 			result.Message = "Restored database is live. Audit or journal cleanup is pending."
 		}
 	}
-	if err = b.audit(actor, q.Action+" "+result.Outcome, q.Target); err != nil {
-		log.Print("Sicherungsdienst: DB-Audit vorübergehend nicht erreichbar")
-	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	at := backupNow()
+	previousSuccess := b.state.Last[key].LastSuccess
 	if q.Action == "backup" || q.Action == "probe" {
 		h := b.state.Last[key]
 		h.Outcome = result.Outcome
@@ -341,8 +347,33 @@ func (b *backupWorker) run(q backupCommand, actor, key string, days int, pr *bac
 	if len(b.state.Recent) > 100 {
 		b.state.Recent = b.state.Recent[:100]
 	}
-	if err = b.persist(); err != nil {
-		log.Print("Sicherungsdienst: Statusdatei konnte nicht geschrieben werden")
+	err = b.persist()
+	if err == nil && q.Action == "backup" && result.Outcome == "ok" {
+		var c *pgx.Conn
+		c, err = b.connect(ctx, b.db.Database)
+		if err == nil {
+			_, err = c.Exec(ctx, "INSERT INTO backup_history(digest) VALUES($1)", archiveDigest)
+			defer c.Close(ctx)
+		}
+	}
+	if err != nil {
+		log.Print("Could not record backup job completion")
+		if result.Outcome == "ok" {
+			result.Outcome = "warning"
+			result.Message = "Job completed but its completion record could not be saved."
+			b.state.Recent[0] = result
+			if q.Action == "backup" || q.Action == "probe" {
+				h := b.state.Last[key]
+				h.Outcome, h.LastSuccess = result.Outcome, previousSuccess
+				b.state.Last[key] = h
+			}
+			if retry := b.persist(); retry != nil {
+				log.Print("Could not persist backup status warning")
+			}
+		}
+	}
+	if err = b.audit(actor, q.Action+" "+result.Outcome, q.Target); err != nil {
+		log.Print("Could not record backup audit event")
 	}
 	b.active = false
 }
@@ -398,6 +429,15 @@ func (b *backupWorker) download(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *backupWorker) upload(w http.ResponseWriter, r *http.Request) {
+	if !b.uploadSlot.TryLock() {
+		http.Error(w, "Another backup upload is in progress.", http.StatusConflict)
+		return
+	}
+	defer b.uploadSlot.Unlock()
+	if err := backupUploadDeadline(w); err != nil {
+		http.Error(w, "Cannot initialize backup upload.", http.StatusInternalServerError)
+		return
+	}
 	dir := filepath.Join(backupHome, "uploads")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		http.Error(w, "Uploadspeicher nicht verfügbar.", 503)

@@ -12,7 +12,7 @@ import (
 )
 
 // Unicode White_Space characters recognized by strings.TrimSpace.
-const reportWhitespace = " \t\n\v\f\r\u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+const trimWhitespace = " \t\n\v\f\r\u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
 
 type donationCommand struct{ Action, Period, Report, Request, Digest, Reason string }
 type donationPerson struct{ Vorname, Nachname, Geburtsdatum string }
@@ -34,7 +34,7 @@ func donationBytes(ctx context.Context, tx pgx.Tx, event, period string) ([]byte
 	rows, err := tx.Query(ctx, `SELECT e.id,e.revision,e.data->>'Date',(e.data->>'Amount')::bigint,
  coalesce(e.data->>'Status',''),coalesce(c.data->'Fields'->>'given',''),coalesce(c.data->'Fields'->>'family',''),
  coalesce(c.data->'Fields'->>'birth','') FROM entries e LEFT JOIN directory c ON c.id=e.data->>'Contact'
- WHERE e.event=$1 AND e.kind='donation' AND coalesce(nullif(btrim(e.data->'Fields'->>'reporting',$3),''),left(e.data->>'Date',4))=$2 ORDER BY e.id`, event, period, reportWhitespace)
+ WHERE e.event=$1 AND e.kind='donation' AND coalesce(nullif(btrim(e.data->'Fields'->>'reporting',$3),''),left(e.data->>'Date',4))=$2 ORDER BY e.id`, event, period, trimWhitespace)
 	if err != nil {
 		return nil, "", err
 	}
@@ -105,7 +105,19 @@ func (a *app) donationReports(ctx context.Context, w http.ResponseWriter, r *htt
 	}
 	q.Period = strings.TrimSpace(q.Period)
 	q.Reason = strings.TrimSpace(q.Reason)
-	if q.Period == "" || len(q.Period) > 100 {
+	if len(q.Period) > 100 {
+		// Legacy periods remain accessible only within the event that owns them.
+		var exists bool
+		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT FROM entries WHERE event=$1 AND kind='donation' AND btrim(data->'Fields'->>'reporting',$3)=$2)
+         OR EXISTS(SELECT FROM donation_reports WHERE event=$1 AND period=$2)`, d.Event, q.Period, trimWhitespace).Scan(&exists)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, fail("Unknown reporting period.")
+		}
+	}
+	if q.Period == "" {
 		return nil, fail("Meldezeitraum angeben.")
 	}
 	if q.Action == "Verlauf" {

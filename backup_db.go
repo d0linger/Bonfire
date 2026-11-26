@@ -90,45 +90,45 @@ func (b *backupWorker) pgTool(ctx context.Context, name, dbname string, args ...
 	return nil
 }
 
-func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (string, error) {
+func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (string, string, error) {
 	c, err := b.connect(ctx, db)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer c.Close(ctx)
 	tx, err := c.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer tx.Rollback(ctx)
 	var schema int
 	if err = tx.QueryRow(ctx, "SELECT max(version) FROM migrations").Scan(&schema); err != nil {
-		return "", err
+		return "", "", err
 	}
 	m, err := stateManifest(ctx, tx, schema)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	m.Created = time.Now().UTC().Format(time.RFC3339Nano)
 	var snap string
 	if err = tx.QueryRow(ctx, "SELECT pg_export_snapshot()").Scan(&snap); err != nil {
-		return "", err
+		return "", "", err
 	}
 	dir, err := os.MkdirTemp(backupHome, ".job-")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer os.RemoveAll(dir)
 	dump := filepath.Join(dir, "db.dump")
 	if err = b.pgTool(ctx, "pg_dump", db, "--format=custom", "--snapshot="+snap, "--file="+dump); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err = tx.Commit(ctx); err != nil {
-		return "", err
+		return "", "", err
 	}
 	input, err := os.OpenInRoot(dir, "db.dump")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer input.Close()
 	name := "bonfire-" + time.Now().UTC().Format("20060102T150405Z") + "-" + uuid() + ".dump.enc"
@@ -136,7 +136,7 @@ func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (stri
 	// The destination is generated in this worker-owned private temporary directory.
 	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600) // #nosec G304 -- server-generated UUID filename inside MkdirTemp.
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	fingerprint := sha256.New()
 	if err = sealBackup(input, io.MultiWriter(out, fingerprint), b.key, m); err == nil {
@@ -144,10 +144,10 @@ func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (stri
 	}
 	cerr := out.Close()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if cerr != nil {
-		return "", cerr
+		return "", "", cerr
 	}
 	if target == "s3" {
 		err = b.putS3(ctx, name, tmp)
@@ -161,10 +161,7 @@ func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (stri
 			}
 		}
 	}
-	if err == nil {
-		_, err = c.Exec(ctx, "INSERT INTO backup_history(digest) VALUES($1)", hex.EncodeToString(fingerprint.Sum(nil)))
-	}
-	return name, err
+	return name, hex.EncodeToString(fingerprint.Sum(nil)), err
 }
 
 func dbIdent(name string) string { return pgx.Identifier{name}.Sanitize() }
@@ -320,6 +317,14 @@ func retainIssuedNumbers(ctx context.Context, frozen, staged *pgx.Conn) error {
 var errRestoredPending = errors.New("restore committed with pending recovery bookkeeping")
 
 func (b *backupWorker) recoverSwap(ctx context.Context, c *pgx.Conn) error {
+	// Startup and replacement connections must serialize journal recovery with live jobs.
+	var locked bool
+	if err := c.QueryRow(ctx, "SELECT pg_try_advisory_lock(751036)").Scan(&locked); err != nil {
+		return err
+	}
+	if !locked {
+		return errors.New("another backup job holds the recovery lock")
+	}
 	path := filepath.Join(backupHome, ".swap.json")
 	data, err := os.ReadFile(path) // #nosec G304 -- fixed backupHome/.swap.json, never a request path.
 	if os.IsNotExist(err) {

@@ -39,6 +39,16 @@ var backupTransport = &http.Transport{
 	ResponseHeaderTimeout: 45 * time.Second,
 }
 
+// Both ends allow a bounded transfer window for encrypted multi-gigabyte archives.
+func backupUploadDeadline(w http.ResponseWriter) error {
+	deadline := time.Now().Add(2 * time.Hour)
+	controller := http.NewResponseController(w)
+	if err := controller.SetReadDeadline(deadline); err != nil {
+		return err
+	}
+	return controller.SetWriteDeadline(deadline)
+}
+
 func (a *app) registerBackup(mux *http.ServeMux) {
 	for _, pattern := range []string{"GET /api/admin/backup", "POST /api/admin/backup", "GET /api/admin/backup/file", "POST /api/admin/backup/upload"} {
 		mux.HandleFunc(pattern, a.proxyBackup)
@@ -67,6 +77,10 @@ func (a *app) proxyBackup(w http.ResponseWriter, r *http.Request) {
 	var body io.Reader
 	if r.Method == "POST" {
 		if path == "/upload" {
+			if err := backupUploadDeadline(w); err != nil {
+				http.Error(w, "Cannot initialize backup upload.", http.StatusInternalServerError)
+				return
+			}
 			r.Body = http.MaxBytesReader(w, r.Body, archiveLimit+(64<<20))
 			body = r.Body
 		} else {
