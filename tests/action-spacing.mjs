@@ -226,6 +226,28 @@ try {
   await check("Kontakt archivieren", reason);
   await page.keyboard.press("Escape");
   assert.ok(await archive.evaluate((b) => b === document.activeElement));
+  const contactID = await archive.getAttribute("data-lifecycle");
+  const contactRow = page.getByRole("row").filter({ hasText: label });
+  for (const [action, lifecycle] of [["Archive", "Archiviert"], ["Restore", "Wiederhergestellt"]]) {
+    const explanation = action + " the synthetic contact";
+    await contactRow.getByRole("button", { name: action, exact: true }).click();
+    await reason.getByLabel("Reason").fill(explanation);
+    await reason.getByRole("button", { name: action + " entry", exact: true }).click();
+    await reason.waitFor({ state: "hidden" });
+    const [response] = await Promise.all([
+      page.waitForResponse((reply) => new URL(reply.url()).pathname === "/api/online"),
+      page.getByRole("button", { name: "Refresh entries", exact: true }).click(),
+    ]);
+    assert.equal(response.status(), 200);
+    const saved = (await response.json()).entries.find((entry) => entry.ID === contactID);
+    assert.equal(saved.Data.Label, label + " bestätigt");
+    assert.equal(Boolean(saved.Data.Retired), action === "Archive");
+    assert.equal(saved.Data.Fields.lifecycle, lifecycle);
+    assert.equal(saved.Data.Fields.lifecycleReason, explanation);
+    await contactRow.getByRole("button", {
+      name: action === "Archive" ? "Restore" : "Archive", exact: true,
+    }).waitFor();
+  }
   await nav("Spenden");
   await createAndEdit("Spenden", "Übungsspende " + randomUUID().slice(0, 8));
   await nav("Journal");
