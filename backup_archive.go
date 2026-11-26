@@ -12,7 +12,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 )
 
 const backupMagic = "BONFIRE2"
@@ -194,13 +193,22 @@ func unsealBackup(src io.Reader, dst io.Writer, key []byte) (backupManifest, err
 
 var errBackupStatePublished = errors.New("backup state renamed but directory sync failed")
 
-func saveBackupJSON(path string, v any) error {
-	parent := filepath.Dir(path)
-	f, err := os.CreateTemp(parent, ".state-")
+func (b *backupWorker) saveBackupJSON(name string, v any) error {
+	if name != "state.json" && name != ".swap.json" {
+		return errors.New("unknown backup state file")
+	}
+	root, err := os.OpenRoot(b.storageRoot())
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
+	defer root.Close()
+	// Create, rename and sync within the same pinned directory even if its path moves.
+	tmp := ".state-" + rand.Text()
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	defer root.Remove(tmp)
 	if err = json.NewEncoder(f).Encode(v); err == nil {
 		err = f.Sync()
 	}
@@ -211,10 +219,10 @@ func saveBackupJSON(path string, v any) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	if err = os.Rename(f.Name(), path); err != nil {
+	if err = root.Rename(tmp, name); err != nil {
 		return err
 	}
-	dir, err := os.Open(parent)
+	dir, err := root.Open(".")
 	if err != nil {
 		return errors.Join(errBackupStatePublished, err)
 	}

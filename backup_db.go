@@ -397,7 +397,7 @@ func (b *backupWorker) promote(ctx context.Context, c *pgx.Conn, stage, user str
 	if err != nil {
 		return err
 	}
-	if err = saveBackupJSON(filepath.Join(b.storageRoot(), ".swap.json"), j); err != nil {
+	if err = b.saveBackupJSON(".swap.json", j); err != nil {
 		return err
 	}
 	// Crash recovery reopens the original or records the committed swap by OID.

@@ -85,12 +85,16 @@ func TestLocalBackupRetentionAndRecoveryCandidates(t *testing.T) {
 
 func TestBackupStateWriteKeepsLastValidRecord(t *testing.T) {
 	dir := t.TempDir()
+	b := &backupWorker{storageDir: dir}
 	path := filepath.Join(dir, "state.json")
-	if err := saveBackupJSON(path, map[string]string{"receipt": "checked"}); err != nil && !errors.Is(err, errBackupStatePublished) {
+	if err := b.saveBackupJSON("unrelated.json", true); err == nil {
+		t.Fatal("accepted an unrelated backup state filename")
+	}
+	if err := b.saveBackupJSON("state.json", map[string]string{"receipt": "checked"}); err != nil && !errors.Is(err, errBackupStatePublished) {
 		t.Fatal(err)
 	}
 	// Encoding may fail after the staging file exists. The published receipt is immutable until replacement.
-	if err := saveBackupJSON(path, make(chan int)); err == nil || errors.Is(err, errBackupStatePublished) {
+	if err := b.saveBackupJSON("state.json", make(chan int)); err == nil || errors.Is(err, errBackupStatePublished) {
 		t.Fatalf("invalid value published, error %v", err)
 	}
 	raw, err := os.ReadFile(path)

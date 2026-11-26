@@ -77,7 +77,7 @@ func (b *backupWorker) storageRoot() string {
 }
 
 func (b *backupWorker) persist() error {
-	return saveBackupJSON(filepath.Join(b.storageRoot(), "state.json"), b.state)
+	return b.saveBackupJSON("state.json", b.state)
 }
 func backupNow() time.Time { return time.Now().UTC() }
 func writeBackupJSON(w http.ResponseWriter, data any) {
