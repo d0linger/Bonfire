@@ -33,3 +33,8 @@ Run `python ops/test-mutations.py` from a committed checkout to verify fault det
 The online acceptance suite signs in two distinct cashier accounts and submits competing updates to the same contact and wallet count. It requires a single accepted revision and a visible conflict for the other cashier. Independent equal-value transactions must both survive. Concurrent attempts to issue the same invoice must produce one original under the issuing cashier's reserved number.
 
 Donation reporting runs through the online session API with synthetic donors. The test checks the reporting period, restricted access, exclusion of anonymous or incomplete records, the SHA-256 of the issued export, and preservation of the original following a correction. Transmission and acknowledgment are simulated status entries.
+
+### Historical journal review
+
+Enter the year printed on the source when reviewing a historical workbook. Compare its opening date and closing date with the selected fiscal year. The preview excludes municipal budget worksheets and columns. A municipality named as the counterparty of a cashbook transaction remains visible. The browser regression in `tests/documents.mjs` covers this case using a fictional counterparty and a separate budget column.
+In the review dialog, select a source row to populate the supported booking type and date. Verify both values before submitting. Selecting a different row refreshes both fields. A missing date or unrecognized type requires manual input.

@@ -78,7 +78,7 @@ try {
         textCell("C1", "Ausgaben") +
         textCell("D1", "Globalbudget") +
         '</row><row r="2"><c r="A2"><v>45999</v></c>' +
-        textCell("B2", "Übungsaufwand") +
+        textCell("B2", "Marktgemeinde Musterort") + textCell("E2", "Beschreibung") +
         '<c r="C2"><v>0</v></c><c r="D2"><v>19</v></c></row><row r="3">' +
         textCell("B3", "Fehlender Wert") +
         '<c r="C3"/></row><row r="4"><c r="C4"><v>-12.50</v></c></row></sheetData></worksheet>',
@@ -88,6 +88,16 @@ try {
       "D1",
       "2025",
     );
+    const budgetOnly = b.strFromU8(variant[sheet])
+      .replace("Ausgaben", "Globalbudget 2025")
+      .replace("Marktgemeinde Musterort", "Globalbudget 2025");
+    const budgetRows = await b.historyPreview(
+      new File([b.zipSync({ ...variant, [sheet]: b.strToU8(budgetOnly) })], "budget.xlsx"),
+      "D1",
+      "2025",
+    );
+    if (budgetRows.some((r) => r.cell === "C2" || r.cell === "D2"))
+      throw Error("A dated budget column appeared in the journal preview");
     const doc = (x, styles, parts = {}) =>
       new File(
         [
