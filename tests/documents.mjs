@@ -99,6 +99,14 @@ try {
     );
     if (budgetRows.some((r) => /^[CD]\d+$/.test(r.cell)))
       throw Error("A dated budget column appeared in the journal preview");
+    const sparse = budgetOnly.replace(/<c r="(?:A2|C2|D2)"><v>[^<]*<\/v><\/c>/g, "")
+      .replace('</row><row r="3">', '<c r="F2"><v>17</v></c></row><row r="3">');
+    const sparseRows = await b.historyPreview(
+      new File([b.zipSync({ ...variant, [sheet]: b.strToU8(sparse) })], "sparse-budget.xlsx"),
+      "D1", "2025",
+    );
+    if (sparseRows.some((r) => /^[CD]\d+$/.test(r.cell)))
+      throw Error("A sparse mixed row erased the budget headings");
     const doc = (x, styles, parts = {}) =>
       new File(
         [
