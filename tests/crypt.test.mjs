@@ -8,9 +8,13 @@ import { randomBytes } from "node:crypto";
 test("Sicherung verschlüsseln, entschlüsseln und Manipulation erkennen", async () => {
   const dir = await mkdtemp(join(tmpdir(), "bonfire-crypto-"));
   const path = (n) => join(dir, n);
-  const call = (...args) =>
-    spawnSync(process.execPath, ["ops/crypt.mjs", ...args], { timeout: 10000 })
-      .status;
+  const call = (...args) => {
+    const result = spawnSync(process.execPath, ["ops/crypt.mjs", ...args], { timeout: 10000 });
+    if (result.error) throw result.error;
+    assert.equal(result.signal, null);
+    assert.ok(Number.isInteger(result.status));
+    return result.status;
+  };
   try {
     const sample = randomBytes(200000);
     await writeFile(path("dump"), sample);

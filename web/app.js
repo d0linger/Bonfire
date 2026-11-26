@@ -6,6 +6,7 @@ import { canOpenConsole } from "./workplace.js";
 import { mountBackup } from "./admin-backup.js";
 import { mountUsers, mountPasswordChange } from "./admin-users.js";
 import { mountAudit, mountStatus } from "./admin-audit.js";
+import contracts from "./contracts.json" with { type: "json" };
 import { displayProof } from "./document-preview.js";
 import {
   icon,
@@ -50,14 +51,12 @@ import {
   from64,
 } from "./store.js";
 import {
-  groups,
   types,
   denom,
   monetary,
   cents,
   totalPieces,
   visible,
-  summary,
   counted,
   poolCount,
   pooledRevenue,
@@ -258,6 +257,7 @@ async function api(path, body, token = auth) {
   if (!response.ok) {
     const message = (await response.text()).slice(0, 240);
     if (!offlineEnabled && response.status === 401 && logged) {
+      closeEditor();
       s = null;
       onlineUser = null;
       logged = false;
@@ -305,6 +305,7 @@ async function workspaceRequest(id, body) {
       if (changes) unconfirmedWrites.add(id);
       throw Error(
         "Der Server hat den Vorgang nicht bestätigt. Prüfe nach der Wiederverbindung zuerst den Serverstand.",
+        { cause: err },
       );
     }
     throw err;
@@ -851,7 +852,7 @@ function devicePage() {
                 ]),
               "Archivdatei laden",
             )
-          : "") +
+          : conflictFiles?.device === s.device ? "<p>No disputed originals found.</p>" : "") +
         auditRows
           .map(
             (r) =>
@@ -2255,7 +2256,9 @@ function installStudio() {
       button("docProof", "Druckvorschau öffnen", true),
     );
 }
+let proofRevision = 0;
 async function proofDocument(editing) {
+  const revision = ++proofRevision;
   const studio = document.querySelector(".document-studio"),
     host = studio.querySelector("#proof-sheet"),
     status = studio.querySelector("#proof-status");
@@ -2304,7 +2307,11 @@ async function proofDocument(editing) {
     }
     const snap = snapshot(index, source, rows(), { ...vals, number: null });
     const files = await renderDocument(snap);
-    await displayProof(host, files.docx);
+    if (revision !== proofRevision || !host.isConnected) return;
+    const previewHost = document.createElement("div");
+    host.replaceChildren(previewHost);
+    await displayProof(previewHost, files.docx);
+    if (revision !== proofRevision || !previewHost.isConnected) return;
     status.textContent =
       profiles[index] +
       " · " +
@@ -2315,6 +2322,7 @@ async function proofDocument(editing) {
       (vals.version === "draft" ? "Entwurf" : snap.templateVersionID) +
       " · Word-Arbeitsfassung";
   } catch (err) {
+    if (revision !== proofRevision || !host.isConnected) return;
     status.textContent = err.message;
     throw err;
   }
@@ -3237,10 +3245,11 @@ async function selectFiscalWorkspace(yearID, eventID) {
   imported = [];
   importFile = null;
   syncDetail = "";
-  sessionStorage.setItem(
-    "bonfire-selection-" + onlineUser.user,
-    JSON.stringify([selectedYear]),
-  );
+  try {
+    sessionStorage.setItem("bonfire-selection-" + onlineUser.user, JSON.stringify([selectedYear]));
+  } catch {
+    // The current workspace also works when browser storage is disabled.
+  }
 }
 function onlineAdmin() {
   return (
@@ -3465,9 +3474,13 @@ async function onlineStart(user) {
   onlineUser = user;
   if (!offlineEnabled) {
     [years, allSpaces] = await Promise.all([api("years"), api("events")]);
-    const [lastYear] = JSON.parse(
-      sessionStorage.getItem("bonfire-selection-" + user.user) || "[]",
-    );
+    let lastYear;
+    try {
+      const preference = JSON.parse(sessionStorage.getItem("bonfire-selection-" + user.user));
+      if (Array.isArray(preference)) [lastYear] = preference;
+    } catch {
+      // Fall back to the current fiscal year if the preference is unavailable.
+    }
     const yearID =
       years.find((y) => y.ID === lastYear)?.ID ||
       (lastYear === legacyGroup && allSpaces.some((e) => !e.Year)
@@ -4461,12 +4474,14 @@ async function submit(f) {
     );
   }
   if (id === "preview") {
+    imported = [];
+    importFile = null;
+    const result = vals.sourceRole === "Journal"
+      ? await preview(vals.file, rows())
+      : await historyPreview(vals.file, vals.sourceRole, vals.year);
+    imported = result;
     importFile = vals.file;
     importRole = vals.sourceRole;
-    imported =
-      importRole === "Journal"
-        ? await preview(importFile, rows())
-        : await historyPreview(importFile, importRole, vals.year);
   }
   if (id === "dispatch") {
     const target = "dispatch:" + vals.original,
@@ -4835,6 +4850,10 @@ async function submit(f) {
   if (id === "wordLayout") {
     const input = new Uint8Array(await vals.file.arrayBuffer());
     const verified = mergeWord(input);
+    const supported = [...contracts[6].required, ...contracts[6].optional];
+    for (const token of verified.tokens) {
+      if (!supported.includes(token)) throw Error("The donation letter does not provide field " + token);
+    }
     const next = structuredClone(s),
       ref = profileID(6),
       active = (s.pinnedTemplates || s.entries).find(
@@ -5153,8 +5172,9 @@ document.addEventListener("input", (e) => {
   if (e.target.matches(".pieces input")) updateCount(e.target.form);
   if (
     ["export", "template"].includes(e.target.form?.id) &&
-    document.querySelector("#proof-sheet iframe")
+    document.querySelector("#proof-sheet")
   ) {
+    proofRevision++;
     document.querySelector("#proof-sheet").replaceChildren();
     document.querySelector("#proof-status").textContent =
       "Eingaben geändert. Vorschau aktualisieren.";
@@ -5815,8 +5835,6 @@ document.addEventListener("click", (e) => {
           device: s.device,
           list: await api("manage", { Action: "conflict-originals" }, bearer()),
         };
-        if (!conflictFiles.list.length)
-          notice.textContent = "Keine strittigen Originalfassungen vorhanden.";
         break;
       case "numbers": {
         const ranges = await api("manage", { Action: "numbers" }, bearer());
@@ -5987,6 +6005,7 @@ document.querySelector("#menu-toggle").addEventListener("click", () => {
   document
     .querySelector("#menu-toggle")
     .setAttribute("aria-expanded", String(open));
+  if (open) document.querySelector("#sidebar a[href], #sidebar summary, #sidebar button")?.focus();
 });
 document.addEventListener("keydown", (e) => {
   const switcher = document.querySelector("#fiscal-switch[open]");

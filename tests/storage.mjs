@@ -63,6 +63,7 @@ try {
     IDBObjectStore.prototype.put = function (...args) {
       const request = original.apply(this, args);
       IDBObjectStore.prototype.put = original;
+      globalThis.injectedAbort = true;
       this.transaction.abort();
       return request;
     };
@@ -75,7 +76,7 @@ try {
     try {
       await store.save({ ...s, large: "x".repeat(20000) });
     } catch {
-      quota = true;
+      quota = globalThis.injectedAbort === true;
     }
     const same = await store.unlock(id);
     const vault = await store.readVault();

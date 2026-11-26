@@ -19,7 +19,7 @@ self.addEventListener("fetch", (e) => {
   )
     return;
   const path =
-    e.request.mode === "navigate" && u.pathname !== "/word-renderer.html"
+    e.request.mode === "navigate" && u.pathname === "/index.html"
       ? "/"
       : u.pathname;
   if (FILES.includes(path))

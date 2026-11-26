@@ -4,12 +4,11 @@ import { chromium } from "playwright";
 import { admin, api } from "./local-api.mjs";
 
 const url = process.env.BONFIRE_URL;
-if (!url || !["localhost", "127.0.0.1"].includes(new URL(url).hostname))
+if (!url || !["localhost", "127.0.0.1"].includes(new URL(url).hostname) || new URL(url).port === "8137")
   throw Error("Lokalen Prüfstack angeben.");
 assert.equal((await (await fetch(url + "/api/mode")).json()).offline, false);
-const [, password] = Buffer.from(admin.slice(6), "base64")
-  .toString()
-  .split(":");
+const credentials = Buffer.from(admin.slice(6), "base64").toString();
+const password = credentials.slice(credentials.indexOf(":") + 1);
 const browser = await chromium.launch({
   executablePath: process.env.BONFIRE_BROWSER || undefined,
 });
@@ -426,6 +425,7 @@ try {
   assert.equal(await button("Create event").count(), 0);
   assert.equal(await button("Record event transaction").count(), 0);
   await button(closingFest).click();
+  await page.getByRole("heading", { name: closingFest, exact: true }).waitFor();
   assert.equal(await button("Veranstaltung wieder öffnen").count(), 0);
   await go("Overview");
   await closeDialog("Geschäftsjahr wieder öffnen", "Korrektur im Test");
@@ -445,7 +445,7 @@ try {
   assert.match(await figures.locator("dd").nth(0).innerText(), /12,34/);
   assert.match(await figures.locator("dd").nth(1).innerText(), /3,34/);
   const listedResult = await figures.locator("dd.deficit").innerText();
-  assert.match(listedResult, /[-−].*1,00/);
+  assert.equal(listedResult.replace(/[€\s]/g, "").replace("−", "-"), "-1,00");
   assert.match(await figures.locator("small").innerText(), /10,00/);
   const eventID = await button(eventName).getAttribute("data-space");
   await button(eventName).click();

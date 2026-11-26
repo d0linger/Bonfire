@@ -38,7 +38,7 @@ export async function usePasskey(api, registration) {
       : await navigator.credentials.get({ publicKey });
   } catch (err) {
     if (err.name === "NotAllowedError")
-      throw Error("The passkey request was cancelled or expired.");
+      throw Error("The passkey request was cancelled or expired.", { cause: err });
     throw err;
   }
   if (!credential) throw Error("The browser did not return a passkey.");

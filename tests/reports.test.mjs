@@ -74,7 +74,7 @@ test("100 EUR Zusage, 40 EUR Zahlung und eine dokumentierte Übergabe haben getr
   );
   assert.ok(
     !bill.after.some(
-      (s) => s.includes("Payment reference") || s.includes("Fällig"),
+      (s) => s.includes("Payment reference") || s.includes("Due"),
     ),
   );
 });
@@ -153,4 +153,25 @@ test("Abschlussvertrag unterscheidet fehlendes Ist, bestätigte Null und Periode
   );
   assert.equal(confirmed["report.closing"].difference_cents, 0);
   assert.equal(confirmed["report.review"].status, "approved");
+});
+
+test("closing comparisons require a current, unambiguous observation per account", () => {
+  const a = "10000000-0000-4000-8000-000000000001";
+  const b = "10000000-0000-4000-8000-000000000002";
+  const day = "2026-06-05";
+  const posting = (kind, account, amount, date = day) =>
+    row(kind, { Account: account, Amount: amount, Date: date });
+  const rows = [row("account", { Label: "Bank" }, a), row("account", { Label: "Cash" }, b),
+    posting("opening", a, 100), posting("opening", b, 0), posting("actual", a, 100), posting("actual", b, 0)];
+  for (const extra of [posting("income", a, 50, "2026-06-06"), posting("actual", a, 200)]) {
+    for (const sorted of [[...rows, extra], [extra, ...rows]]) {
+      const result = closure(sorted, true, true);
+      const closing = result["report.closing"];
+      assert.equal(result["report.review"].status, "preparation");
+      assert.equal(closing.actual_status, "partial");
+      assert.equal(closing.difference_cents, null);
+      assert.equal(closing.account_lines.find((line) => line.account_id === a).actual_cents, null);
+      assert.equal(closing.account_lines.find((line) => line.account_id === b).difference_cents, 0);
+    }
+  }
 });

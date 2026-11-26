@@ -141,7 +141,8 @@ await request("password-change", {
   body: { Ticket: pending, Password: randomUUID() },
   expected: 410,
 });
-if ((await list()).filter((u) => u.Active && u.Role === "Admin").length === 1) {
+{
+  assert.equal((await list()).filter((u) => u.Active && u.Role === "Admin").length, 1);
   await edit("leitung", { Action: "disable" }, 422);
   await edit(
     "leitung",
