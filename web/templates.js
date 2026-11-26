@@ -81,6 +81,19 @@ export async function importTemplate(file) {
   ])
     if (doc.getElementsByTagNameNS("*", tag).length)
       throw Error("Unsupported Word content: " + tag);
+  const relationships = files["word/_rels/document.xml.rels"];
+  if (relationships) {
+    const declared = [...read(relationships).getElementsByTagNameNS("*", "Relationship")]
+      .filter(link => link.getAttribute("Type")?.endsWith("/styles"));
+    if (declared.length > 1) throw Error("The Word document declares multiple styles parts.");
+    if (declared.length) {
+      const link = declared[0];
+      const target = link.getAttribute("Target");
+      if (link.getAttribute("TargetMode") === "External" || !["styles.xml", "/word/styles.xml"].includes(target))
+        throw Error("Text import requires styles in word/styles.xml.");
+      if (!files["word/styles.xml"]) throw Error("The Word styles part is missing.");
+    }
+  }
   const styles = files["word/styles.xml"] ? read(files["word/styles.xml"]) : null;
   checkParagraphBreaks(doc, styles);
   for (const lineBreak of doc.getElementsByTagNameNS("*", "br")) {
