@@ -113,6 +113,15 @@ try {
       } catch (cause) { error = cause; }
       if (error?.message !== "Unsupported Word break: " + type) throw Error("Expected rejection for " + type);
     }
+    for (const value of ["", "true", "on", "1", "false", "off", "0"]) {
+      const attribute = value ? ` w:val="${value}"` : "";
+      const file = doc(`<w:p><w:pPr><w:pageBreakBefore${attribute}/></w:pPr><w:r><w:t>Receipt</w:t></w:r></w:p>`);
+      let text, error;
+      try { text = await b.importTemplate(file); } catch (cause) { error = cause; }
+      if (["false", "off", "0"].includes(value)) {
+        if (text !== "Receipt") throw Error("Disabled page break changed the imported paragraph");
+      } else if (error?.message !== "Unsupported Word break: pageBreakBefore") throw Error("Expected paragraph break rejection");
+    }
     let rejected = false;
     try {
       await b.importTemplate(
