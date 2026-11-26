@@ -17,7 +17,8 @@ services:
     build: .
     command: ["migrate"]
     environment:
-      DATABASE_URL: postgres://bonfire:${BONFIRE_DB_PASSWORD}@db/bonfire?sslmode=disable
+      DATABASE_URL: postgres://bonfire@db/bonfire?sslmode=disable
+      PGPASSWORD: ${BONFIRE_DB_PASSWORD}
       BONFIRE_ADMIN_PASSWORD: ${BONFIRE_ADMIN_PASSWORD:?Lokales Startpasswort setzen}
       BONFIRE_RUNTIME_PASSWORD: ${BONFIRE_RUNTIME_PASSWORD:?Separates Runtime-Kennwort setzen}
     depends_on:
@@ -34,7 +35,8 @@ services:
     environment:
       BONFIRE_BACKUP_SOCKET: /run/bonfire-backup/worker.sock
       BONFIRE_PASSKEY_ORIGIN: ${BONFIRE_PASSKEY_ORIGIN:-http://localhost:${BONFIRE_PORT:-8137}}
-      DATABASE_URL: postgres://bonfire_runtime:${BONFIRE_RUNTIME_PASSWORD}@db/bonfire?sslmode=disable
+      DATABASE_URL: postgres://bonfire_runtime@db/bonfire?sslmode=disable
+      PGPASSWORD: ${BONFIRE_RUNTIME_PASSWORD}
     ports:
       - "127.0.0.1:${BONFIRE_PORT:-8137}:8080"
     volumes:
@@ -55,7 +57,8 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgres://bonfire:${BONFIRE_DB_PASSWORD}@db/bonfire?sslmode=disable
+      DATABASE_URL: postgres://bonfire@db/bonfire?sslmode=disable
+      PGPASSWORD: ${BONFIRE_DB_PASSWORD}
       BONFIRE_RUNTIME_PASSWORD: ${BONFIRE_RUNTIME_PASSWORD}
       BONFIRE_S3_ENDPOINT: ${BONFIRE_S3_ENDPOINT:-}
       BONFIRE_S3_BUCKET: ${BONFIRE_S3_BUCKET:-}

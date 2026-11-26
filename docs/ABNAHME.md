@@ -1,6 +1,6 @@
 # Lokale Entwicklungsabnahme vom 23. und 24. November 2026
 
-Geprüft wurde die lokale Entwicklungsinstallation mit erfundenen Veranstaltungs-, Kontakt- und Finanzdaten. Die [Umsetzungsübersicht der 44 Paketpositionen](IMPLEMENTIERUNGSSTATUS.csv) und die [Einzelprüfung der 111 Akzeptanzkriterien](AKZEPTANZ.csv) führen Prüfnachweise und Restarbeiten. Der Testlauf nutzt Go, PostgreSQL 18, Docker Compose, Windows sowie zwei getrennte persistente Chromium-/Edge-Profile. Ein Profil verwendet einen Desktop-Viewport, das andere einen 390 Pixel breiten Viewport.
+Geprüft wurde die lokale Entwicklungsinstallation mit erfundenen Veranstaltungs-, Kontakt- und Finanzdaten. Die [Umsetzungsübersicht der 49 Paketpositionen](IMPLEMENTIERUNGSSTATUS.csv) und die [Einzelprüfung der 111 Akzeptanzkriterien](AKZEPTANZ.csv) führen Prüfnachweise und Restarbeiten. Der Testlauf nutzt Go, PostgreSQL 18, Docker Compose, Windows sowie zwei getrennte persistente Chromium-/Edge-Profile. Ein Profil verwendet einen Desktop-Viewport, das andere einen 390 Pixel breiten Viewport.
 
 Der [Abgleich mit der Designübergabe](DESIGNABGLEICH.md) ordnet die acht Hauptmodule ihren Bedienwegen und Nachweisen zu. `ops/acceptance.ps1` startet die Fach-, Browser- und Restoreprüfungen auf einem eigenen, temporären Compose-Volume. Bestehende Daten im interaktiven Arbeitsbereich bleiben erhalten.
 
@@ -77,17 +77,11 @@ Ein Fehler im ersten Kaltstarttest betraf die vom Dateiserver umgeleitete URL f�
 
 `tests/workplace.mjs` meldet ein zugewiesenes Prüfkonto an. Ein Anfangsbestand von 2.400,00 Euro, Einnahmen von 1.055,00 Euro und Ausgaben von 218,50 Euro ergeben in der Oberfläche 3.236,50 Euro. Alle acht Hauptmodule öffnen sich vor jeder Gerätevorbereitung. Ein fremder Bereich liefert HTTP 403. Der Test wechselt ins Mobilmenü und prüft, dass die Gerätezahl beim Lesen unverändert bleibt. Screenshots mit erfundenen Daten liegen unter `test-results/ansichten/`. `tests/offline.mjs` öffnet die tatsächliche Druckvorschau vor der Originalausgabe und speichert sie unter `test-results/ansichten-dokumente.png`.
 
-## Durchgängiger Gesamtfall END-01
+## END-01 acceptance evidence
 
-`ops/acceptance.ps1` startet mit einer leeren Datenbank. In derselben Übungsveranstaltung bereitet `tests/offline.mjs` zwei voneinander getrennte Browserprofile vor. Sie erfassen Geld und melden verschiedene Endzählungen. Das ausstellende Gerät erzeugt eine nummerierte Rechnung. Nach abgebrochener Serverbestätigung und Offline-Neustart liefert es das Original bytegleich. Ein Admin klärt den Zählkonflikt. Das Kassenbuch enthält die unabhängige Einnahme des zweiten Geräts.
+The earlier END-01 exercise used two prepared offline devices, persisted records, conflicting closing counts and an archived original. It is historical evidence for the retired offline mode. The supported deployment uses online posting.
 
-Für den Abschluss werden 100,00 Euro Anfangsbestand und 156,25 Euro tatsächlich gezählter Bestand manuell erfasst. In der Geldtasche stehen 4,00 Euro zum Beginn, 16,00 Euro am Ende und 30,00 Euro Abschöpfung. Die Barabrechnung berücksichtigt bereits einzeln gebuchte Zahlungen. Eine Prüfperson versucht den Abschluss vor den Gerätesiegeln und erhält eine Ablehnung. Nach den drei Erfassungsenden (Nord, Süd, Prüfung) bestätigt sie den Abschluss. Das erste Gerät synchronisiert den Entscheid und lädt den Prüfbericht, das Belegjournal, die Journaldateien und das Manifest als [lokales Übungsprüfpaket](../test-results/gesamtfall-pruefpaket.zip).
-
-`ops/verify-restore.ps1 -VerifyExercise` öffnet einen neuen Server auf der separat wiederhergestellten Datenbank. `tests/restored-exercise.mjs` fragt dieselbe Veranstaltungs-ID ab und bestätigt Istwert, Abschluss, zwei Originale, beide Zählungen und die unabhängige Einnahme. Es verbleiben null offene Gerätesiegel und null Konflikte. Der zusätzliche Archivvergleich bestätigt die PDF-/DOCX-Prüfsummen aller drei Originale der gesamten Testdatenbank. Die Wiederholung einer quittierten und einer noch ausstehenden Operation hat jeweils genau eine finanzielle Wirkung.
-
-Das Manifest benennt Veranstaltung, Vorlagenstände, offene Geräte und fehlende Dateien. Für Journaldateien, Berichte und Belegkopien enthält es SHA-256-Prüfsummen. Ein Paket mit einer fehlenden Kopie, gefilterter Periode oder offenen Gerätesiegeln bleibt als Vorbereitung gekennzeichnet.
-
-Die Ausführung auf dem normalen lokalen Port 8137 wurde separat geprüft. Anmeldung, Datenbank-Health und alle acht Hauptmodule funktionierten. Die ausgelieferte Startseite, CSS, Anwendungsskript, Service Worker, Dokumentrenderer und Logodatei stimmten byteweise mit dem lokalen Build überein.
+Today `ops/acceptance.ps1` runs `ops/accept-online.ps1` on a fresh Compose installation. Its suite list is the executable record of the tests performed. It includes independently authenticated cashiers, concurrent writes, document export, the encrypted archive and restore rehearsal, and a live database switch with session revocation in `tests/admin-backup.mjs`. Use the run artifacts and logs for the revision being assessed.
 
 ## Ergänzende Prüfungen am 24. November
 

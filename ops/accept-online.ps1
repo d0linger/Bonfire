@@ -28,6 +28,16 @@ try {
   $keyFile = Join-Path $dir.FullName 'uebung.key'
   node ops/crypt.mjs keygen $keyFile
   if ($LASTEXITCODE) { throw 'Testschlüssel konnte nicht erzeugt werden.' }
+  $badKey = Join-Path $dir.FullName 'invalid-test.key'
+  [IO.File]::WriteAllText($badKey,'invalid disposable key')
+  $historyQuery = 'SELECT count(*) FROM backup_history'
+  $beforeFailure = docker compose exec -T db psql -X -At -v ON_ERROR_STOP=1 -U bonfire -d bonfire -c $historyQuery
+  if ($LASTEXITCODE) { throw 'Cannot inspect backup history.' }
+  $rotationFailed = $false
+  try { & ./ops/rotate-backup.ps1 -Directory $dir.FullName -KeyFile $badKey *> $null } catch { $rotationFailed = $true }
+  $afterFailure = docker compose exec -T db psql -X -At -v ON_ERROR_STOP=1 -U bonfire -d bonfire -c $historyQuery
+  if ($LASTEXITCODE -or !$rotationFailed -or $beforeFailure -ne $afterFailure) { throw 'Failed encryption must not advance backup history.' }
+  Write-Output 'PASS failed encryption preserved backup freshness'
   $archive = & ./ops/rotate-backup.ps1 -Directory $dir.FullName -KeyFile $keyFile
   & ./ops/verify-restore.ps1 -Path $archive -KeyFile $keyFile
   $env:BONFIRE_BACKUP_RESTORE_TEST = 'isolated'

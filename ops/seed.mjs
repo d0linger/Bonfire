@@ -23,10 +23,6 @@ async function api(path, body) {
   return r.json();
 }
 const name = "Übung · Sommerfest am Birkenhain";
-if ((await api("events")).some((e) => e.Name === name)) {
-  console.log("Übungsbereich bereits vorhanden.");
-  process.exit(0);
-}
 const response = await fetch(base + "/api/login", { method: "POST", headers, redirect: "error" });
 if (!response.ok) throw Error("Anmeldung für Übungsdaten fehlgeschlagen.");
 headers.Cookie = response.headers.get("set-cookie").split(";")[0];
@@ -39,7 +35,8 @@ const year =
     Starts: "2026-01-01",
     Ends: "2026-12-31",
   }));
-const e = await api("events", {
+const existing = (await api("events")).find(event => event.Year === year.ID && event.Name === name);
+const e = existing || await api("events", {
   Year: year.ID,
   Name: name,
   Starts: "2026-06-01",
@@ -96,7 +93,15 @@ row("price", "Gemüseweckerl", {
 });
 row("period", "Übungsperiode Juni", { To: "2026-06-30" });
 row("opening", "Eröffnung Übungskassa", { Amount: 30000 });
-await api("online?event=" + encodeURIComponent(e.ID), { Ops: ops });
+const route = "online?event=" + encodeURIComponent(e.ID);
+const { entries } = await api(route, {});
+if (entries.length) {
+  if (!ops.every(op => entries.some(r => r.Kind === op.Kind && r.Data.Label === op.Data.Label)))
+    throw Error("The practice event contains unrecognized or incomplete records. Inspect it before seeding.");
+  console.log("Practice event is already populated.");
+} else {
+  await api(route, { Ops: ops });
+}
 console.log(
   "Übungsbereich mit Geldtasche, Preisen, Kontakt und Forderung angelegt.",
 );
