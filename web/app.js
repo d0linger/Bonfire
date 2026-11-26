@@ -1114,7 +1114,7 @@ function formFields(k, countPhase = "") {
         ["invoice", "Outgoing invoice"],
       ]) +
       label(
-        "Invoice line items (optional, one per line: quantity / description / unit price)",
+        "Invoice line items (optional, one per line: quantity | description | unit price)",
         '<textarea name="positions"></textarea>',
       ) +
       select(
@@ -5599,8 +5599,8 @@ document.addEventListener("click", (e) => {
               Fields: {
                 ...row.Data.Fields,
                 lifecycle: row.Data.Retired
-                  ? "Restored"
-                  : "Archived",
+                  ? "Wiederhergestellt"
+                  : "Archiviert",
                 lifecycleReason: reason,
               },
             },
