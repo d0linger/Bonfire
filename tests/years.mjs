@@ -275,6 +275,8 @@ const imported = (
   await api("online?event=" + dest.ID, manager, {})
 ).entries.filter((r) => r.Kind === "opening");
 assert.equal(imported.length, 1);
+assert.equal(imported[0].ID, firstCarry[0].ID);
+assert.equal(imported[0].Revision, firstCarry[0].Revision);
 assert.equal(imported[0].Data.Amount, 120);
 assert.equal(imported[0].Data.Fields.yearSource, nextLedger.ID);
 await api("manage", cashier, { Action: "year-carry" }, 403, event.ID);

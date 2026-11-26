@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
-import { admin } from "./local-api.mjs";
+import { admin, onlineClient, practiceEvent } from "./local-api.mjs";
 
+await practiceEvent(await onlineClient(), "Audit navigation fixture", "2745-05-02");
 const url = new URL(process.env.BONFIRE_URL);
 assert.ok(
   ["localhost", "127.0.0.1"].includes(url.hostname) && url.port !== "8137",

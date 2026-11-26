@@ -75,7 +75,8 @@ out = await send(a, {
   Last: 0,
   Reason: "Kontakt wieder freigegeben",
 });
-assert.ok(out.entries.some((r) => r.ID === late.Target));
+const donationBefore = out.entries.find((r) => r.ID === late.Target);
+assert.equal(donationBefore.Kind, "donation");
 await send(
   b,
   {
@@ -92,6 +93,7 @@ await send(
   422,
 );
 out = await send(b, {});
+assert.deepEqual(out.entries.find((r) => r.ID === late.Target), donationBefore);
 assert.equal(out.entries.find((r) => r.ID === id).Revision, 3);
 const left = await prepare("Kontakt Ost"),
   right = await prepare("Kontakt West");
