@@ -817,7 +817,9 @@ func checkBalance(entries []row, accounts bool) error {
 			return fail("Bestandsdifferenz oder fehlende Zuordnung.")
 		}
 		for _, posting := range postings[k] {
-			if posting.Date > v.Date || (posting.Date != "" && posting.Date == v.Date && (posting.BalanceOrder == 0 || v.BalanceOrder == 0 || posting.BalanceOrder >= v.BalanceOrder)) {
+			knownOrder := posting.BalanceOrder > 0 && v.BalanceOrder > 0
+			if posting.Date > v.Date || knownOrder && posting.BalanceOrder >= v.BalanceOrder ||
+				!knownOrder && posting.Date != "" && posting.Date == v.Date {
 				return fail("Confirm the observed balance again after the final posting.")
 			}
 		}
