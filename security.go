@@ -129,9 +129,7 @@ func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request)
 		return map[string]string{"challenge": token}, tx.Commit(ctx)
 	}
 	if completing {
-		a.mu.Lock()
-		delete(a.attempts, loginBucket(r, alias))
-		a.mu.Unlock()
+		a.clearPasswordAttempts(r, alias)
 	}
 	if change {
 		token = secret()

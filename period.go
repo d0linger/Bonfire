@@ -79,7 +79,7 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 	if accountMode != allAccounts {
 		return "", fail("Unterschiedliche Kontozuordnungen zuerst abstimmen.")
 	}
-	rows, err := tx.Query(ctx, "SELECT event::text,id,kind,device::text,revision,data FROM entries WHERE event IN ("+scope+") AND ((data->>'Date')::date BETWEEN $1 AND $2 OR (kind IN ('account','wallet') AND (data->>'Date')::date<=$2)) ORDER BY id", start, end, year)
+	rows, err := tx.Query(ctx, "SELECT event::text,id,kind,device::text,revision,data FROM settlement_entries WHERE event IN ("+scope+") AND ((data->>'Date')::date BETWEEN $1 AND $2 OR (kind IN ('account','wallet') AND (data->>'Date')::date<=$2)) ORDER BY id", start, end, year)
 	if err != nil {
 		return "", err
 	}
@@ -106,7 +106,7 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 		}
 		// A wallet settlement spans its opening and closing counts. Load prior
 		// wallet movements only for validation, outside the frozen period snapshot.
-		earlier, err := tx.Query(ctx, `SELECT id,kind,device::text,revision,data FROM entries
+		earlier, err := tx.Query(ctx, `SELECT id,kind,device::text,revision,data FROM settlement_entries
    WHERE event=$1 AND (data->>'Date')::date<$2 AND kind=ANY($3)`, event, start,
 			[]string{"count", "supply", "skim", "return", "cashback", "transfer", "expense", "refund", "deposit-return", "income", "donation", "payment", "presale", "deposit"})
 		if err != nil {

@@ -64,10 +64,11 @@ func TestCountCutoff(t *testing.T) {
 	rows := []row{
 		{ID: "w", Kind: "wallet"},
 		{Kind: "count", Data: data{Wallet: "w", Phase: "Anfang", Date: "2026-07-01", Amount: &opening}},
-		{Kind: "supply", Data: data{Wallet: "w", Date: "2026-07-01", Amount: &before}},
-		{Kind: "count", Data: data{Wallet: "w", Phase: "Ende", Date: "2026-07-02", Amount: &closing}},
-		{Kind: "supply", Data: data{Wallet: "w", Date: "2026-07-03", Amount: &after}},
+		{Kind: "supply", Data: data{Wallet: "w", Date: "2026-07-02", PostingOrder: 2, Amount: &before}},
+		{Kind: "count", Data: data{Wallet: "w", Phase: "Ende", Date: "2026-07-02", PostingOrder: 3, Amount: &closing}},
+		{Kind: "supply", Data: data{Wallet: "w", Date: "2026-07-02", PostingOrder: 4, Amount: &after}},
 	}
+	rows = append(rows, row{Kind: "supply", Data: data{Wallet: "w", Date: "2026-07-03", Amount: &after}})
 	if got, ok := walletRevenue(rows, "w"); !ok || got != 800 {
 		t.Fatalf("individual settlement = %d, valid = %v", got, ok)
 	}
