@@ -252,7 +252,13 @@ func (b *backupWorker) stageArchive(ctx context.Context, src io.Reader, authoriz
 	if _, err = admin.Exec(ctx, "ALTER DATABASE "+dbIdent(db)+" CONNECTION LIMIT -1"); err != nil {
 		return "", m, "", err
 	}
-	if err = b.pgTool(ctx, "pg_restore", db, "--exit-on-error", "--single-transaction", "--no-owner", "--dbname="+db, plain); err != nil {
+	restoreArgs := []string{"--exit-on-error", "--single-transaction", "--no-owner"}
+	if authorization != nil {
+		// Roles and grants are installation policy, not part of an isolated data verification.
+		restoreArgs = append(restoreArgs, "--no-acl")
+	}
+	restoreArgs = append(restoreArgs, "--dbname="+db, plain)
+	if err = b.pgTool(ctx, "pg_restore", db, restoreArgs...); err != nil {
 		return "", m, "", err
 	}
 	restored, err := b.connect(ctx, db)
@@ -305,6 +311,8 @@ func (b *backupWorker) stageArchive(ctx context.Context, src io.Reader, authoriz
 				return "", m, "", err
 			}
 		}
+	}
+	if authorization != nil || v < len(files) {
 		if _, err = tx.Exec(ctx, runtimeGrants); err != nil {
 			return "", m, "", err
 		}

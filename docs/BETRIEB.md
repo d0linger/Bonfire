@@ -51,4 +51,15 @@ The legacy host rotation script produces **BONFIRE1** archives. Only for this fo
 
 ## Monitoring
 
-`/health` checks the database connection. The monitoring Compose overlay enables the separate `app:9091/metrics` listener inside the Docker network. The app port no longer exposes metrics. Update any external scraper to use an operator-controlled private listener via `BONFIRE_METRICS_ADDRESS`. The online alert uses `bonfire_online_request_errors_total`, which counts server errors (HTTP 5xx) on POST requests to the online workspace. Permission denials, validation errors and ordinary revision conflicts do not increment it. Monitor archive retention and the result of a restore rehearsal alongside the completion timestamp. The host rotation job records the digest only after it produces the encrypted archive.
+`/health` checks the database connection. The monitoring Compose overlay enables the separate `app:9091/metrics` listener inside the Docker network. The app port no longer exposes metrics. The overlay sets the listener address in the container, so a host environment variable alone does not publish it.
+
+For a scraper on the same host, append a Compose override with this loopback binding. A remote scraper can use a private transport such as a tunnel to that binding. Keep bundled Prometheus on `app:9091`.
+
+```yaml
+services:
+  app:
+    ports:
+      - "127.0.0.1:9091:9091"
+```
+
+The online alert uses `bonfire_online_request_errors_total`, which counts server errors (HTTP 5xx) on POST requests to the online workspace. Permission denials, validation errors and ordinary revision conflicts do not increment it. Monitor archive retention and the result of a restore rehearsal alongside the completion timestamp. The host rotation job records the digest only after it produces the encrypted archive.

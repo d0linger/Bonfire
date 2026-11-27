@@ -202,6 +202,7 @@ try {
   const typePicker = eventDialog.locator("select[name=type]");
   await eventDialog.locator("[name=Label]").fill("Draft entry");
   await eventDialog.locator("[name=amount]").fill("18,25");
+  await typePicker.focus();
   await typePicker.selectOption("expense");
   assert.equal(await eventDialog.locator("[name=Label]").inputValue(), "Draft entry");
   assert.equal(await eventDialog.locator("[name=amount]").inputValue(), "18,25");

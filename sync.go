@@ -372,7 +372,17 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 			if err != nil {
 				return "", err
 			}
+			requestedDate := o.Data.Date
 			o.Data = v
+			if o.Data.Date != requestedDate {
+				frozen, err := protectedPeriod(ctx, tx, d, o)
+				if err != nil {
+					return "", err
+				}
+				if frozen {
+					return "Konflikt", nil
+				}
+			}
 		}
 		if v.Fields["series"] == "confirmation" {
 			var snap struct {

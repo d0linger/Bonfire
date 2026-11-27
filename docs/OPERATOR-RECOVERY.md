@@ -35,7 +35,7 @@ Place `archive.dump.enc`, `archive.key`, `operator-public.pem`, `authorization.j
 ./ops/rehearse-recovery.ps1 -InputDirectory <private-directory> -BackupImage <verified-backup-worker-image>
 ```
 
-The script creates a unique private Docker project, with no published database port and an internal network. It creates a separate PostgreSQL server and reports the verified archive fingerprint and recovered counts. Review the result before an independently authorized production switch. Production promotion is an operator maintenance action. Reconcile the financial totals and credential availability, record the recovery reference, and preserve a verified pre-switch backup. The command is for BONFIRE2 archives with installation identity. Rehearse older authorized backups separately with the matching tooling and an independently provisioned PostgreSQL server.
+The script creates a unique private Docker project, with no published database port and an internal network. It creates a separate PostgreSQL server and reports the verified archive fingerprint and recovered counts. It restores data with BONFIRE's runtime grants and leaves source-specific access grants for the operator to verify separately. Review the result before an independently authorized production switch. Production promotion is an operator maintenance action. Reconcile the financial totals and credential availability, record the recovery reference, and preserve a verified pre-switch backup. The command is for BONFIRE2 archives with installation identity. Rehearse older authorized backups separately with the matching tooling and an independently provisioned PostgreSQL server.
 
 ## Capture audit checkpoints
 

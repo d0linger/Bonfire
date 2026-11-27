@@ -93,7 +93,7 @@ func (b *backupWorker) health(target string, now time.Time) backupHealth {
 	h := b.state.Last[target]
 	h.Due = false
 	h.Next = nil
-	h.Enabled = sched.Cron != "" && (target != "s3" || b.s3 != nil)
+	h.Enabled = sched.Cron != "" && (target != "s3" || b.s3 != nil) && (target != "probe" || !operatorBackupsOnly())
 	if !h.Enabled {
 		return h
 	}
@@ -419,9 +419,6 @@ func safeBackupError(err error) string {
 
 func (b *backupWorker) tick() {
 	for _, target := range []string{"local", "s3", "probe"} {
-		if target == "probe" && operatorBackupsOnly() {
-			continue
-		}
 		b.mu.Lock()
 		due := !b.active && b.health(target, backupNow()).Due
 		b.mu.Unlock()
