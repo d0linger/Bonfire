@@ -66,6 +66,15 @@
 .ops-filter .actions {
   margin: 0;
 }
+.ops-extra-filters {
+  flex: 1 0 100%;
+}
+.ops-extra-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .65rem;
+  margin-top: .65rem;
+}
 .ops-badge {
   font-size: 0.77rem;
   font-weight: 650;

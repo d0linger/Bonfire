@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -41,9 +42,19 @@ var backupTransport = &http.Transport{
 	ResponseHeaderTimeout: 45 * time.Second,
 }
 
-// Both ends allow a bounded transfer window for encrypted multi-gigabyte archives.
+const defaultBackupUploadBytes int64 = 512 << 20
+const backupUploadWindow = 15 * time.Minute
+
+func backupUploadLimit() int64 {
+	if value, err := strconv.ParseInt(os.Getenv("BONFIRE_BACKUP_UPLOAD_MAX_BYTES"), 10, 64); err == nil &&
+		value >= 36 && value <= archiveLimit+(64<<20) {
+		return value
+	}
+	return defaultBackupUploadBytes
+}
+
 func backupUploadDeadline(w http.ResponseWriter) error {
-	deadline := time.Now().Add(2 * time.Hour)
+	deadline := time.Now().Add(backupUploadWindow)
 	controller := http.NewResponseController(w)
 	if err := controller.SetReadDeadline(deadline); err != nil {
 		return err
@@ -79,11 +90,15 @@ func (a *app) proxyBackup(w http.ResponseWriter, r *http.Request) {
 	var body io.Reader
 	if r.Method == "POST" {
 		if path == "/upload" {
+			if r.ContentLength < 36 || r.ContentLength > backupUploadLimit() {
+				http.Error(w, "Send an archive with a valid length within the configured limit.", http.StatusRequestEntityTooLarge)
+				return
+			}
 			if err := backupUploadDeadline(w); err != nil {
 				http.Error(w, "Cannot initialize backup upload.", http.StatusInternalServerError)
 				return
 			}
-			r.Body = http.MaxBytesReader(w, r.Body, archiveLimit+(64<<20))
+			r.Body = http.MaxBytesReader(w, r.Body, r.ContentLength)
 			body = r.Body
 		} else {
 			r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
@@ -124,6 +139,9 @@ func (a *app) proxyBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.URL.Path = path
+	if path == "/upload" {
+		req.ContentLength = r.ContentLength
+	}
 	req.URL.RawQuery = r.URL.Query().Encode()
 	req.Header.Set("X-Bonfire-Actor", user)
 	res, err := backupTransport.RoundTrip(req)

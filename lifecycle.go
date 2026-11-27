@@ -3,9 +3,31 @@ package main
 import (
 	"context"
 	"errors"
-	"github.com/jackc/pgx/v5"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 )
+
+// A contact's originating workspace may edit it. A reference from another
+// workspace makes it visible there without transferring edit authority.
+const contactOrigin = "EXISTS(SELECT 1 FROM devices d WHERE d.id=c.device AND d.event=$1)"
+const contactVisible = "($2='Admin' OR " + contactOrigin + " OR EXISTS(SELECT 1 FROM entries j WHERE j.event=$1 AND j.data->>'Contact'=c.id))"
+const sharedSponsorDirectory = "EXISTS(SELECT FROM events WHERE id=$1 AND NOT general_ledger)"
+
+func authorizeContactWrite(ctx context.Context, tx pgx.Tx, d device, id string) error {
+	if d.Role == roleAdmin {
+		return nil
+	}
+	var allowed bool
+	err := tx.QueryRow(ctx, "SELECT NOT EXISTS(SELECT FROM directory c WHERE c.id=$2 AND NOT "+contactOrigin+")", d.Event, id).Scan(&allowed)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return problem{403, "You cannot edit this contact in the selected workspace."}
+	}
+	return nil
+}
 
 // Serialize independent offline creations even when the devices generated different IDs.
 func contactNameAvailable(ctx context.Context, tx pgx.Tx, o op) (bool, error) {
@@ -40,7 +62,7 @@ func lifecycle(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error) {
 		return false, nil
 	}
 	if !archived && !o.Data.Retired {
-		return true, nil
+		return o.Data.Fields["lifecycle"] == "", nil
 	}
 	if revision == 0 || archived == o.Data.Retired {
 		return false, nil

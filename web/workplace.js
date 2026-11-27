@@ -401,6 +401,16 @@ export function walletTable(rows, actions = "") {
   const allStart = poolCount(rows, "Anfang"),
     allEnd = poolCount(rows, "Ende");
   const groupsByBar = new Map();
+  const rowsByWallet = new Map(wallets.map((wallet) => [wallet.ID, []]));
+  for (const row of rows) {
+    const { Wallet, Account, To } = row.Data;
+    for (const id of new Set([Wallet, Account, To])) {
+      if (row.ID !== "settlement:" + id) rowsByWallet.get(id)?.push(row);
+    }
+  }
+  const individualRevenue = new Map(allStart || allEnd ? [] :
+    wallets.map((wallet) => [wallet.ID, counted(rowsByWallet.get(wallet.ID), wallet.ID)]));
+  const combinedRevenue = allStart || allEnd ? pooledRevenue(rows) : null;
   for (const w of wallets) {
     const bar = w.Data.Bar || "";
     if (!groupsByBar.has(bar)) groupsByBar.set(bar, []);
@@ -416,7 +426,7 @@ export function walletTable(rows, actions = "") {
           ? eur(pooled.Data.Amount) + status(pooled)
           : "Combined count only";
       const counts = group.map((w) =>
-        rows.find(
+        rowsByWallet.get(w.ID).find(
           (r) =>
             r.Kind === "count" &&
             r.Data.Wallet === w.ID &&
@@ -432,14 +442,9 @@ export function walletTable(rows, actions = "") {
     let revenue = "Pending";
     if (allEnd || allStart) {
       if (!overall) revenue = "Combined count only";
-      else revenue = eur(pooledRevenue(rows));
+      else revenue = eur(combinedRevenue);
     } else {
-      const values = group.map((w) =>
-        counted(
-          rows.filter((r) => r.ID !== "settlement:" + w.ID),
-          w.ID,
-        ),
-      );
+      const values = group.map((w) => individualRevenue.get(w.ID));
       if (values.length && values.every((n) => n != null))
         revenue = eur(values.reduce((a, b) => a + b, 0));
     }

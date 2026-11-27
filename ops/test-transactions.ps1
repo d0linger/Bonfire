@@ -9,6 +9,8 @@ foreach ($key in $vars) { $original[$key] = [Environment]::GetEnvironmentVariabl
 $started = $false
 Push-Location (Join-Path $PSScriptRoot '..')
 try {
+  npm run build
+  if ($LASTEXITCODE -ne 0) { throw 'The document renderer build failed.' }
   $env:POSTGRES_PASSWORD = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24))
   $null = docker run -d --name $name -e POSTGRES_PASSWORD -e POSTGRES_DB=bonfire_tx_tests --publish 127.0.0.1::5432 --health-cmd 'pg_isready -h 127.0.0.1' --health-interval 1s --health-retries 30 postgres:18-alpine
   $started = $true

@@ -86,6 +86,7 @@ assert.deepEqual(
 const reader = "kasse-" + randomUUID().slice(0, 8),
   password = randomUUID();
 await api("users", manager, {
+  CurrentPassword: process.env.BONFIRE_ADMIN_PASSWORD,
   Name: reader,
   Password: password,
   Role: "Write",
@@ -198,12 +199,14 @@ for (const Action of ["period", "journal-period"]) {
 }
 const reviewer = "pruefung-" + randomUUID().slice(0, 8);
 await api("users", manager, {
+  CurrentPassword: process.env.BONFIRE_ADMIN_PASSWORD,
   Name: reviewer,
   Password: password,
   Role: "Read",
   Event: nextLedger.ID,
 });
 await api("access", manager, {
+  CurrentPassword: process.env.BONFIRE_ADMIN_PASSWORD,
   Action: "grant",
   Name: reviewer,
   Event: nextEvent.ID,

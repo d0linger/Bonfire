@@ -5,4 +5,4 @@ rule_files:
 scrape_configs:
   - job_name: bonfire
     static_configs:
-      - targets: ["app:8080"]
+      - targets: ["app:9091"]

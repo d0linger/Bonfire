@@ -409,7 +409,7 @@ try {
         await trigger.click();
         const editor = page.locator("#entry-dialog");
         if (record === donation)
-          await editor.getByLabel("Recipient").selectOption(contact.Target);
+          assert.ok((await editor.locator("[data-receipt-preview]").innerText()).includes(contact.Data.Label));
         const file = page.waitForEvent("download");
         await editor
           .getByRole("button", { name: "Issue original" })

@@ -351,10 +351,20 @@ async function commit(next) {
     return;
   }
   if (next.ops.length || next.prints?.length) {
-    const out = await workspaceRequest(next.event.ID, {
+    const result = await workspaceRequest(next.event.ID, {
       Ops: next.ops,
       Prints: next.prints || [],
+      ReceiptOnly: next.ops.length > 0,
     });
+    let out = result;
+    if (result.saved) {
+      try {
+        out = await workspaceRequest(next.event.ID, {});
+      } catch {
+        unconfirmedWrites.add(next.event.ID);
+        throw Error("The server saved the entry. Refresh the workspace before recording another entry.");
+      }
+    }
     s = onlineSnapshot(out, next);
   } else s = next;
 }
@@ -2379,7 +2389,7 @@ async function openRecordDocument(trigger) {
     hidden("profile", i) +
     hidden("version", "active") +
     hidden("format", writableWorkspace() ? "Original" : "PDF") +
-    (i === 12 ? refs("recipient", "Recipient", ["contact"]) : "") +
+    (i === 12 && !writableWorkspace() ? refs("recipient", "Recipient", ["contact"]) : "") +
     '<div class="document-preview" data-receipt-preview></div>';
   openEditor(
     trigger,
@@ -5084,6 +5094,28 @@ async function submit(f) {
         availableNumbers(s) === 0
       )
         throw Error("Issuing permission or reserved numbers are missing.");
+      if (!offlineEnabled) {
+        const fields = previous ? { previous: String(previous), reason: vals.revisionReason } : {};
+        if (i >= 11) fields.series = "confirmation";
+        const target = "original:" + vals.subject +
+          (i >= 11 ? ":confirmation" : "") + (previous ? ":after:" + previous : "");
+        const number = s.nextNumber;
+        await commit({
+          ...s,
+          ops: [{
+            ID: crypto.randomUUID(), Target: target, Kind: "original",
+            Data: {
+              Label: "Issue original", Date: today(), Number: number,
+              Reference: vals.subject, Fields: fields, Note: JSON.stringify({ profile: profileID(i) }),
+            },
+          }],
+        });
+        const issued = rows().find((r) => r.ID === target);
+        if (!issued?.Data.PDF) throw Error("The issued original could not be loaded.");
+        download(from64(issued.Data.PDF, "application/pdf"), profileID(i) + "-" + number + ".pdf");
+        show();
+        return;
+      }
     }
     const snap = snapshot(i, s, rows(), {
       ...vals,
@@ -5306,10 +5338,20 @@ document.addEventListener("change", (e) => {
     const current = entryDialog.querySelector("#record");
     if (current.elements.field_countMode) updateCountOptions(current);
     loadSponsorChoices(current);
-    for (const name of ["Label", "Date", "amount", "Method", "Note"]) {
-      if (values.has(name) && current.elements.namedItem(name))
-        current.elements.namedItem(name).value = values.get(name);
+    for (const input of current.elements) {
+      if (!input.name || !values.has(input.name) || input.name === "type" ||
+          ["hidden", "file", "password", "radio"].includes(input.type)) continue;
+      if (input.type === "checkbox") {
+        input.checked = values.getAll(input.name).includes(input.value);
+        continue;
+      }
+      const value = values.get(input.name);
+      if (typeof value !== "string") continue;
+      if (input instanceof HTMLSelectElement &&
+          ![...input.options].some((option) => !option.disabled && option.value === value)) continue;
+      input.value = value;
     }
+    e.target.focus();
     entryDialog.querySelector(".entry-error").replaceChildren();
   }
 });

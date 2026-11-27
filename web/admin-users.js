@@ -269,6 +269,10 @@ export async function mountUsers(host, { api }) {
           (user ? "<p>" + esc(person(user)) + "</p>" : "") +
           (summaries[action] ? "<p>" + summaries[action] + "</p>" : "") +
           editFields(action, user, data.events) +
+          (action === "sessions" ? "" :
+            '<label>Your current password<input name="CurrentPassword" type="password" autocomplete="current-password" required></label>' +
+            (data.users.find((account) => account.ID === data.self)?.MFA ?
+              '<label>Your authenticator or recovery code<input name="Code" required autocomplete="one-time-code"></label>' : "")) +
           '<p role="alert"></p><div class="actions"><button type="button" class="secondary" data-account-cancel>Cancel</button><button>' +
           (action === "edit" ? "Save changes" : titles[action]) +
           "</button></div></form>";
@@ -304,6 +308,10 @@ export async function mountUsers(host, { api }) {
       if (saving) return;
       const f = new FormData(e.target);
       const input = { Action: action, Reason: f.get("Reason") };
+      if (f.has("CurrentPassword")) {
+        input.CurrentPassword = f.get("CurrentPassword");
+        input.Code = f.get("Code") || "";
+      }
       if (action !== "create")
         Object.assign(input, { ID: user.ID, Version: user.Version });
       if (["edit", "create"].includes(action))

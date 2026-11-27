@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"testing"
 )
@@ -109,7 +110,7 @@ func (f *transactionFixture) checkWalletBatches(year, day string) {
 	other.Event = otherEvent.ID
 	reject(other, 409, "", f.cookie)
 	const cashier = "batch-cashier@example.invalid"
-	f.atomic(a.editAdminUser, "/api/admin/users/edit", changeAccount{Action: "create", Login: cashier, Label: "Second cashier", Role: roleWrite, Password: secret(), Events: []string{e.ID}, Reason: "Cashier shift"})
+	f.atomic(a.editAdminUser, "/api/admin/users/edit", changeAccount{Action: "create", Login: cashier, Label: "Second cashier", Role: roleWrite, Password: secret(), CurrentPassword: os.Getenv("BONFIRE_ADMIN_PASSWORD"), Events: []string{e.ID}, Reason: "Cashier shift"})
 	otherCookie := secret()
 	f.value("INSERT INTO sessions(token,username,expires) VALUES($1,$2,now()+interval '1 hour') RETURNING username", hash(otherCookie), cashier)
 	reject(changed, 409, "", otherCookie)

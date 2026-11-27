@@ -93,7 +93,7 @@ func (b *backupWorker) health(target string, now time.Time) backupHealth {
 	h := b.state.Last[target]
 	h.Due = false
 	h.Next = nil
-	h.Enabled = sched.Cron != "" && (target != "s3" || b.s3 != nil)
+	h.Enabled = sched.Cron != "" && (target != "s3" || b.s3 != nil) && (target != "probe" || !operatorBackupsOnly())
 	if !h.Enabled {
 		return h
 	}
@@ -201,7 +201,14 @@ func (b *backupWorker) start(q backupCommand, actor string) error {
 	return b.startIfDue(q, actor, "")
 }
 
+func operatorBackupsOnly() bool {
+	return os.Getenv("BONFIRE_BACKUP_OPERATOR_ONLY") == "true"
+}
+
 func (b *backupWorker) startIfDue(q backupCommand, actor, schedule string) error {
+	if operatorBackupsOnly() && (q.Action == "probe" || q.Action == "promote") {
+		return errors.New("Restore requires the independent operator recovery procedure.")
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.service.Err() != nil {
@@ -451,11 +458,24 @@ func (b *backupWorker) download(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *backupWorker) upload(w http.ResponseWriter, r *http.Request) {
+	if operatorBackupsOnly() {
+		http.Error(w, "Use the independent operator recovery procedure.", http.StatusForbidden)
+		return
+	}
 	if !b.uploadSlot.TryLock() {
 		http.Error(w, "Another backup upload is in progress.", http.StatusConflict)
 		return
 	}
 	defer b.uploadSlot.Unlock()
+	length := r.ContentLength
+	if length < 0 || length > backupUploadLimit() {
+		http.Error(w, "Send an archive with a valid length within the configured limit.", http.StatusRequestEntityTooLarge)
+		return
+	}
+	if length < 36 {
+		badBackup(w, "The upload is incomplete.")
+		return
+	}
 	if err := backupUploadDeadline(w); err != nil {
 		http.Error(w, "Cannot initialize backup upload.", http.StatusInternalServerError)
 		return
@@ -465,15 +485,19 @@ func (b *backupWorker) upload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Upload storage is unavailable.", 503)
 		return
 	}
+	if capacity := diskCapacity(dir); capacity != nil && capacity["free"] < uint64(length)+(64<<20) {
+		http.Error(w, "Insufficient space for this archive and the storage reserve.", http.StatusInsufficientStorage)
+		return
+	}
 	tmp, err := os.CreateTemp(dir, ".upload-")
 	if err != nil {
 		http.Error(w, "Upload storage is unavailable.", 503)
 		return
 	}
 	defer os.Remove(tmp.Name())
-	size, err := io.Copy(tmp, http.MaxBytesReader(w, r.Body, archiveLimit+(64<<20)))
+	size, err := io.Copy(tmp, http.MaxBytesReader(w, r.Body, length))
 	closeErr := tmp.Close()
-	if err != nil || closeErr != nil || size < 36 {
+	if err != nil || closeErr != nil || size != length {
 		badBackup(w, "The upload is incomplete or too large.")
 		return
 	}

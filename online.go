@@ -21,6 +21,10 @@ func lockOnline(ctx context.Context, tx pgx.Tx, r *http.Request) (device, error)
 }
 
 func lockOnlineEvent(ctx context.Context, tx pgx.Tx, r *http.Request, eventID string) (device, error) {
+	return onlineWorkspace(ctx, tx, r, eventID, false)
+}
+
+func onlineWorkspace(ctx context.Context, tx pgx.Tx, r *http.Request, eventID string, snapshot bool) (device, error) {
 	var d device
 	cookie, err := r.Cookie("bonfire_session")
 	if err != nil || cookie.Value == "" {
@@ -38,8 +42,12 @@ func lockOnlineEvent(ctx context.Context, tx pgx.Tx, r *http.Request, eventID st
 	if !idPattern.MatchString(d.Event) {
 		return d, fail("Select a workspace.")
 	}
-	err = tx.QueryRow(ctx, `SELECT e.closed,e.accounts FROM events e WHERE e.id=$1
- AND ($2='Admin' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.event=e.id AND g.username=$3)) FOR UPDATE`, d.Event, d.Role, d.User).Scan(&d.Closed, &d.Accounts)
+	query := `SELECT e.closed,e.accounts FROM events e WHERE e.id=$1
+ AND ($2='Admin' OR EXISTS(SELECT 1 FROM grants_event g WHERE g.event=e.id AND g.username=$3))`
+	if !snapshot {
+		query += " FOR UPDATE"
+	}
+	err = tx.QueryRow(ctx, query, d.Event, d.Role, d.User).Scan(&d.Closed, &d.Accounts)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, problem{403, "You have no access to this workspace."}
 	}
@@ -54,6 +62,9 @@ func lockOnlineEvent(ctx context.Context, tx pgx.Tx, r *http.Request, eventID st
 	err = tx.QueryRow(ctx, `SELECT id::text,block,last_seq,digital_count FROM devices
  WHERE event=$1 AND username=$2 AND online_actor`, d.Event, d.User).Scan(&d.ID, &d.Block, &d.Last, &d.DigitalCount)
 	if errors.Is(err, pgx.ErrNoRows) {
+		if snapshot {
+			return onlineWorkspace(ctx, tx, r, eventID, false)
+		}
 		// The event lock serializes creation across tabs and concurrent requests.
 		err = tx.QueryRow(ctx, `INSERT INTO devices(id,username,event,name,secret,expires,online_actor)
  VALUES($1,$2,$3,$2,''::bytea,now(),true) RETURNING id::text,block,last_seq,digital_count`, uuid(), d.User, d.Event).Scan(&d.ID, &d.Block, &d.Last, &d.DigitalCount)

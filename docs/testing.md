@@ -19,7 +19,7 @@ Run npm ci, install Chromium with npx playwright install chromium and initialize
 
 The acceptance workflow instruments migrations, the online server, and the backup worker during the browser and encrypted S3 restore suites. It combines those profiles with Go unit and PostgreSQL integration tests for the same source blocks. The required job enforces at least 80% of application statements before rounding and 90% for each of eleven core finance functions. Physical printing and testing on actual mobile devices require separate evidence.
 
-Run `./ops/test-transactions.ps1` with Docker, Go and PowerShell 7 to exercise database interruption and retry locally. It starts a separate PostgreSQL server, applies the real migrations and grants, then removes its container and volume. The tests interrupt individual database statements during financial and account operations, compare persisted state after rollback, and verify that retrying completes the requested change exactly once.
+Install Node.js dependencies with `npm ci`, then run `./ops/test-transactions.ps1` with Docker, Go and PowerShell 7 to exercise database interruption and retry locally. It builds the production document renderer, starts a separate PostgreSQL server, applies the real migrations and grants, then removes its container and volume. The tests interrupt individual database statements during financial and account operations, compare persisted state after rollback, and verify that retrying completes the requested change exactly once.
 
 ## GitHub checks
 

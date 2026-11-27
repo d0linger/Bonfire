@@ -13,6 +13,25 @@ import (
 	"time"
 )
 
+func TestOperatorModePreservesDisabledProbeSchedule(t *testing.T) {
+	now := time.Now().UTC()
+	previous := now.Add(-24 * time.Hour)
+	worker := backupWorker{state: backupState{
+		Schedules: map[string]backupSchedule{"probe": {Cron: "0 * * * *", Since: previous}},
+		Last:      map[string]backupHealth{"probe": {LastSuccess: &previous}},
+	}}
+	t.Setenv("BONFIRE_BACKUP_OPERATOR_ONLY", "true")
+	disabled := worker.health("probe", now)
+	if disabled.Enabled || disabled.Due || disabled.Next != nil || disabled.LastSuccess != &previous {
+		t.Fatalf("disabled probe reported scheduled work or lost history: %+v", disabled)
+	}
+	t.Setenv("BONFIRE_BACKUP_OPERATOR_ONLY", "false")
+	enabled := worker.health("probe", now)
+	if !enabled.Enabled || !enabled.Due || enabled.Next == nil {
+		t.Fatalf("compatibility mode lost the existing probe schedule: %+v", enabled)
+	}
+}
+
 func TestLocalBackupRetentionAndRecoveryCandidates(t *testing.T) {
 	b := backupWorker{storageDir: t.TempDir()}
 	first := "bonfire-20260101T000000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.dump.enc"

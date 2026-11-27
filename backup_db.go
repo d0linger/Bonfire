@@ -51,6 +51,9 @@ func stateManifest(ctx context.Context, tx pgx.Tx, schema int) (backupManifest, 
 	if schema >= 35 {
 		tables = append(tables, "wallet_batch_receipts")
 	}
+	if schema >= 36 {
+		tables = append(tables, "fire_accounts", "fire_account_links", "fire_year_counts", "event_closures", "period_closures", "audit_chain_heads")
+	}
 	for _, table := range append(tables, "originals") {
 		rows, err := tx.Query(ctx, "SELECT sha256(convert_to(to_jsonb(r)::text,'UTF8')) FROM "+pgx.Identifier{table}.Sanitize()+" r ORDER BY 1")
 		if err != nil {
@@ -120,7 +123,7 @@ func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (stri
 	if err = tx.QueryRow(ctx, "SELECT pg_export_snapshot()").Scan(&snap); err != nil {
 		return "", "", err
 	}
-	dir, err := os.MkdirTemp(b.storageRoot(), ".job-")
+	dir, err := os.MkdirTemp(b.backupScratchRoot(), ".job-")
 	if err != nil {
 		return "", "", err
 	}
@@ -138,8 +141,13 @@ func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (stri
 	}
 	defer input.Close()
 	name := "bonfire-" + time.Now().UTC().Format("20060102T150405Z") + "-" + uuid() + ".dump.enc"
-	tmp := filepath.Join(dir, name)
-	// The destination is generated in this worker-owned private temporary directory.
+	sealed, err := os.MkdirTemp(b.storageRoot(), ".job-")
+	if err != nil {
+		return "", "", err
+	}
+	defer os.RemoveAll(sealed)
+	tmp := filepath.Join(sealed, name)
+	// The sealed file stays on the backup volume so publication uses an atomic rename.
 	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600) // #nosec G304 -- server-generated UUID filename inside MkdirTemp.
 	if err != nil {
 		return "", "", err
@@ -170,20 +178,31 @@ func (b *backupWorker) makeArchive(ctx context.Context, db, target string) (stri
 	return name, hex.EncodeToString(fingerprint.Sum(nil)), err
 }
 
+func (b *backupWorker) backupScratchRoot() string {
+	if path := os.Getenv("BONFIRE_BACKUP_SCRATCH"); path != "" {
+		return path
+	}
+	return b.storageRoot()
+}
+
 func dbIdent(name string) string { return pgx.Identifier{name}.Sanitize() }
 
 func (b *backupWorker) stage(ctx context.Context, target, name string) (string, backupManifest, string, error) {
+	src, err := b.openArchive(ctx, target, name)
+	if err != nil {
+		return "", backupManifest{}, "", err
+	}
+	defer src.Close()
+	return b.stageArchive(ctx, src, nil)
+}
+
+func (b *backupWorker) stageArchive(ctx context.Context, src io.Reader, authorization *restoreAuthorization) (string, backupManifest, string, error) {
 	var m backupManifest
-	dir, err := os.MkdirTemp(b.storageRoot(), ".job-")
+	dir, err := os.MkdirTemp(b.backupScratchRoot(), ".job-")
 	if err != nil {
 		return "", m, "", err
 	}
 	defer os.RemoveAll(dir)
-	src, err := b.openArchive(ctx, target, name)
-	if err != nil {
-		return "", m, "", err
-	}
-	defer src.Close()
 	plain := filepath.Join(dir, "candidate.dump")
 	file, err := os.OpenFile(plain, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600) // #nosec G304 -- fixed filename inside worker-owned MkdirTemp.
 	if err != nil {
@@ -198,11 +217,19 @@ func (b *backupWorker) stage(ctx context.Context, target, name string) (string, 
 	if cerr != nil {
 		return "", m, "", cerr
 	}
+	if authorization != nil && (authorization.Installation != m.Installation || authorization.SHA256 != hex.EncodeToString(fingerprint.Sum(nil))) {
+		return "", m, "", errors.New("The restore authorization does not match the archive")
+	}
 	admin, err := b.connect(ctx, "postgres")
 	if err != nil {
 		return "", m, "", err
 	}
 	defer admin.Close(ctx)
+	if authorization != nil {
+		if _, err = admin.Exec(ctx, "DO $$ BEGIN IF NOT EXISTS(SELECT FROM pg_roles WHERE rolname='bonfire_runtime') THEN CREATE ROLE bonfire_runtime NOLOGIN; END IF; END $$"); err != nil {
+			return "", m, "", err
+		}
+	}
 	db := "bf_probe_" + strings.ReplaceAll(uuid(), "-", "")
 	// Exclude normal clients from scratch databases before loading private backup data.
 	if _, err = admin.Exec(ctx, "CREATE DATABASE "+dbIdent(db)+" TEMPLATE template0 CONNECTION LIMIT 0"); err != nil {
@@ -225,7 +252,13 @@ func (b *backupWorker) stage(ctx context.Context, target, name string) (string, 
 	if _, err = admin.Exec(ctx, "ALTER DATABASE "+dbIdent(db)+" CONNECTION LIMIT -1"); err != nil {
 		return "", m, "", err
 	}
-	if err = b.pgTool(ctx, "pg_restore", db, "--exit-on-error", "--single-transaction", "--no-owner", "--dbname="+db, plain); err != nil {
+	restoreArgs := []string{"--exit-on-error", "--single-transaction", "--no-owner"}
+	if authorization != nil {
+		// Roles and grants are installation policy, not part of an isolated data verification.
+		restoreArgs = append(restoreArgs, "--no-acl")
+	}
+	restoreArgs = append(restoreArgs, "--dbname="+db, plain)
+	if err = b.pgTool(ctx, "pg_restore", db, restoreArgs...); err != nil {
 		return "", m, "", err
 	}
 	restored, err := b.connect(ctx, db)
@@ -278,6 +311,8 @@ func (b *backupWorker) stage(ctx context.Context, target, name string) (string, 
 				return "", m, "", err
 			}
 		}
+	}
+	if authorization != nil || v < len(files) {
 		if _, err = tx.Exec(ctx, runtimeGrants); err != nil {
 			return "", m, "", err
 		}

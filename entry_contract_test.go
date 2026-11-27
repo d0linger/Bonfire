@@ -71,7 +71,7 @@ func TestEntryValidationPreservesFinancialContracts(t *testing.T) {
 		{"supply between identical accounts", supply, func(o *op) { o.Data.Account = "north" }},
 		{"supply without wallet", supply, func(o *op) { o.Data.Wallet = "" }},
 		{"supply to different wallet", supply, func(o *op) { o.Data.Wallet = "south" }},
-		{"original without files", original, func(o *op) { o.Data.PDF = "" }},
+		{"original without reference", original, func(o *op) { o.Data.Reference = "" }},
 		{"changed receipt reference", dispatch, func(o *op) { o.Data.Reference = "other" }},
 		{"changed source digest", src, func(o *op) { o.Data.File = base64.StdEncoding.EncodeToString([]byte("different file")) }},
 		{"wrong organization identity", org, func(o *op) { o.Target = uuid() }},
