@@ -1,0 +1,12 @@
+services:
+  app:
+    environment:
+      BONFIRE_BACKUP_SOCKET: ""
+    volumes: !override
+      - totp-key:/run/bonfire-totp:ro
+  backup:
+    environment:
+      BONFIRE_BACKUP_SCRATCH: /run/bonfire-scratch
+      BONFIRE_BACKUP_OPERATOR_ONLY: "true"
+    tmpfs:
+      - /run/bonfire-scratch:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532,size=536870912

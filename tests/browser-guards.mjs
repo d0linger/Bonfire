@@ -81,6 +81,15 @@ try {
     await page.locator("button[data-entry]").first().click();
     await page.locator(".ops-detail:not([hidden])").waitFor();
     await audit("expanded audit event");
+    await openNavigation();
+    if ((await administration.getAttribute("open")) === null) await administration.locator("summary").click();
+    await administration.locator('[data-page="Backup"]').click();
+    await page.locator('[data-backup="new"]').first().click();
+    const backupDialog = page.getByRole("dialog", { name: "Create backup" });
+    await backupDialog.waitFor();
+    await audit("backup creation dialog");
+    await page.keyboard.press("Escape");
+    await backupDialog.waitFor({ state: "hidden" });
     await page.reload();
     await page.locator('#fiscal-switch').waitFor({state:"attached"});
     assert.equal(await page.locator("#login").count(),0);

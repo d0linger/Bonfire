@@ -314,7 +314,7 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 		var exists bool
 		var err error
 		if ref.kind == "contact" {
-			err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM directory WHERE id=$1 AND NOT coalesce((data->>'Retired')::boolean,false)) OR EXISTS(SELECT 1 FROM entries WHERE event=$2 AND id=$3 AND data->>'Contact'=$1)", ref.id, d.Event, o.Target).Scan(&exists)
+			err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM directory c WHERE c.id=$3 AND ("+contactVisible+" OR ($5 AND "+sharedSponsorDirectory+")) AND (NOT coalesce((c.data->>'Retired')::boolean,false) OR EXISTS(SELECT 1 FROM entries WHERE event=$1 AND id=$4 AND data->>'Contact'=$3)))", d.Event, d.Role, ref.id, o.Target, d.Online && d.Role == roleWrite && (o.Kind == "sponsorship" || o.Kind == "payment")).Scan(&exists)
 		} else {
 			err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM entries WHERE event=$1 AND id=$2 AND kind=$3)", d.Event, ref.id, ref.kind).Scan(&exists)
 		}
@@ -392,28 +392,34 @@ func validateSettlement(rows []row) error {
 		}
 		return nil
 	}
+	movements := make(map[string][]row)
+	settlements := make(map[string]*int64)
+	for _, entry := range rows {
+		if wallet, ok := strings.CutPrefix(entry.ID, "settlement:"); ok {
+			settlements[wallet] = entry.Data.Amount
+		}
+		v := entry.Data
+		ids := [3]string{v.Wallet, v.Account, v.To}
+		for i, id := range ids {
+			if id == "" || slices.Contains(ids[:i], id) || entry.ID == "settlement:"+id {
+				continue
+			}
+			relevant := v.Wallet == id && (entry.Kind == "count" ||
+				slices.Contains(journalKinds, entry.Kind) && (v.Method == "" || v.Method == "Bar"))
+			if relevant || cashAdjustment(entry, func(value string) bool { return value == id }, false) != 0 {
+				movements[id] = append(movements[id], entry)
+			}
+		}
+	}
 	for _, r := range rows {
 		if r.Kind != "wallet" {
 			continue
 		}
-		var booked *int64
-		var needsSettlement bool
-		others := make([]row, 0, len(rows))
-		for _, j := range rows {
-			if j.ID == "settlement:"+r.ID {
-				booked = j.Data.Amount
-				continue
-			}
-			if cashAdjustment(j, func(id string) bool { return id == r.ID }, false) != 0 || j.Data.Wallet == r.ID && (j.Kind == "count" ||
-				slices.Contains(journalKinds, j.Kind) && (j.Data.Method == "" || j.Data.Method == "Bar")) {
-				needsSettlement = true
-			}
-			others = append(others, j)
-		}
-		if !needsSettlement && booked == nil {
+		booked := settlements[r.ID]
+		if len(movements[r.ID]) == 0 && booked == nil {
 			continue
 		}
-		amount, ok := walletRevenue(others, r.ID)
+		amount, ok := walletRevenue(movements[r.ID], r.ID)
 		if !ok || booked == nil || *booked != amount {
 			return fmt.Errorf("Wallet %s is not fully settled.", r.Data.Label)
 		}

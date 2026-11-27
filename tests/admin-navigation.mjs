@@ -137,6 +137,7 @@ try {
         "true",
       );
       await view.getByLabel("Search", { exact: true }).fill("");
+      await view.getByText("More filters", { exact: true }).click();
       await view
         .getByLabel("Outcome", { exact: true })
         .selectOption("Konflikt");

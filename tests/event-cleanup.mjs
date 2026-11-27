@@ -123,6 +123,7 @@ assert.ok(
 const restricted = "testkassa-" + stamp;
 const pass = randomUUID();
 await call("users", {
+  CurrentPassword: process.env.BONFIRE_ADMIN_PASSWORD,
   Name: restricted,
   Password: pass,
   Role: "Write",

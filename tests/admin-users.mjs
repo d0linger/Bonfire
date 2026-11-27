@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { totp } from "./totp.mjs";
 import { chromium } from "playwright";
 import { admin, basic } from "./local-api.mjs";
+import { testPassword } from "./test-password.mjs";
 
 const url = new URL(process.env.BONFIRE_URL);
 if (!["localhost", "127.0.0.1"].includes(url.hostname) || url.port === "8137")
@@ -40,7 +41,7 @@ const user = async (id) => (await list()).find((u) => u.ID === id);
 const mutate = async (body, expected) =>
   request("admin/users", {
     cookie: manager,
-    body: { Reason: "Fiktiver Abnahmelauf", ...body },
+    body: { Reason: "Fiktiver Abnahmelauf", CurrentPassword: testPassword(), ...body },
     expected,
   });
 const edit = async (id, body, expected) =>
@@ -61,6 +62,13 @@ const space = (await request("events?year=" + year.ID, { cookie: manager }))
   .data[0];
 await request("admin/users", { expected: 401 });
 await request("admin/users", { authorization: admin, expected: 401 });
+await mutate({
+  Action: "create",
+  Login: "proof-required-" + randomUUID() + "@example.test",
+  Role: "Read",
+  Password: initial,
+  CurrentPassword: "",
+}, 403);
 await mutate({
   Action: "create",
   Login: loginID.toUpperCase(),
@@ -203,6 +211,7 @@ try {
   );
   await dialog.getByLabel("Display name").fill("Fiktive Kassa Test");
   await dialog.getByLabel("Reason").fill("Synthetischer Oberflächentest");
+  await dialog.getByLabel("Your current password").fill(testPassword());
   await dialog.getByRole("button", { name: "Save changes" }).click();
   await page.getByText("Changes saved.", { exact: true }).waitFor();
   assert.equal((await user(loginID)).Label, "Fiktive Kassa Test");
@@ -306,6 +315,7 @@ try {
   async function confirmAction(label, password) {
     await dialog.getByRole("button", { name: label, exact: true }).click();
     await dialog.getByLabel("Reason").fill("Synthetischer Verwaltungstest");
+    await dialog.getByLabel("Your current password").fill(testPassword());
     if (password) await dialog.getByLabel("Temporary password").fill(password);
     await dialog.getByRole("button", { name: label, exact: true }).click();
     await dialog.waitFor({ state: "hidden" });

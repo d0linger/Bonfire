@@ -1,7 +1,6 @@
 import { testPassword } from "./test-password.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { zipSync, strToU8 } from "fflate";
 const base = process.env.BONFIRE_URL;
 if (
   !base ||
@@ -54,7 +53,7 @@ await api("admin/backup");
 const user = "probe-" + randomUUID().slice(0, 6) + "@example.invalid",
   pw = randomUUID();
 const modify = (v) =>
-  api("admin/users", { Reason: "Isolierte Restore-Prüfung", ...v });
+  api("admin/users", { Reason: "Isolierte Restore-Prüfung", CurrentPassword: password, ...v });
 await modify({
   Action: "create",
   Login: user,
@@ -177,7 +176,10 @@ const date = "2581-01-02",
     Kind: "sponsorship",
     Data: { Date: date, Label: "Bargeldbeleg im Test", Amount: 300 },
   };
-await book({ Ops: [bill] });
+const contact = { ID: randomUUID(), Target: randomUUID(), Kind: "contact", Data: { Date: date, Label: "Sample donor", Address: "Fixture Street 1\n1000 Exampletown" } };
+const organization = { ID: randomUUID(), Target: "organization", Kind: "organization", Data: { Date: date, Label: "Sample brigade", Address: "Fixture Street 2\n1000 Exampletown", Fields: { IBAN: "AT000000000000000000", holder: "Sample brigade", legal: "Test statement" } } };
+Object.assign(bill.Data, { Contact: contact.Target, Fields: { service: "Synthetic service", due: date } });
+await book({ Ops: [contact, organization, bill] });
 const number = actor.nextNumber;
 const original = {
   ID: randomUUID(),
@@ -188,13 +190,6 @@ const original = {
     Label: "Übungsbeleg",
     Reference: bill.Target,
     Number: number,
-    PDF: Buffer.from("%PDF-1.4\nfiktiv\n%%EOF").toString("base64"),
-    DOCX: Buffer.from(
-      zipSync({
-        "word/document.xml": strToU8("<document/>"),
-        "[Content_Types].xml": strToU8("<Types/>"),
-      }),
-    ).toString("base64"),
     Note: JSON.stringify({
       profile: "invoice_transfer_a4",
       subject: bill.Target,

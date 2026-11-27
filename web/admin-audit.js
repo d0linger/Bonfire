@@ -98,6 +98,8 @@ export function mountAudit(host, { api, identity, search = "" }) {
     revision = 0;
   const isAdmin = identity?.role === "Admin";
   function render() {
+    const extraCount = Object.entries(filters).filter(([key, value]) => key !== "q" && value).length;
+    const filtersOpen = root.querySelector(".ops-extra-filters")?.open;
     root.innerHTML =
       pageHead(
         "Audit log",
@@ -108,7 +110,9 @@ export function mountAudit(host, { api, identity, search = "" }) {
       '<form class="ops-filter"><label>Search<input name="q" maxlength="256" value="' +
       esc(filters.q) +
       '" placeholder="Action, object or event"></label>' +
-      '<label>Action<input name="action" maxlength="256" value="' +
+      '<details class="ops-extra-filters"' + (filtersOpen ? " open" : "") +
+      '><summary>More filters' + (extraCount ? " (" + extraCount + " active)" : "") +
+      '</summary><div class="ops-extra-fields"><label>Action<input name="action" maxlength="256" value="' +
       esc(filters.action) +
       '"></label>' +
       '<label>User<input name="user" maxlength="256" value="' +
@@ -138,7 +142,7 @@ export function mountAudit(host, { api, identity, search = "" }) {
       '"></label>' +
       '<label>Through<input type="date" name="until" value="' +
       esc(filters.until) +
-      '"></label>' +
+      '"></label></div></details>' +
       '<div class="actions"><button>Filter</button>' +
       button("clear", "Reset") +
       "</div></form>" +

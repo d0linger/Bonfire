@@ -143,6 +143,16 @@ await build({
   target: "es2022",
   outdir: "dist",
 });
+await build({
+  define: { __BONFIRE_RENDER_BUILD__: JSON.stringify(renderBuild) },
+  plugins: [validators],
+  entryPoints: ["web/render-original.js"],
+  platform: "node",
+  format: "cjs",
+  bundle: true,
+  minify: true,
+  outfile: "render-original.cjs",
+});
 const files = [...staticFiles, ...iconSizes.map((n) => "icon-" + n + ".png"),
   "app.css", "app.js", "theme.js", "word-renderer.js", "lucide-license.txt", "logo-original.svg"].sort();
 const hash = createHash("sha256");

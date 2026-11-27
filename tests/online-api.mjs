@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { strToU8, zipSync } from "fflate";
+import { strFromU8, unzipSync } from "fflate";
 import { api, admin, basic } from "./local-api.mjs";
 
 const base = process.env.BONFIRE_URL;
@@ -300,6 +300,8 @@ const make = (Kind, Label, Amount) => ({
 }
 const first = make("income", "Barzahlung", 100),
   other = make("income", "Zweite Zahlung", 100);
+// This synthetic UUID prefix resembles an IBAN fragment to the free-text redactor.
+first.ID = "ab123456" + first.ID.slice(8);
 {
   const date = "2461-06-23";
   const poolYear = await call("years", cash, {
@@ -418,20 +420,19 @@ await send(
 assert.equal((await send({})).last, 2);
 
 const bill = make("sponsorship", "Fiktive Rechnung", 300);
-await send({ Ops: [bill] });
+const invoiceContact = make("contact", "Invoice recipient " + suffix);
+invoiceContact.Data.Address = "Fixture Street 1\n1000 Exampletown";
+const invoiceOrg = make("organization", "Sample brigade");
+invoiceOrg.Target = "organization";
+Object.assign(invoiceOrg.Data, { Address: "Fixture Street 2\n1000 Exampletown", Fields: { IBAN: "AT000000000000000000", holder: "Sample brigade", legal: "Test statement" } });
+Object.assign(bill.Data, { Contact: invoiceContact.Target, Fields: { service: "Synthetic service", due: date } });
+await send({ Ops: [invoiceContact, invoiceOrg, bill] });
 const original = make("original", "Originalrechnung");
 original.Target = "original:" + bill.Target;
 Object.assign(original.Data, {
   Date: date,
   Reference: bill.Target,
   Number: snapshot.first,
-  PDF: Buffer.from("%PDF-1.4\n%%EOF").toString("base64"),
-  DOCX: Buffer.from(
-    zipSync({
-      "[Content_Types].xml": strToU8("<Types/>"),
-      "word/document.xml": strToU8("<document/>"),
-    }),
-  ).toString("base64"),
   Note: JSON.stringify({
     profile: "invoice_transfer_a4",
     subject: bill.Target,
@@ -439,13 +440,20 @@ Object.assign(original.Data, {
     date,
   }),
 });
-await send({ Ops: [original] });
+const firstIssued = (await send({ Ops: [original] })).entries.find((entry) => entry.ID === original.Target);
 current = await send({ Ops: [original] });
 assert.equal(current.nextNumber, snapshot.first + 1);
 assert.equal(
   current.entries.find((entry) => entry.ID === original.Target).Data.PDF,
-  original.Data.PDF,
+  firstIssued.Data.PDF,
 );
+assert.ok(firstIssued.Data.PDF.startsWith("JVBER"));
+assert.ok(firstIssued.Data.DOCX.startsWith("UEsD"));
+const word = unzipSync(Buffer.from(firstIssued.Data.DOCX, "base64"));
+const documentText = strFromU8(word["word/document.xml"]);
+assert.ok(documentText.includes(invoiceContact.Data.Label));
+assert.match(documentText, /3[.,]00/);
+assert.equal(JSON.parse(firstIssued.Data.Note).archive.sourceRevision, 1);
 const audit = await call("manage", cash, { Action: "audit" }, 200, {
   "X-Bonfire-Event": event.ID,
 });
@@ -493,6 +501,10 @@ await call("manage", writeSession, lookup, 403, {
   "X-Bonfire-Event": ledger.ID,
 });
 await call("online?event=" + ledger.ID, writeSession, {}, 403);
+assert.equal((await call(path, writeSession, {})).entries.some((row) => row.ID === sponsor.Target), false);
+await call(path, writeSession, {
+  Ops: [{ ...sponsor, ID: randomUUID(), Base: 1, Data: { ...sponsor.Data, Label: "Unapproved change", Note: "Contact permission check" } }],
+}, 403);
 const payment = make("income", "Vereinsabend", 15);
 const posted = await call(path, writeSession, { Ops: [payment] });
 assert.equal(posted.role, "Write");
@@ -641,6 +653,7 @@ await Promise.all(independent.map((op, i) => call(path, [cash, writeSession][i],
 const postedIDs = (await send({})).entries.map((row) => row.ID);
 for (const op of independent) assert.equal(postedIDs.filter((id) => id === op.Target).length, 1);
 const newBill = make("sponsorship", "Shared invoice request", 730);
+Object.assign(newBill.Data, { Contact: invoiceContact.Target, Fields: { service: "Synthetic service", due: date } });
 await send({ Ops: [newBill] });
 const issuers = await Promise.all([cash, writeSession].map((cookie) => call(path, cookie, {})));
 const originals = issuers.map(({ nextNumber }) => ({
@@ -660,9 +673,16 @@ assert.ok([409, 422].includes(otherStatus));
 const issuedRows = issued.entries.filter((r) => r.ID === originals[0].Target);
 assert.equal(issuedRows.length, 1);
 assert.equal(issuedRows[0].Data.Number, issuers[0].nextNumber);
-assert.equal(issuedRows[0].Data.PDF, original.Data.PDF);
-assert.equal(issuedRows[0].Data.DOCX, original.Data.DOCX);
+assert.ok(issuedRows[0].Data.PDF.startsWith("JVBER"));
+assert.ok(issuedRows[0].Data.DOCX.startsWith("UEsD"));
+assert.notEqual(issuedRows[0].Data.PDF, firstIssued.Data.PDF);
 assert.equal((await call(path, writeSession, {})).nextNumber, issuers[1].nextNumber);
+const beforeReceipt = (await send({})).last;
+const receiptPost = make("income", "Acknowledged booking", 100);
+assert.deepEqual(await send({ Ops: [receiptPost], ReceiptOnly: true }), { saved: true });
+assert.deepEqual(await send({ Ops: [receiptPost], ReceiptOnly: true }), { saved: true });
+await Promise.all([send({}), send({ Ops: [make("income", "Next booking", 100)], ReceiptOnly: true })]);
+assert.equal((await send({})).last, beforeReceipt + 2);
 await call("logout", cash, {});
 await send({}, 401);
 console.log("PASS concurrent online bookings, contact revisions, wallet counts, issuance, access control and closing");

@@ -286,8 +286,9 @@ export async function mountBackup(host, { api }) {
     dialog?.close();
     dialog = document.createElement("dialog");
     dialog.className = "bk-dialog";
+    dialog.setAttribute("aria-labelledby", "backup-dialog-title");
     dialog.innerHTML =
-      '<div class="bk-heading"><h2>' +
+      '<div class="bk-heading"><h2 id="backup-dialog-title">' +
       title +
       "</h2>" +
       button("cancel", "Close") +

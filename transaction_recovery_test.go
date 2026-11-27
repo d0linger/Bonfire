@@ -105,7 +105,7 @@ func newTxFixture(t *testing.T) *transactionFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(owner.Close)
-	t.Setenv("BONFIRE_ADMIN_PASSWORD", secret())
+	t.Setenv("BONFIRE_ADMIN_PASSWORD", digestHex([]byte("synthetic transaction administrator:"+cfg.ConnConfig.Password)))
 	t.Setenv("BONFIRE_RUNTIME_PASSWORD", secret())
 	if err := initialize(t.Context(), owner); err != nil {
 		t.Fatal(err)
@@ -126,7 +126,11 @@ func newTxFixture(t *testing.T) *transactionFixture {
 	if _, err := owner.Exec(t.Context(), "INSERT INTO sessions(token,username,expires) VALUES($1,'leitung',now()+interval '1 hour')", hash(cookie)); err != nil {
 		t.Fatal(err)
 	}
-	return &transactionFixture{t: t, owner: owner, app: &app{db: db, loginLimits: db, attempts: map[string]int{}, verificationSlots: make(chan struct{}, 4)}, cookie: cookie}
+	totp, err := newTOTPStorage([]byte("synthetic-test-key-32-bytes-long"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &transactionFixture{t: t, owner: owner, app: &app{db: db, loginLimits: db, totp: totp, attempts: map[string]int{}, verificationSlots: make(chan struct{}, 4)}, cookie: cookie}
 }
 
 func (f *transactionFixture) request(ctx context.Context, fn endpoint, path string, body any) (any, error) {
@@ -304,7 +308,7 @@ func (f *transactionFixture) checkFinanceAdministration(year, ledger string) {
 func (f *transactionFixture) checkAccessChanges(ledger string) {
 	a, t := f.app, f.t
 	user := "assistant-cashier@example.invalid"
-	q := changeAccount{Action: "create", Login: user, Label: "Assistant cashier", Role: roleWrite, Password: secret(), Events: []string{ledger}, Reason: "Temporary cashbook access"}
+	q := changeAccount{Action: "create", Login: user, Label: "Assistant cashier", Role: roleWrite, Password: secret(), CurrentPassword: os.Getenv("BONFIRE_ADMIN_PASSWORD"), Events: []string{ledger}, Reason: "Temporary cashbook access"}
 	edit := func() { f.atomic(a.editAdminUser, "/api/admin/users/edit", q) }
 	edit()
 	q.ID = user
@@ -314,7 +318,7 @@ func (f *transactionFixture) checkAccessChanges(ledger string) {
 	q.Events = nil
 	edit()
 	access := func(action string) {
-		f.atomic(a.access, "/api/access", map[string]string{"Action": action, "Name": user, "Event": ledger, "Reason": "Revised duties"})
+		f.atomic(a.access, "/api/access", map[string]string{"Action": action, "Name": user, "Event": ledger, "Reason": "Revised duties", "CurrentPassword": q.CurrentPassword})
 	}
 	access("grant")
 	access("revoke")

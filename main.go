@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -31,6 +32,7 @@ import (
 var migrations embed.FS
 
 type app struct {
+	totp              totpStorage
 	db                *pgxpool.Pool
 	mu                sync.Mutex
 	attempts          map[string]int
@@ -64,8 +66,13 @@ func route(fn endpoint) http.HandlerFunc {
 			failedRequests.Add(1)
 			var p problem
 			if !errors.As(err, &p) {
-				p = problem{500, "The database operation failed."}
-				log.Printf("request handler failed (%T)", err)
+				var databaseError *pgconn.PgError
+				if errors.As(err, &databaseError) && (databaseError.Code == "40P01" || databaseError.Code == "40001" || databaseError.Code == "55P03") {
+					p = problem{409, "A concurrent change interrupted this request. Refresh and try again."}
+				} else {
+					p = problem{500, "The database operation failed."}
+					log.Printf("request handler failed (%T)", err)
+				}
 			}
 			if r.Method == http.MethodPost && r.URL.Path == "/api/online" && p.code >= 500 {
 				onlineSaveErrors.Add(1)
@@ -167,6 +174,8 @@ func (a *app) authenticate(ctx context.Context, db authDB, r *http.Request) (str
 	limiterName := account
 	if errors.Is(err, pgx.ErrNoRows) {
 		limiterName = "<unknown>"
+		// A synthetic cost-12 digest keeps unknown names on the same bcrypt path.
+		digest = "$2a$12$....................................................."
 	}
 	pair, source, accountKey := loginIdentities(loginSource(r), limiterName)
 	var slot *time.Time
@@ -176,10 +185,10 @@ func (a *app) authenticate(ctx context.Context, db authDB, r *http.Request) (str
 	if slot == nil {
 		return "", "", problem{429, "Too many sign-in attempts. Try again shortly."}
 	}
-	if err != nil || bcrypt.CompareHashAndPassword([]byte(digest), []byte(pw)) != nil {
+	if bcrypt.CompareHashAndPassword([]byte(digest), []byte(pw)) != nil || err != nil {
 		return "", "", deny
 	}
-	if err := factor(ctx, db, account, r.Header.Get("X-Bonfire-OTP")); err != nil {
+	if err := a.factor(ctx, db, account, r.Header.Get("X-Bonfire-OTP")); err != nil {
 		return "", "", err
 	}
 	if _, err := a.loginLimits.Exec(ctx, "SELECT clear_login_attempt($1,$2,$3,$4)", *slot, pair, source, accountKey); err != nil {
@@ -444,7 +453,11 @@ func initialize(ctx context.Context, db *pgxpool.Pool) error {
 	if err = applyUpgrade(ctx, tx, 17, "migrations/017.sql"); err != nil {
 		return err
 	}
-	for version := 18; version <= 35; version++ {
+	files, err := migrations.ReadDir("migrations")
+	if err != nil {
+		return err
+	}
+	for version := 18; version <= len(files); version++ {
 		if err = applyUpgrade(ctx, tx, version, fmt.Sprintf("migrations/%03d.sql", version)); err != nil {
 			return err
 		}
@@ -452,6 +465,18 @@ func initialize(ctx context.Context, db *pgxpool.Pool) error {
 	return tx.Commit(ctx)
 }
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "operator-backup" {
+		if err := runOperatorBackup(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "backup-verify" {
+		if err := runBackupVerification(); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "backup-worker" {
 		if err := runBackupWorker(); err != nil {
 			log.Fatal(err)
@@ -471,10 +496,24 @@ func main() {
 		if err = configureRuntime(ctx, db); err != nil {
 			log.Fatal(err)
 		}
+		store, err := loadTOTPStorage(os.Getenv("BONFIRE_TOTP_KEY_FILE"), true)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err = store.verifyDatabase(ctx, db, true); err != nil {
+			log.Fatal(err)
+		}
 		return
 	}
 	if err = db.Ping(ctx); err != nil {
 		log.Fatal("Datenbank nicht bereit")
+	}
+	totp, err := loadTOTPStorage(os.Getenv("BONFIRE_TOTP_KEY_FILE"), false)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err = totp.verifyDatabase(ctx, db, false); err != nil {
+		log.Fatal(err)
 	}
 	// A login transaction may already occupy a normal pool connection. Commit
 	// reservations independently so rejected authentications retain their limits.
@@ -485,7 +524,7 @@ func main() {
 		log.Fatal("Could not initialize login rate limits")
 	}
 	defer loginLimits.Close()
-	a := &app{db: db, loginLimits: loginLimits, attempts: map[string]int{}, verificationSlots: make(chan struct{}, 8)}
+	a := &app{db: db, loginLimits: loginLimits, totp: totp, attempts: map[string]int{}, verificationSlots: make(chan struct{}, 8)}
 	mux := http.NewServeMux()
 	a.registerBackup(mux)
 	a.registerUsers(mux)
@@ -521,7 +560,6 @@ func main() {
 	mux.HandleFunc("GET /health", route(func(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
 		return "bereit", db.Ping(ctx)
 	}))
-	mux.HandleFunc("GET /metrics", a.metrics)
 	mux.Handle("GET /", http.FileServer(http.Dir("dist")))
 	protected := http.NewCrossOriginProtection().Handler(mux)
 	server := &http.Server{Addr: ":8080", ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 45 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 90 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -535,11 +573,32 @@ func main() {
 	})}
 	stopping, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	var metricsServer *http.Server
+	if address := os.Getenv("BONFIRE_METRICS_ADDRESS"); address != "" {
+		listener, err := net.Listen("tcp", address)
+		if err != nil {
+			log.Fatalf("Metrics listener: %v", err)
+		}
+		metricsMux := http.NewServeMux()
+		metricsMux.HandleFunc("GET /metrics", a.metrics)
+		metricsServer = &http.Server{Handler: metricsMux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}
+		go func() {
+			if err := metricsServer.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("Metrics listener: %v", err)
+				stop()
+			}
+		}()
+	}
 	drained := make(chan struct{})
 	go func() {
 		<-stopping.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
+		if metricsServer != nil {
+			if err := metricsServer.Close(); err != nil {
+				log.Print("Metrics listener shutdown failed")
+			}
+		}
 		if err := server.Shutdown(ctx); err != nil {
 			log.Print("HTTP shutdown timed out")
 		}

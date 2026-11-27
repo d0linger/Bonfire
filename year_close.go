@@ -34,8 +34,21 @@ func yearForClosure(ctx context.Context, tx pgx.Tx, d device) (fiscalYear, error
 }
 
 func checkYearEvents(ctx context.Context, tx pgx.Tx, year, ledger string) error {
+	var stale []string
+	err := tx.QueryRow(ctx, `SELECT ARRAY(SELECT a.name FROM fire_year_counts c
+		JOIN fire_accounts a ON a.id=c.account
+		JOIN fiscal_years y ON y.id=c.opening_source_year
+		LEFT JOIN fire_year_counts src ON src.year=y.id AND src.account=c.account
+		WHERE c.year=$1 AND (NOT y.closed OR src.revision IS DISTINCT FROM c.opening_source_revision
+		  OR src.actual IS DISTINCT FROM c.opening) ORDER BY a.name)`, year).Scan(&stale)
+	if err != nil {
+		return err
+	}
+	if len(stale) != 0 {
+		return problem{409, "Review these carried opening balances before closing: " + strings.Join(stale, ", ")}
+	}
 	var open []string
-	err := tx.QueryRow(ctx, `SELECT ARRAY(SELECT name FROM events WHERE fiscal_year=$1 AND id<>$2 AND NOT closed ORDER BY starts,name)`, year, ledger).Scan(&open)
+	err = tx.QueryRow(ctx, `SELECT ARRAY(SELECT name FROM events WHERE fiscal_year=$1 AND id<>$2 AND NOT closed ORDER BY starts,name)`, year, ledger).Scan(&open)
 	if err != nil {
 		return err
 	}
@@ -66,11 +79,22 @@ func checkYearEvents(ctx context.Context, tx pgx.Tx, year, ledger string) error 
 	return rows.Err()
 }
 
+func closureEvidence(entries []row) []row {
+	evidence := make([]row, 0, len(entries))
+	for _, entry := range entries {
+		switch entry.Kind {
+		case "contact", "original", "attachment", "attachment-file", "import-source", "template", "organization", "dispatch":
+			continue
+		}
+		evidence = append(evidence, entry)
+	}
+	return evidence
+}
+
 func checkOpenPayments(entries []row) error {
 	var outlays int64
 	claims := map[string]int64{}
 	providers := map[string]int64{}
-	cashbacks := map[string]bool{}
 	for _, r := range entries {
 		if r.Data.Amount == nil {
 			continue
@@ -80,9 +104,6 @@ func checkOpenPayments(entries []row) error {
 		case "card", "cashback":
 			provider := strings.TrimSpace(r.Data.Fields["provider"])
 			providers[provider] += n
-			if r.Kind == "cashback" {
-				cashbacks[provider] = true
-			}
 		case "payout", "fee":
 			providers[strings.TrimSpace(r.Data.Fields["provider"])] -= n
 		case "outlay":
@@ -97,8 +118,9 @@ func checkOpenPayments(entries []row) error {
 			claims[r.Data.Reference] -= n
 		}
 	}
-	for provider := range cashbacks {
-		if providers[provider] != 0 {
+	// Unnamed historical entries have no settlement group.
+	for provider, balance := range providers {
+		if provider != "" && balance != 0 {
 			return fail("Reconcile the outstanding terminal settlement first: " + provider)
 		}
 	}

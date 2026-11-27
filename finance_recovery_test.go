@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -62,10 +63,26 @@ func (f *transactionFixture) checkDocumentsAndImport(year, day string) {
 	post := func(ops ...op) map[string]any { return f.atomic(a.syncEvent, path, request{Ops: ops}).(map[string]any) }
 	next := post()["nextNumber"].(int64)
 	makeOp := func(kind string, d data) op { d.Date = day; return op{ID: uuid(), Target: uuid(), Kind: kind, Data: d} }
-	sponsor := makeOp("sponsorship", data{Label: "Sponsor's invoice", Amount: amount(10000)})
-	post(sponsor)
-	original := makeOp("original", sampleInvoice(t, sponsor.Target, day, next))
+	contact := makeOp("contact", data{Label: "Sample sponsor", Address: "Fixture Street 1\n1000 Exampletown"})
+	org := makeOp("organization", data{Label: "Sample brigade", Address: "Fixture Street 2\n1000 Exampletown", Fields: map[string]string{"IBAN": "AT000000000000000000", "holder": "Sample brigade", "legal": "Test statement"}})
+	org.Target = "organization"
+	sponsor := makeOp("sponsorship", data{Label: "Sponsor's invoice", Amount: amount(10000), Contact: contact.Target, Fields: map[string]string{"service": "Synthetic service", "due": day}})
+	post(contact, org, sponsor)
+	original := makeOp("original", data{Label: "Synthetic invoice", Reference: sponsor.Target, Number: next, Note: `{"profile":"invoice_transfer_a4"}`})
 	original.Target = "original:" + sponsor.Target
+	closedDay := f.value(`INSERT INTO period_closures(id,period_id,version,starts,ends,reviewer,snapshot,fiscal_year,source_event)
+		SELECT gen_random_uuid(),$1,1,local_day,local_day,'leitung','[]',$2,$3
+		FROM (SELECT (now() AT TIME ZONE 'Europe/Vienna')::date AS local_day) issue
+		RETURNING id::text`, uuid(), year, e.ID)
+	_, err := f.request(t.Context(), a.syncEvent, path, request{Ops: []op{original}})
+	var rejection problem
+	if !errors.As(err, &rejection) || rejection.code != 409 {
+		t.Fatalf("Rendered invoice used a closed period: %v", err)
+	}
+	if got := post()["nextNumber"].(int64); got != next {
+		t.Fatal("Rejected invoice consumed a number")
+	}
+	f.value("UPDATE period_closures SET reopened_at=now() WHERE id=$1 RETURNING id::text", closedDay)
 	first := post(original)
 	if first["nextNumber"].(int64) != next+1 {
 		t.Fatal("A single issued invoice must reserve exactly one number")

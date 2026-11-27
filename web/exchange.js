@@ -290,7 +290,10 @@ export async function evidence(s, rows, reports = {}, scope = {}) {
       ["File", "bin"],
     ])
       if (d[k]) {
-        const path = "dateien/" + r.ID.replace(/[^a-z0-9-]/gi, "_") + "." + ext;
+        const entryKey = Array.from(new TextEncoder().encode(r.ID),
+          (byte) => byte.toString(16).padStart(2, "0")).join("");
+        const path = "dateien/" + entryKey + "." + ext;
+        if (Object.hasOwn(files, path)) throw Error("Duplicate document identity in the evidence export.");
         files[path] = Uint8Array.from(atob(d[k]), (c) => c.charCodeAt(0));
         names.push({
           id: r.ID,

@@ -1,0 +1,39 @@
+services:
+  recovery-db:
+    image: postgres:18-alpine@sha256:ff64c9e3bdf8e2120107d3559de8db314e8305f7e38c5105903c6295876738ff
+    environment:
+      POSTGRES_DB: bonfire_rehearsal
+      POSTGRES_USER: bonfire
+      POSTGRES_PASSWORD: ${BONFIRE_RECOVERY_PASSWORD:?Supply a disposable PostgreSQL password}
+    volumes:
+      - rehearsal:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "bonfire", "-d", "bonfire_rehearsal"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  verify:
+    image: ${BONFIRE_RECOVERY_IMAGE:?Select the verified backup-worker image}
+    entrypoint: ["/app/bonfire", "backup-verify"]
+    environment:
+      DATABASE_URL: postgres://bonfire@recovery-db/bonfire_rehearsal?sslmode=disable
+      PGPASSWORD: ${BONFIRE_RECOVERY_PASSWORD}
+      BONFIRE_BACKUP_SCRATCH: /run/bonfire-scratch
+    volumes:
+      - type: bind
+        source: ${BONFIRE_RECOVERY_INPUT:?Select the private recovery input directory}
+        target: /input
+        read_only: true
+    tmpfs:
+      - /run/bonfire-scratch:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532,size=536870912
+    cap_drop: [ALL]
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      recovery-db:
+        condition: service_healthy
+networks:
+  default:
+    internal: true
+volumes:
+  rehearsal:

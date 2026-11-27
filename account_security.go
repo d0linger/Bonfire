@@ -158,7 +158,7 @@ func (a *app) verifySelfPassword(ctx context.Context, tx pgx.Tx, u selfAccount, 
 		return problem{403, "Check your current password."}
 	}
 	if u.OTP != nil {
-		if err := verifyCode(ctx, tx, u.ID, *u.OTP, strings.TrimSpace(code)); err != nil {
+		if err := a.verifyCode(ctx, tx, u.ID, *u.OTP, strings.TrimSpace(code)); err != nil {
 			var p problem
 			if errors.As(err, &p) {
 				return problem{403, "The second factor is invalid or has already been used."}
@@ -201,7 +201,7 @@ func newRecoveryCodes(ctx context.Context, tx pgx.Tx, username string) ([]string
 	return codes, nil
 }
 
-func beginAuthenticator(ctx context.Context, tx pgx.Tx, u selfAccount) (map[string]string, error) {
+func (a *app) beginAuthenticator(ctx context.Context, tx pgx.Tx, u selfAccount) (map[string]string, error) {
 	if u.OTP != nil {
 		return nil, problem{409, "An authenticator is already configured."}
 	}
@@ -211,7 +211,11 @@ func beginAuthenticator(ctx context.Context, tx pgx.Tx, u selfAccount) (map[stri
 	var random [20]byte
 	rand.Read(random[:])
 	value := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(random[:])
-	if _, err := tx.Exec(ctx, "INSERT INTO mfa_enrollments(username,binding,revision,secret) VALUES($1,$2,$3,$4)", u.ID, u.SessionID, u.Revision, value); err != nil {
+	sealed, err := a.totp.seal(u.ID, "enroll:"+u.SessionID, value)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, "INSERT INTO mfa_enrollments(username,binding,revision,secret) VALUES($1,$2,$3,$4)", u.ID, u.SessionID, u.Revision, sealed); err != nil {
 		return nil, err
 	}
 	uri := "otpauth://totp/BONFIRE:" + url.PathEscape(u.Login) + "?" + url.Values{"issuer": {"BONFIRE"}, "secret": {value}, "digits": {"6"}, "period": {"30"}, "algorithm": {"SHA1"}}.Encode()
@@ -230,6 +234,10 @@ func (a *app) confirmAuthenticator(ctx context.Context, tx pgx.Tx, u selfAccount
 	if err != nil {
 		return nil, err
 	}
+	seed, err = a.totp.open(u.ID, "enroll:"+u.SessionID, seed)
+	if err != nil {
+		return nil, err
+	}
 	k := "\x00enroll:" + u.ID
 	if err = a.reserveSecurityAttempt(k); err != nil {
 		return nil, err
@@ -239,7 +247,11 @@ func (a *app) confirmAuthenticator(ctx context.Context, tx pgx.Tx, u selfAccount
 		return nil, fail("Invalid confirmation code.")
 	}
 	a.clearSecurityAttempts(k)
-	if _, err = tx.Exec(ctx, "UPDATE users SET otp_secret=$1,otp_last=$2 WHERE name=$3", seed, step, u.ID); err != nil {
+	sealed, err := a.totp.seal(u.ID, "active", seed)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = tx.Exec(ctx, "UPDATE users SET otp_secret=$1,otp_last=$2 WHERE name=$3", sealed, step, u.ID); err != nil {
 		return nil, err
 	}
 	if err = invalidateOtherSessions(ctx, tx, u); err != nil {
@@ -311,7 +323,7 @@ func (a *app) changeAccountSecurity(ctx context.Context, w http.ResponseWriter, 
 		return nil, fail("Unknown account action.")
 	}
 	if q.Action == "mfa-begin" {
-		setup, err := beginAuthenticator(ctx, tx, u)
+		setup, err := a.beginAuthenticator(ctx, tx, u)
 		if err != nil {
 			return nil, err
 		}
