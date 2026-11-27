@@ -367,7 +367,8 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 			if kind == "donation" || sensitiveReason.MatchString(action) {
 				item["action"] = "Sensitive detail withheld."
 			}
-			if sensitiveReason.MatchString(subject) {
+			// Linked operation UUIDs are technical identifiers, even when they resemble an IBAN fragment.
+			if (kind == "" || !idPattern.MatchString(subject)) && sensitiveReason.MatchString(subject) {
 				item["subject"] = ""
 			}
 			delete(item, "kind")

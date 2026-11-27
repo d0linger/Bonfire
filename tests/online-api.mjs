@@ -300,6 +300,8 @@ const make = (Kind, Label, Amount) => ({
 }
 const first = make("income", "Barzahlung", 100),
   other = make("income", "Zweite Zahlung", 100);
+// This synthetic UUID prefix resembles an IBAN fragment to the free-text redactor.
+first.ID = "ab123456" + first.ID.slice(8);
 {
   const date = "2461-06-23";
   const poolYear = await call("years", cash, {
