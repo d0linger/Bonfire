@@ -9,6 +9,7 @@ export default defineConfig([
   },
   { files: ["web/*.js"], languageOptions: { globals: globals.browser } },
   { files: ["web/app.js"], languageOptions: { globals: { __BONFIRE_RENDER_BUILD__: "readonly" } } },
+  { files: ["web/render-original.js"], languageOptions: { globals: { ...globals.node, __BONFIRE_RENDER_BUILD__: "readonly" } } },
   { files: ["web/sw.js"], languageOptions: { globals: { ...globals.serviceworker, CACHE: "readonly", FILES: "readonly" } } },
   // Playwright tests run page.evaluate callbacks inside the browser.
   { files: ["tests/*.mjs"], languageOptions: { globals: globals.browser } },

@@ -140,7 +140,7 @@ assert.ok(otherExport.csv.includes(other.Name));
 for (const Role of ["Read", "Write"]) {
   const Name = "audit-" + Role.toLowerCase() + suffix,
     Password = randomUUID();
-  await api("users", manager, { Name, Password, Role, Event: e.ID });
+  await api("users", manager, { Name, Password, Role, Event: e.ID, CurrentPassword: process.env.BONFIRE_ADMIN_PASSWORD });
   const cookie = await login(basic(Name, Password));
   await api("admin/status", cookie, undefined, 403);
   await api("admin/audit/integrity", cookie, undefined, 403);

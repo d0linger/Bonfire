@@ -161,8 +161,10 @@ func (a *app) fireAccounts(ctx context.Context, w http.ResponseWriter, r *http.R
 		if err != nil {
 			return nil, fail("An open fiscal year is required.")
 		}
+		var sourceYear *string
+		var sourceRevision *int
 		if q.Action == "carry" {
-			err = tx.QueryRow(ctx, `SELECT c.actual FROM fire_year_counts c JOIN fiscal_years y ON y.id=c.year WHERE c.account=$1 AND c.actual IS NOT NULL AND y.closed AND y.id=(SELECT id FROM fiscal_years WHERE ends<(SELECT starts FROM fiscal_years WHERE id=$2) ORDER BY ends DESC LIMIT 1)`, q.ID, q.Year).Scan(&q.Opening)
+			err = tx.QueryRow(ctx, `SELECT c.actual,c.year::text,c.revision FROM fire_year_counts c JOIN fiscal_years y ON y.id=c.year WHERE c.account=$1 AND c.actual IS NOT NULL AND y.closed AND y.id=(SELECT id FROM fiscal_years WHERE ends<(SELECT starts FROM fiscal_years WHERE id=$2) ORDER BY ends DESC LIMIT 1)`, q.ID, q.Year).Scan(&q.Opening, &sourceYear, &sourceRevision)
 			if err != nil {
 				return nil, fail("The immediately preceding fiscal year has no confirmed closing balance.")
 			}
@@ -172,10 +174,14 @@ func (a *app) fireAccounts(ctx context.Context, w http.ResponseWriter, r *http.R
 				return nil, fail("Check the balance.")
 			}
 		}
-		tag, e := tx.Exec(ctx, `INSERT INTO fire_year_counts(year,account,opening,actual,revision)
-   SELECT $1,$2,$3::bigint,$4::bigint,1 WHERE EXISTS(SELECT FROM fire_account_links l JOIN events e ON e.id=l.event WHERE e.fiscal_year=$1 AND l.account=$2 AND e.accounts)
+		tag, e := tx.Exec(ctx, `INSERT INTO fire_year_counts(year,account,opening,actual,revision,opening_source_year,opening_source_revision)
+   SELECT $1,$2,$3::bigint,$4::bigint,1,$7::uuid,$8::integer WHERE EXISTS(SELECT FROM fire_account_links l JOIN events e ON e.id=l.event WHERE e.fiscal_year=$1 AND l.account=$2 AND e.accounts)
     AND ($5::integer=0 OR EXISTS(SELECT FROM fire_year_counts WHERE year=$1 AND account=$2 AND revision=$5))
-   ON CONFLICT(year,account) DO UPDATE SET opening=excluded.opening,actual=CASE WHEN $6 AND excluded.actual IS NULL THEN fire_year_counts.actual ELSE excluded.actual END,revision=fire_year_counts.revision+1 WHERE fire_year_counts.revision=$5`, q.Year, q.ID, q.Opening, q.Actual, q.Revision, q.Action == "carry")
+   ON CONFLICT(year,account) DO UPDATE SET opening=excluded.opening,
+      actual=CASE WHEN $6 AND excluded.actual IS NULL THEN fire_year_counts.actual ELSE excluded.actual END,
+      opening_source_year=CASE WHEN NOT $6 AND excluded.opening IS NOT DISTINCT FROM fire_year_counts.opening THEN fire_year_counts.opening_source_year ELSE excluded.opening_source_year END,
+      opening_source_revision=CASE WHEN NOT $6 AND excluded.opening IS NOT DISTINCT FROM fire_year_counts.opening THEN fire_year_counts.opening_source_revision ELSE excluded.opening_source_revision END,
+      revision=fire_year_counts.revision+1 WHERE fire_year_counts.revision=$5`, q.Year, q.ID, q.Opening, q.Actual, q.Revision, q.Action == "carry", sourceYear, sourceRevision)
 		if e != nil {
 			return nil, e
 		}

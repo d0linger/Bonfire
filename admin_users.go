@@ -31,6 +31,33 @@ type accountSummary struct {
 
 type accountEvent struct{ ID, Name, Year string }
 
+func (a *app) verifyAdminProof(ctx context.Context, tx pgx.Tx, r *http.Request, password, code string) error {
+	actor, err := lockSelfAccount(ctx, tx, r)
+	if err != nil {
+		return err
+	}
+	return a.verifySelfPassword(ctx, tx, actor, password, code)
+}
+
+// Older callers may supply Basic credentials instead of a session and proof.
+func (a *app) authenticatedAdministrator(ctx context.Context, tx pgx.Tx, r *http.Request, password, code string) (string, error) {
+	if _, _, basic := r.BasicAuth(); basic {
+		name, role, err := a.authenticate(ctx, tx, r)
+		if err != nil {
+			return "", err
+		}
+		if role != roleAdmin {
+			return "", problem{403, "Administrator access required."}
+		}
+		return name, nil
+	}
+	name, err := accountManager(ctx, tx, r, true)
+	if err != nil {
+		return "", err
+	}
+	return name, a.verifyAdminProof(ctx, tx, r, password, code)
+}
+
 func accountManager(ctx context.Context, tx pgx.Tx, r *http.Request, write bool) (string, error) {
 	c, err := r.Cookie("bonfire_session")
 	if err != nil || c.Value == "" {
@@ -98,6 +125,7 @@ func (a *app) adminUsers(ctx context.Context, w http.ResponseWriter, r *http.Req
 
 type changeAccount struct {
 	Action, ID, Login, Label, Role, Password, Reason string
+	CurrentPassword, Code                            string
 	MustChange                                       bool
 	Version                                          int64
 	Events                                           []string
@@ -181,6 +209,11 @@ func (a *app) editAdminUser(ctx context.Context, w http.ResponseWriter, r *http.
 			if !remaining {
 				return nil, fail("At least one administrator account must remain active.")
 			}
+		}
+	}
+	if q.Action != "sessions" {
+		if err = a.verifyAdminProof(ctx, tx, r, q.CurrentPassword, q.Code); err != nil {
+			return nil, err
 		}
 	}
 	action := ""

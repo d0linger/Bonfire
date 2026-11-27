@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:18-alpine
+    image: postgres:18-alpine@sha256:ff64c9e3bdf8e2120107d3559de8db314e8305f7e38c5105903c6295876738ff
     environment:
       POSTGRES_DB: bonfire
       POSTGRES_USER: bonfire
@@ -21,6 +21,9 @@ services:
       PGPASSWORD: ${BONFIRE_DB_PASSWORD}
       BONFIRE_ADMIN_PASSWORD: ${BONFIRE_ADMIN_PASSWORD:?Lokales Startpasswort setzen}
       BONFIRE_RUNTIME_PASSWORD: ${BONFIRE_RUNTIME_PASSWORD:?Separates Runtime-Kennwort setzen}
+      BONFIRE_TOTP_KEY_FILE: /run/bonfire-totp/key
+    volumes:
+      - totp-key:/run/bonfire-totp
     depends_on:
       db:
         condition: service_healthy
@@ -34,13 +37,16 @@ services:
         condition: service_completed_successfully
     environment:
       BONFIRE_BACKUP_SOCKET: /run/bonfire-backup/worker.sock
+      BONFIRE_BACKUP_UPLOAD_MAX_BYTES: ${BONFIRE_BACKUP_UPLOAD_MAX_BYTES:-536870912}
       BONFIRE_PASSKEY_ORIGIN: ${BONFIRE_PASSKEY_ORIGIN:-http://localhost:${BONFIRE_PORT:-8137}}
-      DATABASE_URL: postgres://bonfire_runtime@db/bonfire?sslmode=disable
+      BONFIRE_TOTP_KEY_FILE: /run/bonfire-totp/key
+      DATABASE_URL: postgres://bonfire_runtime@db/bonfire?sslmode=disable&pool_max_conns=8&statement_timeout=30000&lock_timeout=8000
       PGPASSWORD: ${BONFIRE_RUNTIME_PASSWORD}
     ports:
       - "127.0.0.1:${BONFIRE_PORT:-8137}:8080"
     volumes:
       - backup-ipc:/run/bonfire-backup:ro
+      - totp-key:/run/bonfire-totp:ro
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -58,6 +64,7 @@ services:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://bonfire@db/bonfire?sslmode=disable
+      BONFIRE_BACKUP_UPLOAD_MAX_BYTES: ${BONFIRE_BACKUP_UPLOAD_MAX_BYTES:-536870912}
       PGPASSWORD: ${BONFIRE_DB_PASSWORD}
       BONFIRE_RUNTIME_PASSWORD: ${BONFIRE_RUNTIME_PASSWORD}
       BONFIRE_S3_ENDPOINT: ${BONFIRE_S3_ENDPOINT:-}
@@ -81,3 +88,4 @@ volumes:
   backups:
   backup-key:
   backup-ipc:
+  totp-key:

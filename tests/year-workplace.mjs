@@ -195,7 +195,18 @@ try {
   await eventDialog
     .getByRole("button", { name: "Save", exact: true })
     .click();
-  await page.getByRole("cell", { name: eventBooking, exact: true }).waitFor();
+  await page.getByRole("cell", { name: eventBooking, exact: true }).waitFor().catch(async (error) => {
+    throw Error((await eventDialog.locator(".entry-error").allTextContents()).join(" ") || error.message, { cause: error });
+  });
+  await button("Record event transaction").click();
+  const typePicker = eventDialog.locator("select[name=type]");
+  await eventDialog.locator("[name=Label]").fill("Draft entry");
+  await eventDialog.locator("[name=amount]").fill("18,25");
+  await typePicker.selectOption("expense");
+  assert.equal(await eventDialog.locator("[name=Label]").inputValue(), "Draft entry");
+  assert.equal(await eventDialog.locator("[name=amount]").inputValue(), "18,25");
+  assert.ok(await typePicker.evaluate((element) => document.activeElement === element));
+  await eventDialog.getByRole("button", { name: "Cancel", exact: true }).click();
   for (const [type, label, amount] of [
     ["expense", "Geschirr", "3,34"],
     ["outlay", "Privat bezahlte Getränke", "10,00"],

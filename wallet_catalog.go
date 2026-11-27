@@ -57,10 +57,17 @@ func catalogWalletFields(ctx context.Context, tx pgx.Tx, eventID, localID string
 	return out, nil
 }
 
-func (a *app) walletCatalog(ctx context.Context, _ http.ResponseWriter, r *http.Request) (any, error) {
+func (a *app) walletCatalog(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
 	cookie, err := r.Cookie("bonfire_session")
 	if err != nil || cookie.Value == "" {
 		return nil, problem{401, "Sign in to manage wallets."}
+	}
+	var q walletCommand
+	if r.Method == http.MethodPost {
+		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+		if err := read(r, &q); err != nil {
+			return nil, err
+		}
 	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
@@ -87,10 +94,6 @@ func (a *app) walletCatalog(ctx context.Context, _ http.ResponseWriter, r *http.
 	}
 	if role != roleWrite && role != roleAdmin {
 		return nil, problem{403, "Write access is required."}
-	}
-	var q walletCommand
-	if err = read(r, &q); err != nil {
-		return nil, err
 	}
 	var out any
 	if q.Action == "assign" {

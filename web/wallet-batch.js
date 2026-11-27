@@ -23,15 +23,16 @@ export function bulkWalletFields(event, entries, day, select, field) {
     select("AmountMode", "Enter amount", [["amount", "Enter total amount"], ["pieces", "Count coins and notes"]]) +
     '<label>Amount per wallet in EUR<input name="amount" inputmode="decimal" placeholder="0.00" required></label></div>' +
     denominationFields() +
+    '<div class="bulk-preview" aria-live="polite">' +
+    '<dl><div><dt>Per wallet</dt><dd id="bulk-per-wallet"></dd></div>' +
+    '<div><dt>Selected wallets</dt><dd id="bulk-wallet-count"></dd></div>' +
+    '<div><dt>Grand total</dt><dd id="bulk-total"></dd></div></dl>' +
+    '<p class="bulk-denominations" hidden></p></div>' +
     '<fieldset class="catalog-choices bulk-choices"><legend>Receiving wallets</legend>' +
     (wallets.length ? wallets.map((w) => '<label><input type="checkbox" name="wallet" value="' +
       esc(w.ID) + '"><span>' + esc(w.Data.Label) + '<small class="catalog-note"></small></span></label>').join("") :
       '<p>No wallets have been added to this event.</p>') +
-    '</fieldset></fieldset><div class="bulk-preview" aria-live="polite">' +
-    '<dl><div><dt>Per wallet</dt><dd id="bulk-per-wallet"></dd></div>' +
-    '<div><dt>Selected wallets</dt><dd id="bulk-wallet-count"></dd></div>' +
-    '<div><dt>Grand total</dt><dd id="bulk-total"></dd></div></dl>' +
-    '<p class="bulk-denominations" hidden></p></div><p class="bulk-retry" role="status" hidden></p>';
+    '</fieldset></fieldset><p class="bulk-retry" role="status" hidden></p>';
 }
 
 function readAmount(form) {

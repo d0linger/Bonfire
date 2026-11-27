@@ -1,5 +1,6 @@
 node_modules/
 dist/
+render-original.cjs
 .env
 *.dump
 *.dump.enc

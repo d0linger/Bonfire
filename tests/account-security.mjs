@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { chromium } from "playwright";
 import { admin, basic } from "./local-api.mjs";
 import { totp } from "./totp.mjs";
+import { testPassword } from "./test-password.mjs";
 
 const url = new URL(process.env.BONFIRE_URL);
 if (
@@ -42,6 +43,7 @@ try {
       Role: "Write",
       Label: "Übungskonto",
       Password: initial,
+      CurrentPassword: testPassword(),
       Events: [],
       Reason: "Kontosicherheit prüfen",
     },

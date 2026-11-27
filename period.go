@@ -121,7 +121,7 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 		}
 	}
 	closure := uuid()
-	_, err = tx.Exec(ctx, "INSERT INTO period_closures(id,period_id,version,starts,ends,reviewer,snapshot,fiscal_year,source_event,account_mode) SELECT $1,$2,coalesce(max(version),0)+1,$3,$4,$5,$6,$7,$8,$9 FROM period_closures WHERE period_id=$2", closure, id, start, end, d.User, entries, year, d.Event, accountMode)
+	_, err = tx.Exec(ctx, "INSERT INTO period_closures(id,period_id,version,starts,ends,reviewer,snapshot,fiscal_year,source_event,account_mode) SELECT $1,$2,coalesce(max(version),0)+1,$3,$4,$5,$6,$7,$8,$9 FROM period_closures WHERE period_id=$2", closure, id, start, end, d.User, closureEvidence(entries), year, d.Event, accountMode)
 	if err != nil {
 		return "", err
 	}

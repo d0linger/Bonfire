@@ -9,7 +9,7 @@ import (
 )
 
 func (a *app) access(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
-	var q struct{ Name, Event, Action, Reason string }
+	var q struct{ Name, Event, Action, Reason, CurrentPassword, Code string }
 	if err := read(r, &q); err != nil {
 		return nil, err
 	}
@@ -25,21 +25,9 @@ func (a *app) access(ctx context.Context, w http.ResponseWriter, r *http.Request
 	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(751025)"); err != nil {
 		return nil, err
 	}
-	var actor string
-	if _, _, basic := r.BasicAuth(); !basic {
-		actor, err = accountManager(ctx, tx, r, true)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		var role string
-		actor, role, err = a.authenticate(ctx, tx, r)
-		if err != nil {
-			return nil, err
-		}
-		if role != roleAdmin {
-			return nil, problem{403, "Administrator access required."}
-		}
+	actor, err := a.authenticatedAdministrator(ctx, tx, r, q.CurrentPassword, q.Code)
+	if err != nil {
+		return nil, err
 	}
 	var target string
 	err = tx.QueryRow(ctx, "SELECT name FROM users WHERE coalesce(login_alias,name)=$1 OR name=$1 FOR UPDATE", q.Name).Scan(&target)

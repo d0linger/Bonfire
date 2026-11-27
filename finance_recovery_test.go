@@ -62,9 +62,12 @@ func (f *transactionFixture) checkDocumentsAndImport(year, day string) {
 	post := func(ops ...op) map[string]any { return f.atomic(a.syncEvent, path, request{Ops: ops}).(map[string]any) }
 	next := post()["nextNumber"].(int64)
 	makeOp := func(kind string, d data) op { d.Date = day; return op{ID: uuid(), Target: uuid(), Kind: kind, Data: d} }
-	sponsor := makeOp("sponsorship", data{Label: "Sponsor's invoice", Amount: amount(10000)})
-	post(sponsor)
-	original := makeOp("original", sampleInvoice(t, sponsor.Target, day, next))
+	contact := makeOp("contact", data{Label: "Sample sponsor", Address: "Fixture Street 1\n1000 Exampletown"})
+	org := makeOp("organization", data{Label: "Sample brigade", Address: "Fixture Street 2\n1000 Exampletown", Fields: map[string]string{"IBAN": "AT000000000000000000", "holder": "Sample brigade", "legal": "Test statement"}})
+	org.Target = "organization"
+	sponsor := makeOp("sponsorship", data{Label: "Sponsor's invoice", Amount: amount(10000), Contact: contact.Target, Fields: map[string]string{"service": "Synthetic service", "due": day}})
+	post(contact, org, sponsor)
+	original := makeOp("original", data{Label: "Synthetic invoice", Reference: sponsor.Target, Number: next, Note: `{"profile":"invoice_transfer_a4"}`})
 	original.Target = "original:" + sponsor.Target
 	first := post(original)
 	if first["nextNumber"].(int64) != next+1 {

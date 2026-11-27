@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/mail"
+	"slices"
 	"strings"
 	"time"
 
@@ -91,7 +92,7 @@ func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request)
 		return nil, err
 	}
 	if completing {
-		_, _, err = completeLogin(ctx, tx, token, r.Header.Get("X-Bonfire-OTP"))
+		_, _, err = a.completeLogin(ctx, tx, token, r.Header.Get("X-Bonfire-OTP"))
 	} else {
 		_, _, err = a.authenticate(ctx, tx, r)
 	}
@@ -156,7 +157,7 @@ func (a *app) login(ctx context.Context, w http.ResponseWriter, r *http.Request)
 	return role, nil
 }
 
-func completeLogin(ctx context.Context, tx pgx.Tx, token, code string) (string, string, error) {
+func (a *app) completeLogin(ctx context.Context, tx pgx.Tx, token, code string) (string, string, error) {
 	expired := problem{410, "Your session has expired. Sign in again."}
 	var name, role, otpSecret string
 	err := tx.QueryRow(ctx, `SELECT u.name,u.role,u.otp_secret FROM login_challenges c JOIN users u ON c.username=u.name
@@ -175,7 +176,7 @@ func completeLogin(ctx context.Context, tx pgx.Tx, token, code string) (string, 
 	if tag.RowsAffected() != 1 {
 		return "", "", expired
 	}
-	if err = verifyCode(ctx, tx, name, otpSecret, code); err != nil {
+	if err = a.verifyCode(ctx, tx, name, otpSecret, code); err != nil {
 		return "", "", err
 	}
 	if _, err = tx.Exec(ctx, "DELETE FROM login_challenges WHERE token=$1", hash(token)); err != nil {
@@ -197,24 +198,17 @@ func (a *app) mfa(ctx context.Context, w http.ResponseWriter, r *http.Request) (
 	}
 	defer tx.Rollback(ctx)
 	var u selfAccount
-	if login, password, ok := r.BasicAuth(); ok {
-		err = tx.QueryRow(ctx, `SELECT name,coalesce(login_alias,name),password,otp_secret,account_revision
-			FROM users WHERE coalesce(login_alias,name)=$1 AND active AND NOT password_change_required FOR UPDATE`,
-			loginName(login)).Scan(&u.ID, &u.Login, &u.Password, &u.OTP, &u.Revision)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, problem{401, "Sign-in failed."}
+	if _, _, ok := r.BasicAuth(); ok {
+		name, _, authErr := a.authenticate(ctx, tx, r)
+		if authErr != nil {
+			return nil, authErr
 		}
+		err = tx.QueryRow(ctx, `SELECT name,coalesce(login_alias,name),password,otp_secret,account_revision
+			FROM users WHERE name=$1`, name).Scan(&u.ID, &u.Login, &u.Password, &u.OTP, &u.Revision)
 		if err != nil {
 			return nil, err
 		}
 		u.SessionID = "basic"
-		if err = a.verifySelfPassword(ctx, tx, u, password, r.Header.Get("X-Bonfire-OTP")); err != nil {
-			var denied problem
-			if errors.As(err, &denied) && denied.code == 403 {
-				return nil, problem{401, "Sign-in failed."}
-			}
-			return nil, err
-		}
 	} else {
 		u, err = lockSelfAccount(ctx, tx, r)
 		if err != nil {
@@ -227,7 +221,7 @@ func (a *app) mfa(ctx context.Context, w http.ResponseWriter, r *http.Request) (
 		}
 	}
 	if q.Secret == "" {
-		setup, err := beginAuthenticator(ctx, tx, u)
+		setup, err := a.beginAuthenticator(ctx, tx, u)
 		if err != nil {
 			return nil, err
 		}
@@ -239,7 +233,7 @@ func (a *app) mfa(ctx context.Context, w http.ResponseWriter, r *http.Request) (
 	}
 	return codes, tx.Commit(ctx)
 }
-func factor(ctx context.Context, db authDB, name, code string) error {
+func (a *app) factor(ctx context.Context, db authDB, name, code string) error {
 	var secret *string
 	if err := db.QueryRow(ctx, "SELECT otp_secret FROM users WHERE name=$1", name).Scan(&secret); err != nil {
 		return err
@@ -250,14 +244,18 @@ func factor(ctx context.Context, db authDB, name, code string) error {
 	if code == "" {
 		return factorRequired
 	}
-	return verifyCode(ctx, db, name, *secret, code)
+	return a.verifyCode(ctx, db, name, *secret, code)
 }
 
 type factorExecutor interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 }
 
-func verifyCode(ctx context.Context, db factorExecutor, name, secret, code string) error {
+func (a *app) verifyCode(ctx context.Context, db factorExecutor, name, secret, code string) error {
+	secret, err := a.totp.open(name, "active", secret)
+	if err != nil {
+		return err
+	}
 	if step, ok := otpMatch(secret, code, time.Now()); ok {
 		tag, err := db.Exec(ctx, "UPDATE users SET otp_last=$1 WHERE name=$2 AND otp_last<$1", step, name)
 		if err != nil {
@@ -277,6 +275,17 @@ func verifyCode(ctx context.Context, db factorExecutor, name, secret, code strin
 	return problem{401, "The code is invalid or has already been used."}
 }
 func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request) (any, error) {
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	var q struct {
+		Action, Target, Reason, Start, End, Year string
+		CopyKinds                                []string
+		Accounts                                 bool
+		Stamp                                    string
+		AccountMap                               map[string]string
+	}
+	if err := read(r, &q); err != nil {
+		return nil, err
+	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -289,16 +298,6 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 	if err != nil {
 		return nil, err
 	}
-	var q struct {
-		Action, Target, Reason, Start, End, Year string
-		CopyKinds                                []string
-		Accounts                                 bool
-		Stamp                                    string
-		AccountMap                               map[string]string
-	}
-	if err = read(r, &q); err != nil {
-		return nil, err
-	}
 	switch q.Action {
 	case "sponsor-contacts":
 		if !d.Online || d.Closed || (d.Role != roleAdmin && d.Role != roleWrite) {
@@ -306,7 +305,7 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 		}
 		rows, err := tx.Query(ctx, `SELECT id,concat_ws(' · ',data->>'Label',nullif(data->>'Address',''),nullif(data->'Fields'->>'distinct','')) AS caption
 			FROM directory WHERE NOT coalesce((data->>'Retired')::boolean,false)
-			AND EXISTS(SELECT FROM events WHERE id=$1 AND NOT general_ledger)
+			AND `+sharedSponsorDirectory+`
 			ORDER BY lower(data->>'Label'),id`, d.Event)
 		if err != nil {
 			return nil, err
@@ -348,11 +347,32 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 		}
 		return pgx.CollectRows(rows, pgx.RowToMap)
 	case "audit":
-		rows, err := tx.Query(ctx, "SELECT a.at::text,a.username,a.action,a.subject,a.actor_device::text AS device,o.local_time::text AS local_time,o.device::text AS source_device,o.base AS base_revision FROM audit a LEFT JOIN operations o ON o.id::text=a.subject AND o.event=a.event WHERE a.event=$1 ORDER BY a.id", d.Event)
+		if d.Online && d.Role != roleAdmin {
+			return nil, problem{http.StatusForbidden, "Use the scoped Audit log for this workspace."}
+		}
+		rows, err := tx.Query(ctx, "SELECT a.at::text,a.username,a.action,a.subject,a.actor_device::text AS device,o.local_time::text AS local_time,o.device::text AS source_device,o.base AS base_revision,coalesce(o.kind,'') AS kind FROM audit a LEFT JOIN operations o ON o.id::text=a.subject AND o.event=a.event WHERE a.event=$1 ORDER BY a.id DESC LIMIT 1000", d.Event)
 		if err != nil {
 			return nil, err
 		}
-		return pgx.CollectRows(rows, pgx.RowToMap)
+		items, err := pgx.CollectRows(rows, pgx.RowToMap)
+		if err != nil {
+			return nil, err
+		}
+		// Preserve the existing tail response format and withhold protected text.
+		slices.Reverse(items)
+		for _, item := range items {
+			kind, _ := item["kind"].(string)
+			action, _ := item["action"].(string)
+			subject, _ := item["subject"].(string)
+			if kind == "donation" || sensitiveReason.MatchString(action) {
+				item["action"] = "Sensitive detail withheld."
+			}
+			if sensitiveReason.MatchString(subject) {
+				item["subject"] = ""
+			}
+			delete(item, "kind")
+		}
+		return items, nil
 	case "accounts":
 		if d.Role != roleAdmin || d.Closed {
 			return nil, problem{403, "Administrator access and an open event are required."}
@@ -388,6 +408,15 @@ func (a *app) manage(ctx context.Context, w http.ResponseWriter, r *http.Request
 			}
 			if !y.Closed {
 				return nil, fail("This fiscal year is already open.")
+			}
+			var carriedIntoClosedYear bool
+			err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT FROM fire_year_counts c
+				JOIN fiscal_years dest ON dest.id=c.year WHERE c.opening_source_year=$1 AND dest.closed)`, y.ID).Scan(&carriedIntoClosedYear)
+			if err != nil {
+				return nil, err
+			}
+			if carriedIntoClosedYear {
+				return nil, problem{409, "Reopen the dependent subsequent fiscal year first."}
 			}
 			if _, err = tx.Exec(ctx, "UPDATE fiscal_years SET closed=false WHERE id=$1", y.ID); err != nil {
 				return nil, err
