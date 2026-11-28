@@ -88,6 +88,9 @@ func checkCashAmount(v data) error {
 
 func validate(o op, accounts bool) error {
 	v := o.Data
+	if strings.HasPrefix(o.Target, "wallet-link:") {
+		return fail("Use the wallet settlement action to assign a receipt.")
+	}
 	if v.ImportNote != nil && (!strings.HasPrefix(o.Target, "import:") || o.Base == 0 || len(*v.ImportNote) > 32768) {
 		return fail("The original import note is set by the server.")
 	}
@@ -751,7 +754,14 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	if q.ReceiptOnly && d.Online && q.Action == "" && q.Resolve == "" && len(q.Ops) != 0 {
 		return map[string]any{"saved": true}, tx.Commit(ctx)
 	}
-	rows, err := tx.Query(ctx, "SELECT j.id,j.kind,j.device::text,j.revision,CASE WHEN a.active IS FALSE THEN j.data||jsonb_build_object('Fields',coalesce(nullif(j.data->'Fields','null'::jsonb),'{}'::jsonb)||jsonb_build_object('masterInactive','ja')) ELSE j.data END FROM settlement_entries j LEFT JOIN fire_account_links l ON (j.event,j.id)=(l.event,l.local_id) LEFT JOIN fire_accounts a ON a.id=l.account WHERE j.event=$1 AND j.kind<>'contact' UNION ALL SELECT id,'contact',device::text,revision,data FROM directory c WHERE "+contactVisible+" ORDER BY id", d.Event, d.Role)
+	rows, err := tx.Query(ctx, `SELECT j.id,j.kind,j.device::text,j.revision,CASE
+		WHEN a.active IS FALSE THEN j.data||jsonb_build_object('Fields',coalesce(nullif(j.data->'Fields','null'::jsonb),'{}'::jsonb)||jsonb_build_object('masterInactive','ja'))
+		WHEN j.id LIKE 'import:%' AND j.revision>1 AND j.data->>'ImportNote' IS NULL THEN
+			j.data||jsonb_strip_nulls(jsonb_build_object('ImportNote',(SELECT h.data->>'Note' FROM journal_history h
+			WHERE h.event=j.event AND h.target=j.id AND h.direction=1 AND h.revision=1 ORDER BY h.id LIMIT 1)))
+		ELSE j.data END FROM settlement_entries j LEFT JOIN fire_account_links l ON (j.event,j.id)=(l.event,l.local_id)
+		LEFT JOIN fire_accounts a ON a.id=l.account WHERE j.event=$1 AND j.kind<>'contact'
+		UNION ALL SELECT id,'contact',device::text,revision,data FROM directory c WHERE `+contactVisible+" ORDER BY id", d.Event, d.Role)
 	if err != nil {
 		return nil, err
 	}

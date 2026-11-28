@@ -11,8 +11,8 @@ const row = (Kind, Data, ID = Kind) => ({ ID, Kind, Data });
 test("a locked, balanced workspace can have an open evidence question and no independent approval", async () => {
   const day = "2042-06-01";
   const records = [
-    row("opening", {Date: day, Amount: 500, BalanceOrder: "1"}),
-    row("actual", {Date: day, Amount: 500, BalanceOrder: "2"}),
+    row("opening", {Date: day, Label: "Opening cash", Amount: 500, BalanceOrder: "1"}),
+    row("actual", {Date: day, Label: "Observed cash", Amount: 500, BalanceOrder: "2"}),
     row("source-question", {Date: day, Label: "Confirm delivery", Reference: "Sample note 3", Status: "Open"}),
   ];
   const workspace = {event: {ID: "test-event", Name: "Practice event", Starts: day, Ends: day},

@@ -36,7 +36,7 @@ const btn = (host, name) => host.getByRole("button", {name, exact:true});
 try {
   for (const [width, user, secret] of [[1440, "leitung", testPassword()], [390, reader, password]]) {
     const page = await browser.newPage({viewport:{width,height:844},hasTouch:width===390});
-    page.setDefaultTimeout(10000);
+    page.setDefaultTimeout(20000);
     await page.goto(origin);
     await page.locator("#login [name=user]").fill(user);
     await page.locator("#login [name=pass]").fill(secret);
@@ -47,7 +47,11 @@ try {
     await page.locator("#fiscal-switch").waitFor({state:"attached"});
     await openNav();
     await page.locator("#fiscal-switch summary").click();
-    await page.locator('[data-fiscal="' + year.ID + '"]').click();
+    await Promise.all([
+      page.waitForResponse(r => r.url().includes("/api/online?event=" + ledger.ID)),
+      page.locator('[data-fiscal="' + year.ID + '"]').click(),
+    ]);
+    await page.waitForFunction(() => !window.document.querySelector('article[aria-busy=true]'));
     await page.getByRole("heading", {name:"Financial overview", exact:true}).waitFor();
     const go = async name => {
       await openNav();

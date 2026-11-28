@@ -232,13 +232,15 @@ func (a *app) saveWalletLink(ctx context.Context, w http.ResponseWriter, r *http
 		return nil, problem{409, "The available receipt amount or allocation changed. Refresh before continuing."}
 	}
 	newLinked := linkedReceipts(entries, q.Wallet) - mine + q.Amount
-	if newLinked > counted {
+	if newLinked > counted && q.Amount >= mine {
 		return nil, problem{409, "The allocation exceeds the counted takings."}
 	}
 	if q.PostRevision != prior.Revision {
 		return nil, problem{409, "The posted settlement changed. Refresh the count."}
 	}
-	correct := priorPost > counted-newLinked
+	// A source may need to be released in several steps after a count correction.
+	// Only reduce a previous posting to a valid, non-negative remaining amount.
+	correct := newLinked <= counted && priorPost > counted-newLinked
 	if correct && (!q.CorrectPosted || len(q.Reason) < 3) {
 		return nil, problem{409, "Confirm the correction to the previously posted income and give a reason."}
 	}

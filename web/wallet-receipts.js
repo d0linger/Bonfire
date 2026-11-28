@@ -5,7 +5,13 @@ export function cashSettlement(rows, wallet) {
   const countedCash = wallet ? counted(rows.filter(r => r.ID !== target), wallet) : pooledRevenue(rows);
   const linked = rows.reduce((n,r) => n+(r.Kind==="wallet-link" && r.Data.Wallet===wallet ? r.Data.Amount : 0),0);
   const posting = posted?.Data.Amount || 0;
-  return {target, posted, countedCash, linked, posting, remaining: countedCash==null ? null : countedCash-linked-posting};
+  const counts = rows.filter(r => r.Kind === "count");
+  const phase = name => counts.find(r => r.Data.Phase === name && (r.Data.Wallet || "") === wallet)?.Data;
+  const opening = phase("Anfang")?.Amount ?? (!wallet && countedCash != null
+    ? counts.filter(r => r.Data.Phase === "Anfang").reduce((n,r) => n+r.Data.Amount,0) : null);
+  const closing = phase("Ende");
+  return {target, posted, countedCash, linked, posting, opening, closing,
+    remaining: countedCash==null ? null : countedCash-linked-posting};
 }
 export function allocationFields() {
   return '<label>Cashbook receipt<select name="receipt" required></select></label>'+
@@ -53,6 +59,10 @@ export function bindReceiptChoices(form, search, initial, fetchReceipts) {
     status.textContent = receipt
       ? "Available for this wallet " + eur(receipt.Available) + " · Already assigned here " + eur(receipt.Assigned)
       : (form.receipts.length ? "Select the actual receipt." : "No matching cashbook income within your access.");
+    if (receipt && form.receipts.some(item => item.ID !== receipt.ID && item.Date === receipt.Date &&
+        item.Total === receipt.Total && item.Label === receipt.Label)) {
+      status.textContent += " Another receipt has the same date, description and amount. Check the source reference before assigning.";
+    }
     form.elements.allocation.value = receipt?.Assigned ? (receipt.Assigned/100).toFixed(2) : "";
     form.elements.linkReason.required = !!receipt?.Revision;
   };

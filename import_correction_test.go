@@ -61,6 +61,18 @@ func TestSourcedBookingCorrection(t *testing.T) {
 	if got := f.value("SELECT data->>'File' FROM entries WHERE event=$1 AND id=$2 AND data->>'Reference'=$3", f.event, doc.Target, imported.Target); got != doc.Data.File {
 		t.Fatal("Correction changed linked evidence")
 	}
+	// Earlier revisions did not persist ImportNote. Reading them must use the
+	// recorded first revision without rewriting the historical entry.
+	f.value("UPDATE entries SET data=data-'ImportNote' WHERE event=$1 AND id=$2 RETURNING id", f.event, imported.Target)
+	out, err := f.request(t.Context(), f.app.syncEvent, path, request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range out.(map[string]any)["entries"].([]row) {
+		if r.ID == imported.Target && (r.Data.ImportNote == nil || *r.Data.ImportNote != imported.Data.Note) {
+			t.Fatal("Missing original note on legacy revision")
+		}
+	}
 	edit.ID = uuid()
 	reject(edit, 409, "revision")
 	edit.Base, edit.Data.Fields = 2, map[string]string{"sheet": "Different"}

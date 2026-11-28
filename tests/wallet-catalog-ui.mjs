@@ -139,6 +139,7 @@ try {
   async function enterTopUp(amount) {
     await button(page, "Bulk wallet entry").click();
     await dialog.getByLabel("Action", { exact: true }).selectOption("topup");
+    await dialog.getByLabel("Date", { exact: true }).fill(day);
     await dialog.getByLabel("Change source").selectOption("main-cashbox");
     await dialog.getByRole("checkbox", { name: new RegExp(first) }).check();
     await dialog.getByLabel("Amount per wallet in EUR").fill(amount);

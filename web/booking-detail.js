@@ -10,19 +10,22 @@ export function sourceDetails(row, entries) {
   const v = row.Data, fields = v.Fields || {};
   const source = entries.find(r => r.Kind === "import-source" && r.ID === v.Reference);
   const position = row.ID.split(":").at(-1);
+  const workbook = /^(\d+)-[A-Z]+(\d+)$/.exec(position);
+  const locator = workbook ? "Sheet " + (Number(workbook[1]) + 1) + " · row " + workbook[2] : "Row " + position;
   return '<section class="booking-source"><h3>Import evidence</h3><dl class="booking-facts">' +
-    pair("Journal position", position) + pair("Sheet / cell", [fields.sheet, fields.cell].filter(Boolean).join(" · ")) +
+    pair("Journal position", locator) + pair("Sheet / cell", [fields.sheet, fields.cell].filter(Boolean).join(" · ")) +
     (source?.Data.Filename ? pair("Source file", source.Data.Filename) : "") +
     (fields.original ? pair("Original value", fields.original) : "") +
     (fields.sourceColumn ? pair("Source column", fields.sourceColumn) : "") +
     (fields.dateOrigin ? pair("Date source", fields.dateOrigin) : "") +
-    pair("Original import note", v.ImportNote ?? (row.Revision === 1 ? v.Note : "See original journal revision")) +
+    pair("Original import note", v.ImportNote ?? (row.Revision === 1 ? v.Note : "Original note unavailable")) +
     "</dl></section>";
 }
 
 export function bookingDetail(row, entries, event, workspace) {
   const v = row.Data, lookup = new Map(entries.map(item => [item.ID, item]));
   const related = entries.filter(item => item.Data.Reference === row.ID);
+  const hasEventAllocations = event.General && row.Kind === "income";
   const contact = lookup.get(v.Contact);
   const effect = summary([row]);
   const docs = related.filter(item => item.Kind === "attachment").map(item => {
@@ -47,13 +50,13 @@ export function bookingDetail(row, entries, event, workspace) {
     pair("Account / source", lookup.get(v.Account)?.Data.Label || v.Account) +
     (v.To ? pair("Destination", lookup.get(v.To)?.Data.Label || v.To) : "") +
     pair("Contact", contact?.Kind === "contact" ? contact.Data.Label : v.Contact ? "Linked contact" : "") +
-    pair("Event", event.General ? "" : event.Name) +
+    (hasEventAllocations ? "" : pair("Event", event.General ? "" : event.Name)) +
     (v.Wallet ? pair("Wallet", lookup.get(v.Wallet)?.Data.Label) : "") +
     (v.Bar ? pair("Bar", lookup.get(v.Bar)?.Data.Label) : "") +
     (v.Reference && !isImportedBooking(row) ? pair("Reference", linked?.Data.Label || v.Reference) : "") +
     (allocations.length ? pair("Allocation", allocations.join(" · ")) : "") +
     (v.Note && (!isImportedBooking(row) || row.Revision > 1) ? pair(row.Revision > 1 ? "Correction reason" : "Note", v.Note) : "") +
     "</dl>" + sourceDetails(row, entries) +
-    (event.General && row.Kind === "income" ? '<section><h3>Event allocations</h3><div data-receipt-links role="status">Loading…</div></section>' : "") +
+    (hasEventAllocations ? '<section><h3>Event allocations</h3><div data-receipt-links role="status">Loading…</div></section>' : "") +
     "<section><h3>Supporting documents</h3>" + (docs.length ? '<ul class="booking-documents">' + docs.join("") + "</ul>" : "<p>No linked documents.</p>") + "</section>";
 }

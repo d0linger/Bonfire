@@ -11,7 +11,7 @@ export function closingChecklist(s, entries, year, selected, writable, admin) {
   const scope = [e.Name, year, dat(e.Starts) + " – " + dat(e.Ends)].filter(Boolean).map(esc).join(" · ");
   const metric = (name, value) => '<div class="kpi"><span>' + name + '</span><strong>' + esc(eur(value)) + '</strong></div>';
   const periods = entries.filter(r => r.Kind === "period");
-  return '<section aria-labelledby="closing-title"><h2 id="closing-title">Closing checklist</h2><p>' + scope +
+  return '<section aria-labelledby="closing-title"><h2 id="closing-title" tabindex="-1">Closing checklist</h2><p>' + scope +
     ' · ' + (e.Accounts ? "Per-account reconciliation" : "Combined reconciliation") + '</p><div class="kpis">' +
     metric("Book balance", balance.book_balance_cents) + metric("Actual balance", balance.actual_closing_cents) +
     metric("Difference", balance.difference_cents) + '</div><h3>Blocking checks</h3><div id="closing-checks" role="status">Checking current records…</div>' +

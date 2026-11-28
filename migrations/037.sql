@@ -4,7 +4,7 @@ CREATE TABLE wallet_receipt_revisions (
     digest bytea NOT NULL CHECK (octet_length(digest)=32),
     event uuid NOT NULL REFERENCES event_records,
     wallet text NOT NULL,
-    source_event uuid NOT NULL,
+    source_event uuid NOT NULL REFERENCES event_records,
     receipt text NOT NULL,
     source_revision bigint NOT NULL CHECK (source_revision>0),
     revision bigint NOT NULL CHECK (revision>0),

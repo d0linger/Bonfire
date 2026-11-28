@@ -1440,19 +1440,22 @@ function rememberBookingList() {
   if (offlineEnabled || !s || !isBookingList()) return;
   bookingReturn = {scope: bookingScope(), filter, journalFilters, row: lastBookingRow, scroll: window.scrollY};
 }
-async function inspectBooking(trigger) {
+function inspectBooking(trigger) {
   const list = rows(), row = list.find(r => r.ID === trigger.dataset.bookingDetail);
   if (!isBookingList() || !row || !monetary.has(row.Kind)) return;
   lastBookingRow = row.ID;
   openEditor(trigger, "Booking details", bookingDetail(row, list, s.event, workspaceLabel()) + button("cancel", "Back to entries", true));
   const host = entryDialog.querySelector("[data-receipt-links]");
   if (!host) return;
-  const links = await api("events/wallet-links?" + new URLSearchParams({event: s.event.ID, receipt: row.ID}));
-  if (host.isConnected) {
+  const empty = s.role === "Admin" ? "Not assigned" : "No allocations in your available events.";
+  api("events/wallet-links?" + new URLSearchParams({event: s.event.ID, receipt: row.ID})).then(links => {
+    if (!host.isConnected) return;
     host.textContent = links.length ? links.map(link =>
       [link.EventName, link.WalletName, dat(link.Date), eur(link.Amount)].filter(Boolean).join(" · ")
-    ).join(" / ") : "Not assigned";
-  }
+    ).join(" / ") : empty;
+  }).catch(err => {
+    if (host.isConnected) host.textContent = err.message || "Could not load event allocations.";
+  });
 }
 function walletSettlementSummary(entries) {
   const pooled = poolCount(entries, "Anfang") || poolCount(entries, "Ende");
@@ -1462,10 +1465,14 @@ function walletSettlementSummary(entries) {
     if (a.countedCash==null) return "<p>Opening and closing counts are needed to settle "+esc(wallet?.Data.Label || "all wallets")+".</p>";
     const name=esc(wallet?.Data.Label || "All wallets");
     const key=esc(id || "settlement-total");
-    const writable=writableWorkspace() && a.countedCash>=0;
-    const link=writable ? '<button type="button" class="secondary" data-link-wallet="'+key+'">Assign existing receipt</button>' : "";
-    const post=writable && (a.remaining!==0 || (!a.posted && !a.linked)) ? '<button type="button" data-settle="'+key+'">'+(a.posted?"Review posting correction":"Post remaining income")+'</button>' : "";
-    return '<section><h3>'+name+'</h3><p>Counted takings '+eur(a.countedCash)+' · Linked cashbook receipts '+eur(a.linked)+' · Posted here '+eur(a.posting)+' · Remaining '+eur(a.remaining)+'</p><div class="actions">'+link+post+'</div></section>';
+    const writable=writableWorkspace();
+    const link=writable && (a.countedCash>=0 || a.linked>0) ? '<button type="button" class="secondary" data-link-wallet="'+key+'">Assign existing receipt</button>' : "";
+    const post=writable && a.countedCash>=a.linked && (a.remaining!==0 || (!a.posted && !a.linked)) ? '<button type="button" data-settle="'+key+'">'+(a.posted?"Review posting correction":"Post remaining income")+'</button>' : "";
+    const adjustment = a.countedCash - (a.closing.Amount - a.opening);
+    const calculation = '<details><summary>How the count was calculated</summary><p>Closing count '+
+      eur(a.closing.Amount)+' − opening count '+eur(a.opening)+' + net adjustment '+
+      eur(adjustment)+' = '+eur(a.countedCash)+'.</p><p>The adjustment includes cash collections, change delivered and cash transactions already recorded within the count window. A later return changes custody.</p></details>';
+    return '<section><h3>'+name+'</h3><p>Counted takings '+eur(a.countedCash)+' · Linked cashbook receipts '+eur(a.linked)+' · Posted here '+eur(a.posting)+' · Remaining '+eur(a.remaining)+'</p>'+calculation+'<div class="actions">'+link+post+'</div></section>';
   }
   const actions = pooled
     ? actionRow(null)
@@ -5950,7 +5957,7 @@ document.addEventListener("click", (e) => {
       return;
     }
     if (b.dataset.bookingDetail) {
-      await inspectBooking(b);
+      inspectBooking(b);
       return;
     }
     if (b.dataset.edit) {
@@ -5992,9 +5999,10 @@ document.addEventListener("click", (e) => {
       const selected=b.dataset.linkWallet || b.dataset.settle;
       const wallet=selected==="settlement-total" ? "" : selected;
       const state=cashSettlement(rows(),wallet);
-      if(state.countedCash==null || state.countedCash<0) throw Error("Review the counts first.");
+      if(state.countedCash==null || (state.countedCash<0 && !(b.dataset.linkWallet && state.linked>0))) throw Error("Review the counts first.");
       const walletName=rows().find(r=>r.ID===wallet)?.Data.Label || "All wallets";
-      const context='<p>'+esc(s.event.Name)+' · '+esc(walletName)+'</p><p>Counted takings '+eur(state.countedCash)+' · Linked '+eur(state.linked)+' · Posted '+eur(state.posting)+' · Remaining '+eur(state.remaining)+'</p>';
+      const countStatus=state.closing?.Status==="Bestätigt" ? "Confirmed closing count" : "Closing count has not been confirmed";
+      const context='<p>'+esc(s.event.Name)+' · '+esc(walletName)+' · '+countStatus+'</p><p>Counted takings '+eur(state.countedCash)+' · Linked '+eur(state.linked)+' · Posted '+eur(state.posting)+' · Remaining '+eur(state.remaining)+'</p>';
       if (b.dataset.linkWallet) {
         const eventID=s.event.ID;
         const fetchReceipts=(search,page=0)=>api("events/wallet-links?"+new URLSearchParams({event:eventID,wallet,search,page}));

@@ -1,5 +1,5 @@
 # Test strategy
-# Cashbook and event settlement review
+## Cashbook and event settlement review
 
 To settle counted takings, first check whether the general cashbook already contains the receipt. In the event wallet settlement, select that receipt and assign the portion covered by the count. Post only the outstanding amount. The event result includes its assigned receipts. The treasury journal contains each actual receipt once. A return after the closing count changes the cash still held. The original closing observation remains available.
 

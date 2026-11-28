@@ -15,10 +15,10 @@ var importLocation = regexp.MustCompile(`^import:([0-9a-f]{64}):(?:([1-9][0-9]*)
 // older clients that did not send a sheet or cell when correcting a booking.
 func preserveImport(ctx context.Context, tx pgx.Tx, event string, o *op) error {
 	var stored data
-	var note string
+	var note *string
 	err := tx.QueryRow(ctx, `SELECT j.data,coalesce(j.data->>'ImportNote',
 		(SELECT h.data->>'Note' FROM journal_history h WHERE h.event=j.event AND h.target=j.id
-		 AND h.direction=1 AND h.revision=1 ORDER BY h.id LIMIT 1),j.data->>'Note','')
+		 AND h.direction=1 AND h.revision=1 ORDER BY h.id LIMIT 1),CASE WHEN j.revision=1 THEN j.data->>'Note' END)
 		FROM entries j WHERE j.event=$1 AND j.id=$2`, event, o.Target).Scan(&stored, &note)
 	if err != nil {
 		return err
@@ -27,10 +27,10 @@ func preserveImport(ctx context.Context, tx pgx.Tx, event string, o *op) error {
 	if v.Reference != "" && v.Reference != stored.Reference {
 		return fail("The import source is protected. Keep the original file reference.")
 	}
-	if v.ImportNote != nil && *v.ImportNote != note {
+	if v.ImportNote != nil && (note == nil || *v.ImportNote != *note) {
 		return fail("The original import note is protected. Enter your explanation as the correction reason.")
 	}
-	v.Reference, v.ImportNote = stored.Reference, &note
+	v.Reference, v.ImportNote = stored.Reference, note
 	if v.Fields == nil {
 		v.Fields = map[string]string{}
 	}

@@ -593,7 +593,7 @@ try {
       );
       // The 25 EUR delivery preceded the opening count: 34 EUR closing less 4 EUR opening.
       await page
-        .getByText(/Tasche Süd · Additional pooled cash income\s+(?:€\s*)?30,00/)
+        .getByText(/Counted takings\s+(?:€\s*)?30,00/)
         .waitFor();
     }
   }
