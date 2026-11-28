@@ -62,7 +62,7 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 	}
 	const scope = `SELECT e.id FROM events e WHERE ($3::uuid IS NULL OR e.fiscal_year=$3)
 		AND ((e.starts<=$2::date AND e.ends>=$1::date) OR EXISTS(
-			SELECT 1 FROM entries j WHERE j.event=e.id AND (j.data->>'Date')::date BETWEEN $1::date AND $2::date))`
+			SELECT 1 FROM entries j WHERE j.event=e.id AND nullif(j.data->>'Date','')::date BETWEEN $1::date AND $2::date))`
 	var missing bool
 	err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM ("+scope+") s WHERE EXISTS(SELECT 1 FROM devices d WHERE d.event=s.id AND NOT d.online_actor AND NOT d.sealed) OR EXISTS(SELECT 1 FROM operations o WHERE o.event=s.id AND o.outcome='Konflikt'))", start, end, year).Scan(&missing)
 	if err != nil {
@@ -79,7 +79,10 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 	if accountMode != allAccounts {
 		return "", fail("Reconcile the differing account assignments first.")
 	}
-	rows, err := tx.Query(ctx, "SELECT event::text,id,kind,device::text,revision,data FROM settlement_entries WHERE event IN ("+scope+") AND ((data->>'Date')::date BETWEEN $1 AND $2 OR (kind IN ('account','wallet') AND (data->>'Date')::date<=$2)) ORDER BY id", start, end, year)
+	rows, err := tx.Query(ctx, `SELECT event::text,id,kind,device::text,revision,data
+ FROM settlement_entries WHERE event IN (`+scope+`) AND
+ (nullif(data->>'Date','')::date BETWEEN $1 AND $2 OR
+ (kind IN ('account','wallet') AND coalesce(nullif(data->>'Date','')::date,'-infinity'::date)<=$2)) ORDER BY id`, start, end, year)
 	if err != nil {
 		return "", err
 	}
@@ -107,7 +110,7 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 		// A wallet settlement spans its opening and closing counts. Load prior
 		// wallet movements only for validation, outside the frozen period snapshot.
 		earlier, err := tx.Query(ctx, `SELECT id,kind,device::text,revision,data FROM settlement_entries
-   WHERE event=$1 AND (data->>'Date')::date<$2 AND kind=ANY($3)`, event, start,
+   WHERE event=$1 AND nullif(data->>'Date','')::date<$2 AND kind=ANY($3)`, event, start,
 			[]string{"count", "wallet-link", "supply", "skim", "return", "cashback", "transfer", "expense", "refund", "deposit-return", "income", "donation", "payment", "presale", "deposit"})
 		if err != nil {
 			return "", err

@@ -10,12 +10,13 @@ export function invoiceReference(bill, number) {
   );
 }
 
-export function closure(rows, accounts, closed, definitions = rows) {
+export function closure(rows, accounts, closed, definitions = rows, periodEnd) {
   const expected = new Map(),
     observed = new Map();
   const ambiguous = new Set(), openings = new Set(), lastPosting = new Map(), observedOn = new Map();
   const configured = new Map(accounts ? definitions
-    .filter(r => r.Kind === "account" || r.Kind === "wallet")
+    .filter(r => (r.Kind === "account" || r.Kind === "wallet") &&
+      (!periodEnd || !r.Data.Date || r.Data.Date <= periodEnd))
     .map(r => [r.ID, r.Data.Label]) : []);
   for (const id of configured.keys()) expected.set(id, 0);
   let date = null;
@@ -93,10 +94,9 @@ export function closure(rows, accounts, closed, definitions = rows) {
   const add = (m) => [...m.values()].reduce((a, b) => a + b, 0);
   const lines = accounts
     ? [...ids]
-        .filter(Boolean)
         .map((k) => ({
-          account_id: k,
-          label: configured.get(k) || k,
+          account_id: k || null,
+          label: configured.get(k) || k || "Unassigned",
           actual_status: !observed.has(k) ? "missing" : ambiguous.has(k) ? "partial" : "confirmed",
           theoretical_cents: bookKnown ? expected.get(k) : null,
           actual_cents: ambiguous.has(k) ? null : observed.get(k) ?? null,
@@ -276,7 +276,7 @@ export function exportContext(i, s, rows, opts) {
     "report.evidence_items": selected
       .filter((x) => x.Kind === "attachment")
       .map((x) => ({ id: x.ID, name: x.Data.Filename })),
-    ...closure(selected, s.event.Accounts, !!s.closed && !period, rows),
+    ...closure(selected, s.event.Accounts, !!s.closed && !period, rows, period?.To),
     render_mode: mode,
   });
   if (i === 2 && s.donorAccess)

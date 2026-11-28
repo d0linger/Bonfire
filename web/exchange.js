@@ -318,7 +318,7 @@ export async function evidence(s, rows, reports = {}, scope = {}) {
         .map((format) => ({ id: r.ID, format }));
     return [];
   });
-  const closing = closure(rows, !!s.event?.Accounts, s.closed, scope.accountDefinitions);
+  const closing = closure(rows, !!s.event?.Accounts, s.closed, scope.accountDefinitions, scope.period ? scope.ends : undefined);
   const technicallyComplete =
     closing["report.export_set"].completeness_status === "complete" &&
     s.closed === true &&

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import Ajv from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import schemas from "../web/variants.json" with { type: "json" };
-import { closure, invoiceReference } from "../web/context.js";
+import { closure, exportContext, invoiceReference } from "../web/context.js";
 import { denominationNeeds, summary } from "../web/domain.js";
 import { donationReport } from "../web/donors.js";
 import { sponsorshipStatus } from "../web/sponsorship.js";
@@ -234,14 +234,17 @@ test("closing comparisons require a current, unambiguous observation per account
   }
 });
 
-test("scoped closing reports preserve account names and exclude postings outside the period", () => {
+test("period statements and evidence exclude future accounts and later postings", async () => {
   const bank = "10000000-0000-4000-8000-000000000004";
   const date = "2026-02-01";
   const records = [
     row("account", { Label: "Operating account" }, bank),
+    row("wallet", { Label: "Earlier wallet", Date: "2026-01-01" }, "old-wallet"),
+    row("actual", { Label: "Wallet observation", Account: "old-wallet", Amount: 0, Date: date, BalanceOrder: "4" }),
+    row("account", { Label: "March account", Date: "2026-03-01" }, "march"),
     row("period", { Label: "February", Date: date, To: "2026-02-28" }, "feb"),
-    row("opening", { Account: bank, Amount: 875, Date: date, BalanceOrder: "1" }),
-    row("actual", { Account: bank, Amount: 875, Date: date, BalanceOrder: "2" }),
+    row("opening", { Label: "Opening bank balance", Account: bank, Amount: 875, Date: date, BalanceOrder: "1" }),
+    row("actual", { Label: "Bank observation", Account: bank, Amount: 875, Date: date, BalanceOrder: "2" }),
     row("income", { Account: bank, Amount: 5200, Date: "2026-03-01", BalanceOrder: "3" }),
   ];
   const table = tablesFor(9, { event: "Exercise" }, records, "", { period: "feb", accounts: true });
@@ -250,6 +253,15 @@ test("scoped closing reports preserve account names and exclude postings outside
   assert.match(line[1], /8,75/);
   assert.equal(line[1], line[2]);
   assert.match(line[3], /0,00/);
+  assert.deepEqual(table.blocks[0].rows.map(r => r[0]), ["Operating account", "Earlier wallet"]);
+  const workspace = {event: {Name: "Exercise", Accounts: true}, ops: [], conflicts: []};
+  const context = exportContext(9, workspace, records, {period: "feb"});
+  const balance = context["report.closing"];
+  assert.equal(balance.actual_closing_cents, 875);
+  const selected = records.filter(r => r.Data.Date >= date && r.Data.Date <= "2026-02-28");
+  const archive = await evidence(workspace, selected, {}, {period: "feb", ends: "2026-02-28", accountDefinitions: records});
+  const files = unzipSync(new Uint8Array(await archive.arrayBuffer()));
+  assert.deepEqual(JSON.parse(strFromU8(files["manifest.json"])).reconciliation, balance);
 });
 
 test("closing templates accept provisional and stale observations for legacy wallet IDs", () => {
@@ -270,6 +282,16 @@ test("closing templates accept provisional and stale observations for legacy wal
     assert.equal(line.actual_status, status);
     assert.equal(validate(report), true, JSON.stringify(validate.errors));
   }
+  const unassigned = values.slice(0, 2).map(r => ({...r, Data: {...r.Data, Account: ""}}));
+  const report = closure(unassigned, true, true);
+  const [line] = report["report.closing"].account_lines;
+  assert.deepEqual(line, {account_id: null, label: "Unassigned", actual_status: "confirmed",
+    theoretical_cents: null, actual_cents: 500, difference_cents: null});
+  assert.equal(report["report.export_set"].completeness_status, "incomplete");
+  assert.equal(validate(report), true, JSON.stringify(validate.errors));
+  const [printed] = tablesFor(9, {event: "Exercise"}, unassigned, "", {accounts: true}).blocks[0].rows;
+  assert.equal(printed[0], "Unassigned");
+  assert.match(printed[2], /5,00/);
 });
 
 test("equal and opposite postings require a new same-day observation", () => {
