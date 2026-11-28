@@ -233,7 +233,7 @@ function afterOpening(movement, opening) {
   return !movement.PostingOrder || !opening.PostingOrder || BigInt(movement.PostingOrder) > BigInt(opening.PostingOrder);
 }
 // The count is a historical observation. Only later physical movements change custody.
-export function cashAfterCount(rows, cutoff, wallets) {
+export function cashAfterCount(rows, cutoff, wallets, returnGroup = wallets) {
   if (cutoff?.Amount == null) return null;
   const includes = id => !!id && wallets.has(id);
   let returned = 0, held = cutoff.Amount;
@@ -243,12 +243,12 @@ export function cashAfterCount(rows, cutoff, wallets) {
     const from = r.Kind === "return" && includes(v.Wallet);
     const to = r.Kind === "return" && includes(v.To);
     const delta = r.Kind === "return" ? ((to ? 1 : 0) - (from ? 1 : 0)) * (v.Amount || 0)
-      : -cashAdjustment(r, includes);
+      : -cashAdjustment(r, includes, !cutoff.Wallet);
     if (!delta) continue;
     if (unknownOrder(v, cutoff)) return null;
     if (withinCount(v, cutoff)) continue;
     held += delta;
-    if (from && !to) returned += v.Amount;
+    if (from && !returnGroup.has(v.To)) returned += v.Amount;
   }
   return {returned, held};
 }

@@ -64,14 +64,22 @@ func TestSourcedBookingCorrection(t *testing.T) {
 	// Earlier revisions did not persist ImportNote. Reading them must use the
 	// recorded first revision without rewriting the historical entry.
 	f.value("UPDATE entries SET data=data-'ImportNote' WHERE event=$1 AND id=$2 RETURNING id", f.event, imported.Target)
+	account := f.value("INSERT INTO fire_accounts(id,name,active) VALUES ($1,$2,false) RETURNING id::text", uuid(), "Inactive source "+uuid())
+	f.value("INSERT INTO fire_account_links(event,local_id,account) VALUES ($1,$2,$3) RETURNING local_id", f.event, imported.Target, account)
 	out, err := f.request(t.Context(), f.app.syncEvent, path, request{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	var projected *data
 	for _, r := range out.(map[string]any)["entries"].([]row) {
-		if r.ID == imported.Target && (r.Data.ImportNote == nil || *r.Data.ImportNote != imported.Data.Note) {
-			t.Fatal("Missing original note on legacy revision")
+		if r.ID == imported.Target {
+			projected = &r.Data
+			break
 		}
+	}
+	if projected == nil || projected.ImportNote == nil || *projected.ImportNote != imported.Data.Note ||
+		projected.Fields["cell"] != "D9" || projected.Fields["masterInactive"] != "ja" {
+		t.Fatal("Legacy projection must retain the original note, source locator and inactive-account annotation together")
 	}
 	edit.ID = uuid()
 	reject(edit, 409, "revision")

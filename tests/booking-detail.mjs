@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { strFromU8, unzipSync } from "fflate";
 import { chromium } from "playwright";
 import { jsPDF } from "jspdf";
 import { admin, api, onlineClient } from "./local-api.mjs";
@@ -119,6 +121,21 @@ try {
       assert.deepEqual(saved[0].Data.Fields,imported.Data.Fields);
       assert.equal(saved[0].Data.Reference,imported.Data.Reference);
       assert.equal(saved[0].Data.ImportNote,"Checked the source");
+      const organization = btn(page.locator("#admin-navigation"), "Organization");
+      if (!await organization.isVisible()) await page.locator("#admin-navigation summary").click();
+      await organization.click();
+      await btn(page, "Data exchange").click();
+      const exportPackage = btn(page, "Download review package");
+      await exportPackage.waitFor();
+      // The open workspace still predates a second cashier's confirmed booking.
+      const later = op("income",randomUUID(),{Label:"Later receipt " + randomUUID(),Amount:723});
+      await call(path,{Ops:[later]});
+      const [download] = await Promise.all([page.waitForEvent("download",{timeout:60000}), exportPackage.click()]);
+      const files = unzipSync(await readFile(await download.path()));
+      assert.ok(strFromU8(files["Journal.csv"]).includes(later.Data.Label));
+      const manifest = JSON.parse(strFromU8(files["manifest.json"]));
+      assert.equal(manifest.workspace.id,ledger.ID);
+      assert.ok(!Number.isNaN(Date.parse(manifest.stand)));
     }
     await page.close();
   }

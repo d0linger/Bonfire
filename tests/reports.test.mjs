@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import Ajv from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
+import schemas from "../web/variants.json" with { type: "json" };
 import { closure, invoiceReference } from "../web/context.js";
 import { denominationNeeds, summary } from "../web/domain.js";
 import { donationReport } from "../web/donors.js";
@@ -213,6 +216,11 @@ test("closing comparisons require a current, unambiguous observation per account
   assert.equal(bankLine().actual_status, "partial");
   idleActual.Data.BalanceOrder = String(++order);
   assert.equal(bankLine().actual_status, "confirmed");
+  assert.equal(bankLine().theoretical_cents, 0);
+  assert.equal(bankLine().difference_cents, 0);
+  const idleClosing = closure(idle, true, true);
+  assert.equal(idleClosing["report.closing"].book_balance_cents, 100);
+  assert.equal(idleClosing["report.export_set"].completeness_status, "complete");
   for (const extra of [posting("income", a, 50, "2026-06-06"), posting("actual", a, 200)]) {
     for (const sorted of [[...rows, extra], [extra, ...rows]]) {
       const result = closure(sorted, true, true);
@@ -223,6 +231,44 @@ test("closing comparisons require a current, unambiguous observation per account
       assert.equal(closing.account_lines.find((line) => line.account_id === a).actual_cents, null);
       assert.equal(closing.account_lines.find((line) => line.account_id === b).difference_cents, 0);
     }
+  }
+});
+
+test("scoped closing reports preserve account names and exclude postings outside the period", () => {
+  const bank = "10000000-0000-4000-8000-000000000004";
+  const date = "2026-02-01";
+  const records = [
+    row("account", { Label: "Operating account" }, bank),
+    row("period", { Label: "February", Date: date, To: "2026-02-28" }, "feb"),
+    row("opening", { Account: bank, Amount: 875, Date: date, BalanceOrder: "1" }),
+    row("actual", { Account: bank, Amount: 875, Date: date, BalanceOrder: "2" }),
+    row("income", { Account: bank, Amount: 5200, Date: "2026-03-01", BalanceOrder: "3" }),
+  ];
+  const table = tablesFor(9, { event: "Exercise" }, records, "", { period: "feb", accounts: true });
+  const [line] = table.blocks[0].rows;
+  assert.equal(line[0], "Operating account");
+  assert.match(line[1], /8,75/);
+  assert.equal(line[1], line[2]);
+  assert.match(line[3], /0,00/);
+});
+
+test("closing templates accept provisional and stale observations for legacy wallet IDs", () => {
+  const validator = new Ajv({ strict: false });
+  addFormats(validator);
+  const validate = validator.compile(schemas.T10);
+  const account = "practice:wallet";
+  const config = row("wallet", { Label: "Practice till" }, account);
+  const values = [
+    row("opening", { Account: account, Date: "2026-02-01", Amount: 500, BalanceOrder: "1" }),
+    row("actual", { Account: account, Date: "2026-02-01", Amount: 500, BalanceOrder: "2" }),
+    row("expense", { Account: account, Date: "2026-02-01", Amount: 25, BalanceOrder: "3" }),
+  ];
+  for (const [postings, status] of [[[], "missing"], [values.slice(0, 2), "confirmed"], [values, "partial"]]) {
+    const report = closure([config, ...postings], true, false);
+    const line = report["report.closing"].account_lines[0];
+    assert.equal(line.account_id, account);
+    assert.equal(line.actual_status, status);
+    assert.equal(validate(report), true, JSON.stringify(validate.errors));
   }
 });
 

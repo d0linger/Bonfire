@@ -335,11 +335,8 @@ try {
     .getByRole("alert")
     .getByText(/did not confirm this operation/)
     .waitFor();
-  await submit("record");
-  await page
-    .getByRole("alert")
-    .getByText(/Refresh the server records/)
-    .waitFor();
+  assert.ok(await editor.evaluate(form => form.inert));
+  assert.ok(await modal.locator("[name=type]").isDisabled());
   await modal
     .getByRole("button", { name: "Refresh entries" })
     .click();

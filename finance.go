@@ -196,6 +196,9 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 			return false, err
 		}
 		if allocated > 0 && (v.Amount == nil || *v.Amount < allocated || v.Date != sourceDate) {
+			if !d.Online {
+				return false, nil
+			}
 			return false, problem{409, "Review the wallet allocations before changing this receipt's date or reducing its amount."}
 		}
 	}
@@ -314,7 +317,7 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 	}
 	if strings.HasPrefix(o.Target, "import:") || strings.HasPrefix(v.Reference, "source:") {
 		ok, err := importReference(ctx, tx, d.Event, o)
-		if err == nil && !ok && o.Base > 0 {
+		if d.Online && err == nil && !ok && o.Base > 0 {
 			return false, fail("The archived import source or its sheet and cell could not be verified. Check the original import before correcting this booking.")
 		}
 		if err != nil || !ok {

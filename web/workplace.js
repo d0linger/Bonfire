@@ -441,14 +441,15 @@ export function walletTable(rows, actions = "") {
       );
     }
     let custody = null;
+    const groupIDs = new Set(group.map(w => w.ID));
     if (allEnd && overall) {
-      custody = cashAfterCount(rows, allEnd.Data, new Set(group.map(w => w.ID)));
+      custody = cashAfterCount(rows, allEnd.Data, groupIDs);
     } else if (!allEnd && group.length) {
       custody = {held:0, returned:0};
       for (const w of group) {
         const list = rowsByWallet.get(w.ID);
         const closing = list.find(r=>r.Kind==="count" && r.Data.Phase==="Ende");
-        const item = cashAfterCount(list, closing?.Data, new Set([w.ID]));
+        const item = cashAfterCount(list, closing?.Data, new Set([w.ID]), groupIDs);
         if (!item) { custody=null; break; }
         custody.held += item.held;
         custody.returned += item.returned;

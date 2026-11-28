@@ -39,19 +39,7 @@ func (a *app) walletLinks(ctx context.Context, w http.ResponseWriter, r *http.Re
 		return nil, fail("Select a workspace.")
 	}
 	if q.Get("history") == "1" {
-		rows, err := a.db.Query(ctx, `SELECT l.request::text AS "Request", e.name AS "Event",
-        coalesce(w.data->>'Label','All wallets') AS "Wallet", g.name AS "Cashbook",
-        l.receipt AS "Receipt", l.source_revision AS "ReceiptRevision", l.revision AS "Revision",
-        l.amount AS "Amount", l.counted_on::text AS "Date", l.reason AS "Reason"
-        FROM wallet_receipt_revisions l JOIN events e ON e.id=l.event JOIN events g ON g.id=l.source_event
-        LEFT JOIN entries w ON w.event=e.id AND w.id=l.wallet
-        WHERE $1 IN (l.event,l.source_event) AND ($2='Admin' OR (EXISTS(SELECT FROM grants_event WHERE event=l.event AND username=$3)
-        AND EXISTS(SELECT FROM grants_event WHERE event=l.source_event AND username=$3)))
-        ORDER BY l.counted_on, e.name,l.wallet,l.receipt,l.revision`, event, role, user)
-		if err != nil {
-			return nil, err
-		}
-		return pgx.CollectRows(rows, pgx.RowToMap)
+		return walletReceiptHistory(ctx, a.db, event, role, user)
 	}
 	// Both ends must be visible. A journal-only reader must not see private event names.
 	if receipt := q.Get("receipt"); receipt != "" {
@@ -90,6 +78,24 @@ func (a *app) walletLinks(ctx context.Context, w http.ResponseWriter, r *http.Re
  WHERE e.id=$1 AND NOT e.general_ledger AND ($3='Admin' OR (EXISTS(SELECT FROM grants_event WHERE event=e.id AND username=$4) AND EXISTS(SELECT FROM grants_event WHERE event=g.id AND username=$4)))
  AND (j.data->>'Amount')::bigint>0 AND (coalesce(t.mine,0)>0 OR strpos(lower(concat_ws(' ',j.data->>'Label',j.data->>'Date',j.data->>'Reference',j.data->'Fields'->>'receipt')),lower($5))>0)
  ORDER BY (coalesce(t.mine,0)>0) DESC,j.data->>'Date' DESC,j.data->>'Label',j.id LIMIT 101 OFFSET $6`, event, wallet, role, user, search, page*100)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToMap)
+}
+
+func walletReceiptHistory(ctx context.Context, db interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}, event, role, user string) ([]map[string]any, error) {
+	rows, err := db.Query(ctx, `SELECT l.request::text AS "Request", e.name AS "Event",
+        coalesce(w.data->>'Label','All wallets') AS "Wallet", g.name AS "Cashbook",
+        l.receipt AS "Receipt", l.source_revision AS "ReceiptRevision", l.revision AS "Revision",
+        l.amount AS "Amount", l.counted_on::text AS "Date", l.reason AS "Reason"
+        FROM wallet_receipt_revisions l JOIN events e ON e.id=l.event JOIN events g ON g.id=l.source_event
+        LEFT JOIN entries w ON w.event=e.id AND w.id=l.wallet
+        WHERE $1 IN (l.event,l.source_event) AND ($2='Admin' OR (EXISTS(SELECT FROM grants_event WHERE event=l.event AND username=$3)
+        AND EXISTS(SELECT FROM grants_event WHERE event=l.source_event AND username=$3)))
+        ORDER BY l.counted_on,e.name,l.wallet,l.receipt,l.revision`, event, role, user)
 	if err != nil {
 		return nil, err
 	}
@@ -210,10 +216,19 @@ func (a *app) saveWalletLink(ctx context.Context, w http.ResponseWriter, r *http
 	if !known || pooled != (q.Wallet == "") || countDate == "" || counted != q.Counted {
 		return nil, problem{409, "The count changed. Review the wallet settlement again."}
 	}
+	var used, mine, rev int64
+	var priorDate string
+	err = tx.QueryRow(ctx, `SELECT coalesce(sum(amount),0)::bigint,coalesce(max(amount) FILTER(WHERE event=$3 AND wallet=$4),0),
+ coalesce(max(revision) FILTER(WHERE event=$3 AND wallet=$4),0),
+ coalesce((max(counted_on) FILTER(WHERE event=$3 AND wallet=$4))::text,'')
+ FROM wallet_receipt_links WHERE source_event=$1 AND receipt=$2`, source, q.Receipt, q.Event, q.Wallet).Scan(&used, &mine, &rev, &priorDate)
+	if err != nil {
+		return nil, err
+	}
 	for _, item := range []struct {
 		d        device
 		id, date string
-	}{{d, target, countDate}, {ledger, q.Receipt, sourceDate}} {
+	}{{d, target, countDate}, {ledger, q.Receipt, sourceDate}, {d, target, priorDate}} {
 		frozen, err := protectedPeriod(ctx, tx, item.d, op{Target: item.id, Data: data{Date: item.date}})
 		if err != nil {
 			return nil, err
@@ -222,14 +237,11 @@ func (a *app) saveWalletLink(ctx context.Context, w http.ResponseWriter, r *http
 			return nil, problem{409, "A linked date is in a closed accounting period."}
 		}
 	}
-	var used, mine, rev int64
-	err = tx.QueryRow(ctx, `SELECT coalesce(sum(amount),0)::bigint,coalesce(max(amount) FILTER(WHERE event=$3 AND wallet=$4),0),
- coalesce(max(revision) FILTER(WHERE event=$3 AND wallet=$4),0) FROM wallet_receipt_links WHERE source_event=$1 AND receipt=$2`, source, q.Receipt, q.Event, q.Wallet).Scan(&used, &mine, &rev)
-	if err != nil {
-		return nil, err
-	}
-	if rev != q.Revision || q.Amount == mine || q.Amount > sourceAmount-used+mine {
+	if rev != q.Revision || q.Amount == mine {
 		return nil, problem{409, "The available receipt amount or allocation changed. Refresh before continuing."}
+	}
+	if q.Amount > sourceAmount-used+mine {
+		return nil, problem{409, "The receipt has insufficient unallocated funds for this allocation."}
 	}
 	newLinked := linkedReceipts(entries, q.Wallet) - mine + q.Amount
 	if newLinked > counted && q.Amount >= mine {

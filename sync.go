@@ -57,6 +57,7 @@ type request struct {
 	Last                                                  int64
 	ReceiptOnly                                           bool
 	ClosingPreview                                        bool
+	EvidenceSnapshot                                      bool
 }
 
 var key = regexp.MustCompile("^[a-zA-Z0-9_.:-]{1,160}$")
@@ -574,7 +575,16 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	tx, err := a.db.Begin(ctx)
+	snapshotOnly := r.URL.Path == "/api/online" && len(q.Ops) == 0 && len(q.Prints) == 0 && q.Resolve == "" && q.Action == ""
+	opts := pgx.TxOptions{}
+	if q.EvidenceSnapshot {
+		if !snapshotOnly || q.CheckOperation != "" || q.ClosingPreview {
+			return nil, fail("Request an evidence snapshot separately from changes and other checks.")
+		}
+		// Journal, allocations, close status and originals must describe one point in time.
+		opts.IsoLevel = pgx.RepeatableRead
+	}
+	tx, err := a.db.BeginTx(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -586,7 +596,6 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		}
 	}
 	var d device
-	snapshotOnly := r.URL.Path == "/api/online" && len(q.Ops) == 0 && len(q.Prints) == 0 && q.Resolve == "" && q.Action == ""
 	if q.ClosingPreview && (!snapshotOnly || q.CheckOperation != "") {
 		return nil, fail("Run the closing checks separately from changes.")
 	}
@@ -754,12 +763,13 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	if q.ReceiptOnly && d.Online && q.Action == "" && q.Resolve == "" && len(q.Ops) != 0 {
 		return map[string]any{"saved": true}, tx.Commit(ctx)
 	}
-	rows, err := tx.Query(ctx, `SELECT j.id,j.kind,j.device::text,j.revision,CASE
-		WHEN a.active IS FALSE THEN j.data||jsonb_build_object('Fields',coalesce(nullif(j.data->'Fields','null'::jsonb),'{}'::jsonb)||jsonb_build_object('masterInactive','ja'))
-		WHEN j.id LIKE 'import:%' AND j.revision>1 AND j.data->>'ImportNote' IS NULL THEN
-			j.data||jsonb_strip_nulls(jsonb_build_object('ImportNote',(SELECT h.data->>'Note' FROM journal_history h
+	rows, err := tx.Query(ctx, `SELECT j.id,j.kind,j.device::text,j.revision,j.data
+		|| CASE WHEN a.active IS FALSE THEN jsonb_build_object('Fields',coalesce(nullif(j.data->'Fields','null'::jsonb),'{}'::jsonb)||jsonb_build_object('masterInactive','ja'))
+		   ELSE '{}'::jsonb END
+		|| CASE WHEN j.id LIKE 'import:%' AND j.revision>1 AND j.data->>'ImportNote' IS NULL THEN
+			jsonb_strip_nulls(jsonb_build_object('ImportNote',(SELECT h.data->>'Note' FROM journal_history h
 			WHERE h.event=j.event AND h.target=j.id AND h.direction=1 AND h.revision=1 ORDER BY h.id LIMIT 1)))
-		ELSE j.data END FROM settlement_entries j LEFT JOIN fire_account_links l ON (j.event,j.id)=(l.event,l.local_id)
+		   ELSE '{}'::jsonb END FROM settlement_entries j LEFT JOIN fire_account_links l ON (j.event,j.id)=(l.event,l.local_id)
 		LEFT JOIN fire_accounts a ON a.id=l.account WHERE j.event=$1 AND j.kind<>'contact'
 		UNION ALL SELECT id,'contact',device::text,revision,data FROM directory c WHERE `+contactVisible+" ORDER BY id", d.Event, d.Role)
 	if err != nil {
@@ -889,6 +899,17 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	out := map[string]any{"priceHistory": prices, "acknowledgedPrints": acceptedPrints, "incidentState": d.IncidentState, "entries": entries, "conflicts": conflicts, "sealed": d.Sealed, "pending": pending, "devices": devices, "accounts": d.Accounts, "closed": d.Closed, "last": d.Last}
 	if d.Online {
 		if err = onlineDetails(ctx, tx, d, out); err != nil {
+			return nil, err
+		}
+	}
+	if q.EvidenceSnapshot {
+		var captured time.Time
+		if err := tx.QueryRow(ctx, "SELECT transaction_timestamp()").Scan(&captured); err != nil {
+			return nil, err
+		}
+		out["synced"] = captured
+		out["allocations"], err = walletReceiptHistory(ctx, tx, d.Event, d.Role, d.User)
+		if err != nil {
 			return nil, err
 		}
 	}

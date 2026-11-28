@@ -186,7 +186,6 @@ function openReasonEditor(trigger, title, subject, saveReason) {
 }
 function closeEditor() {
   if (!entryDialog.open) return;
-  if (entryDialog.querySelector('[data-act="resumeRecord"]')) suspendedRecord = null;
   entryDialog.close();
   delete entryDialog.dataset.recordWorkspace;
   entryDialog.replaceChildren();
@@ -214,9 +213,13 @@ function closeEditor() {
   (target || article).focus({ preventScroll: true });
   entryTrigger = null;
 }
+function dismissEditor() {
+  if (entryDialog.querySelector('[data-act="resumeRecord"]')) suspendedRecord = null;
+  closeEditor();
+}
 entryDialog.addEventListener("cancel", (event) => {
   event.preventDefault();
-  if (!busy) closeEditor();
+  if (!busy) dismissEditor();
 });
 const heading = (t) => "<h1>" + esc(t) + "</h1>";
 let profilesLocal = [];
@@ -267,7 +270,7 @@ async function api(path, body, token = auth) {
     const message = (await response.text()).slice(0, 240);
     if (!offlineEnabled && response.status === 401 && logged) {
       const form = entryDialog.querySelector("#record");
-      if (form && onlineUser && s) {
+      if (form && onlineUser && s && !suspendedRecord) {
         suspendedRecord = {
           user: onlineUser.user, role: onlineUser.role, year: selectedYear, workspace: s.event.ID,
           page, kind, edited: edit?.ID, revision: edit?.Revision, baseline: recordBaseline,
@@ -1979,14 +1982,10 @@ async function resumeRecord() {
   }
   page = draft.page;
   if (!writableWorkspace() || !editableKinds().includes(draft.kind)) {
-    closeEditor();
-    show();
     throw Error("This entry can no longer be edited in this workspace.");
   }
   const latest = draft.edited && rows().find(row => row.ID === draft.edited);
   if (draft.edited && !latest) {
-    closeEditor();
-    show();
     throw Error("The original entry is no longer available.");
   }
   closeEditor();
@@ -2000,14 +1999,27 @@ async function resumeRecord() {
   if (compare) showCorrection(form, draft.baseline, draft.values);
   else restoreValues(form, draft.values);
   if (form.elements.field_countMode) updateCountOptions(form);
+  if (form.querySelector("#count-total")) updateCount(form);
+  if (form.elements.sourceWallet) updateChangeSource(form);
   recordAttempt = draft.attempt;
+  suspendedRecord = null;
   if (recordAttempt) {
     unconfirmedWrites.add(s.event.ID);
+    lockRecordForm(form, true);
     await checkRecordSave();
   } else if (!compare) {
     entryDialog.querySelector(".entry-status").textContent =
       "Draft restored. Review it before saving." + (draft.file ? " Select the attachment again." : "");
   }
+}
+
+function lockRecordForm(form, locked) {
+  form.inert = locked;
+  form.querySelector("button:not([type=button])").disabled = locked;
+  const type = entryDialog.querySelector("[name=type]");
+  if (type) type.disabled = locked || !!edit;
+  const openingMethod = entryDialog.querySelector(".opening-method");
+  if (openingMethod) openingMethod.disabled = locked;
 }
 
 function showCorrection(form, baseline, proposed) {
@@ -2041,9 +2053,10 @@ async function checkRecordSave(retry = false) {
     try {
       await api(path, body);
     } catch (error) {
-      if (error.status === 409) {
+      if ([400, 403, 409, 422].includes(error.status)) {
         unconfirmedWrites.delete(event);
-        entryDialog.querySelector("#record").inert = false;
+        recordAttempt = null;
+        lockRecordForm(entryDialog.querySelector("#record"), false);
       }
       throw error;
     }
@@ -2052,9 +2065,7 @@ async function checkRecordSave(retry = false) {
     if (receipt.applied !== true) {
       if (receipt.applied !== false) throw Error("The server could not verify this entry.");
       const alert = entryDialog.querySelector(".entry-error");
-      entryDialog.querySelector("#record").inert = true;
-      const type = entryDialog.querySelector("[name=type]");
-      if (type) type.disabled = true;
+      lockRecordForm(entryDialog.querySelector("#record"), true);
       alert.innerHTML = "The server has no confirmation for this submission. Retry the original entry once using the same reference." +
         button("retryRecord", "Retry original entry", true);
       return;
@@ -2377,9 +2388,10 @@ function exchange() {
       : "")
   );
 }
-function reportRows() {
-  const period = rows().find((r) => r.ID === chosenPeriod);
-  return rows().filter(
+function reportRows(entries = rows(), selected = chosenPeriod) {
+  const period = entries.find((r) => r.ID === selected && r.Kind === "period");
+  if (selected && !period) throw Error("The selected reporting period is unavailable. Select it again.");
+  return entries.filter(
     (r) =>
       !period ||
       (r.Data.Date >= period.Data.Date && r.Data.Date <= period.Data.To),
@@ -5424,8 +5436,7 @@ document.addEventListener("submit", (e) => {
     const saveButton = inEditor && e.target.id === "record" && e.submitter;
     const label = saveButton?.textContent;
     if (saveButton) {
-      e.target.inert = true;
-      saveButton.disabled = true;
+      lockRecordForm(e.target, true);
       saveButton.textContent = "Saving…";
       entryDialog.querySelector(".entry-status").textContent = "Saving…";
     }
@@ -5434,9 +5445,8 @@ document.addEventListener("submit", (e) => {
       if (inEditor && close !== false) closeEditor();
     } finally {
       if (saveButton?.isConnected) {
-        e.target.inert = false;
         saveButton.textContent = label;
-        saveButton.disabled = false;
+        lockRecordForm(e.target, unconfirmedWrites.has(entryDialog.dataset.recordWorkspace));
         const status = entryDialog.querySelector(".entry-status");
         if (status?.textContent === "Saving…") status.textContent = "";
       }
@@ -5469,11 +5479,12 @@ function updateCountOptions(form) {
   for (const input of form.querySelectorAll(".pieces input"))
     input.disabled = manual;
 }
+function updateChangeSource(form) {
+  const account = form.elements.Account;
+  account.closest("label").hidden = account.disabled = !!form.elements.sourceWallet.value;
+}
 document.addEventListener("change", (e) => {
-  if (e.target.name === "sourceWallet") {
-    const account = e.target.form.elements.Account;
-    account.closest("label").hidden = account.disabled = !!e.target.value;
-  }
+  if (e.target.name === "sourceWallet") updateChangeSource(e.target.form);
   if (e.target.form?.elements.field_countMode && e.target.matches('[name="Wallet"],[name="field_countMode"],[name="field_countScope"]'))
     updateCountOptions(e.target.form);
 });
@@ -6132,10 +6143,11 @@ document.addEventListener("click", (e) => {
         return;
       case "evidence":
         {
-          const workspace = s, entries = rows(), selected = chosenPeriod;
-          const scopedRows = reportRows();
+          const selected = chosenPeriod;
+          const workspace = onlineSnapshot(await api("online?event=" + encodeURIComponent(s.event.ID), {EvidenceSnapshot:true}));
+          const entries = workspace.entries;
+          const scopedRows = reportRows(entries, selected);
           const period = entries.find(r => r.Kind === "period" && r.ID === selected);
-          const allocations = await api("events/wallet-links?" + new URLSearchParams({event: workspace.event.ID, history:"1"}));
           const reports = {},
             templates = {};
           const organization =
@@ -6155,7 +6167,8 @@ document.addEventListener("click", (e) => {
           }
           download(
             await evidence(workspace, scopedRows, reports, {
-              allocations: allocations.filter(item => !period || (item.Date >= period.Data.Date && item.Date <= period.Data.To)),
+              allocations: workspace.allocations.filter(item => !period || (item.Date >= period.Data.Date && item.Date <= period.Data.To)),
+              accountDefinitions: entries.filter(r => ["account", "wallet"].includes(r.Kind)),
               period: selected,
               starts: period?.Data.Date || workspace.event.Starts,
               ends: period?.Data.To || workspace.event.Ends,
@@ -6261,7 +6274,7 @@ document.addEventListener("click", (e) => {
         await sync();
         break;
       case "cancel":
-        closeEditor();
+        dismissEditor();
         return;
       case "resumeRecord":
         await resumeRecord();

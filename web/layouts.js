@@ -229,7 +229,7 @@ export function tablesFor(i, s, rows, subject, opts) {
     };
   }
   if (i === 9) {
-    const result = closure(list, !!opts.accounts, opts.closed)["report.closing"];
+    const result = closure(list, !!opts.accounts, opts.closed, rows)["report.closing"];
     const balances = result.account_lines || [{
       label: "Total balance", theoretical_cents: result.book_balance_cents,
       actual_cents: result.actual_closing_cents, difference_cents: result.difference_cents,
