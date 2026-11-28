@@ -200,6 +200,15 @@ test("Abschlussvertrag unterscheidet fehlendes Ist, bestätigte Null und Periode
   assert.equal(confirmed["report.export_set"].completeness_status, "complete");
 });
 
+test("the event cash surplus includes assigned receipts exactly once", () => {
+  const rows = [row("wallet-link", { Amount: 500 })];
+  const statement = tablesFor(8, { event: "Practice event" }, rows, null, {});
+  assert.match(statement.blocks[0].rows.at(-1)[1], /5,00/);
+  assert.match(statement.blocks[0].rows.at(-1)[3], /5,00/);
+  assert.match(statement.after[0], /Cash surplus: .*5,00/);
+  assert.equal(summary(rows).ear, 0);
+});
+
 test("closing comparisons require a current, unambiguous observation per account", () => {
   const a = "10000000-0000-4000-8000-000000000001";
   const b = "10000000-0000-4000-8000-000000000002";

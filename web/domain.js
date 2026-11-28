@@ -177,7 +177,7 @@ export function summary(rows) {
 export function eventStatementSummary(rows) {
   const s = summary(rows);
   const attributed = sum(rows, ["wallet-link"]);
-  return {...s, receipts: s.receipts + attributed, result: s.result + attributed};
+  return {...s, receipts: s.receipts + attributed, ear: s.ear + attributed, result: s.result + attributed};
 }
 export function availableNumbers(s) {
   if (
