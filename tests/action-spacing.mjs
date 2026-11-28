@@ -618,8 +618,8 @@ try {
         .click();
       await dialog.waitFor({ state: "hidden" });
     }
-    await page.getByRole("button", { name: "Post total" }).click();
-    await dialog.getByRole("button", { name: "Post total" }).click();
+    await page.getByRole("button", { name: "Post remaining income" }).click();
+    await dialog.getByRole("button", { name: /Book new income of/ }).click();
     await dialog.waitFor({ state: "hidden" });
     const state = await api("online?event=" + pooledEvent.ID, {});
     assert.equal(

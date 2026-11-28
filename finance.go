@@ -188,6 +188,17 @@ func pooledRevenue(rows []row) (int64, bool) {
 
 func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error) {
 	v := o.Data
+	if o.Kind == "income" && o.Base > 0 {
+		var allocated int64
+		var sourceDate string
+		err := tx.QueryRow(ctx, `SELECT coalesce(sum(l.amount),0)::bigint,coalesce(max(j.data->>'Date'),'') FROM wallet_receipt_links l JOIN entries j ON (j.event,j.id)=(l.source_event,l.receipt) WHERE l.source_event=$1 AND l.receipt=$2 AND l.amount>0`, d.Event, o.Target).Scan(&allocated, &sourceDate)
+		if err != nil {
+			return false, err
+		}
+		if allocated > 0 && (v.Amount == nil || *v.Amount < allocated || v.Date != sourceDate) {
+			return false, problem{409, "Review the wallet allocations before changing this receipt's date or reducing its amount."}
+		}
+	}
 	if o.Kind == "count" && v.Phase != "Zwischenstand" {
 		var overlap bool
 		err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT FROM entries WHERE event=$1 AND kind='count'
@@ -303,6 +314,9 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 	}
 	if strings.HasPrefix(o.Target, "import:") || strings.HasPrefix(v.Reference, "source:") {
 		ok, err := importReference(ctx, tx, d.Event, o)
+		if err == nil && !ok && o.Base > 0 {
+			return false, fail("The archived import source or its sheet and cell could not be verified. Check the original import before correcting this booking.")
+		}
 		if err != nil || !ok {
 			return false, err
 		}
@@ -335,7 +349,7 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 			(!pooled && (v.Reference != "wallet-settlement" || v.Wallet == "" || o.Target != "settlement:"+v.Wallet)) {
 			return false, fail("Invalid wallet reference.")
 		}
-		rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM settlement_entries WHERE event=$1 AND id<>$2 AND (kind='wallet' OR kind='count' OR kind=ANY($3))", d.Event, o.Target, journalKinds)
+		rows, err := tx.Query(ctx, "SELECT id,kind,device::text,revision,data FROM settlement_entries WHERE event=$1 AND id<>$2 AND (kind IN ('wallet','count','wallet-link') OR kind=ANY($3))", d.Event, o.Target, journalKinds)
 		if err != nil {
 			return false, err
 		}
@@ -347,7 +361,7 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 		if pooled {
 			total, known = pooledRevenue(entries)
 		}
-		if !known || v.Amount == nil || *v.Amount != total {
+		if !known || v.Amount == nil || *v.Amount != total-linkedReceipts(entries, v.Wallet) {
 			return false, nil
 		}
 	}
@@ -371,13 +385,24 @@ func preconditions(ctx context.Context, tx pgx.Tx, d device, o op) (bool, error)
 	return true, nil
 }
 
+func settlementCovered(count int64, posted *int64, linked int64) bool {
+	if posted == nil {
+		return linked > 0 && count == linked
+	}
+	return count == *posted+linked
+}
+
 func validateSettlement(rows []row) error {
 	if err := completeAttachments(rows); err != nil {
 		return err
 	}
 	var pooled bool
 	var booked *int64
+	linkedByWallet := make(map[string]int64)
 	for _, r := range rows {
+		if r.Kind == "wallet-link" && r.Data.Amount != nil {
+			linkedByWallet[r.Data.Wallet] += *r.Data.Amount
+		}
 		if r.Kind == "count" && r.Data.Fields["countScope"] == "all" {
 			pooled = true
 		}
@@ -387,7 +412,8 @@ func validateSettlement(rows []row) error {
 	}
 	if pooled || booked != nil {
 		amount, known := pooledRevenue(rows)
-		if !known || booked == nil || *booked != amount {
+		linked := linkedByWallet[""]
+		if !known || !settlementCovered(amount, booked, linked) {
 			return errors.New("The combined wallet count is not fully settled.")
 		}
 		return nil
@@ -420,7 +446,7 @@ func validateSettlement(rows []row) error {
 			continue
 		}
 		amount, ok := walletRevenue(movements[r.ID], r.ID)
-		if !ok || booked == nil || *booked != amount {
+		if !ok || !settlementCovered(amount, booked, linkedByWallet[r.ID]) {
 			return fmt.Errorf("Wallet %s is not fully settled.", r.Data.Label)
 		}
 	}

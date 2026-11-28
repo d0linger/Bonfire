@@ -1,5 +1,8 @@
+import { cashSettlement, allocationFields, bindReceiptChoices } from "./wallet-receipts.js";
 import { bulkWalletFields, bindWalletBatch, clearWalletBatches, submitWalletBatch } from "./wallet-batch.js";
 import { fiscalPicker } from "./fiscal-picker.js";
+import { closingChecklist, closingIssues } from "./closing.js";
+import { correctionDifferences, recordValues, restoreValues } from "./record-recovery.js";
 import { fireDirectory, balanceTable, balanceLines } from "./fire-accounts.js";
 import { denominationFields, floatFields, openingFloatHint, suggestedFloat, updateFloatInput, walletDirectory, walletPicker } from "./wallet-catalog.js";
 import { mountAccountSecurity } from "./account-security.js";
@@ -36,6 +39,7 @@ import { festivalPanel } from "./festabrechnung.js";
 import { denominationNeeds, financialLabel } from "./domain.js";
 import { zipSync } from "fflate";
 import { historyPreview } from "./historical.js";
+import { bookingDetail, isImportedBooking, sourceDetails } from "./booking-detail.js";
 import { positions, lineCents } from "./positions.js";
 import { background } from "./lfk.js";
 import { mergeWord } from "./word-profile.js";
@@ -59,12 +63,11 @@ import {
   cents,
   totalPieces,
   visible,
-  counted,
   poolCount,
-  pooledRevenue,
   availableNumbers,
   journalMatches,
   countID,
+  bookingDate,
   today,
   eur,
 } from "./domain.js";
@@ -140,7 +143,7 @@ function popupForm(id, title, fields, submitLabel) {
   );
 }
 const entryDialog = document.querySelector("#entry-dialog");
-let entryTrigger;
+let entryTrigger, recordBaseline, recordAttempt, suspendedRecord;
 function openEditor(trigger, title, content, selector = "") {
   entryTrigger = trigger;
   entryDialog.innerHTML =
@@ -149,7 +152,7 @@ function openEditor(trigger, title, content, selector = "") {
     '</h2><button type="button" class="entry-close" data-act="cancel" aria-label="Close">×</button></div>' +
     selector +
     content +
-    '<div class="entry-error" role="alert"></div>';
+    '<div class="entry-status" role="status"></div><div class="entry-error" role="alert"></div>';
   if (!entryDialog.open) entryDialog.showModal();
   entryDialog
     .querySelector("form input:not([type=hidden]), form select, form textarea")
@@ -183,9 +186,11 @@ function openReasonEditor(trigger, title, subject, saveReason) {
 }
 function closeEditor() {
   if (!entryDialog.open) return;
+  if (entryDialog.querySelector('[data-act="resumeRecord"]')) suspendedRecord = null;
   entryDialog.close();
   delete entryDialog.dataset.recordWorkspace;
   entryDialog.replaceChildren();
+  recordBaseline = recordAttempt = null;
   edit = null;
   const key = [
     "data-wallet-action",
@@ -193,6 +198,7 @@ function closeEditor() {
     "data-year-edit",
     "data-event-edit",
     "data-event-cleanup",
+    "data-booking-detail",
     "data-edit",
     "data-lifecycle",
     "data-settle",
@@ -260,6 +266,17 @@ async function api(path, body, token = auth) {
   if (!response.ok) {
     const message = (await response.text()).slice(0, 240);
     if (!offlineEnabled && response.status === 401 && logged) {
+      const form = entryDialog.querySelector("#record");
+      if (form && onlineUser && s) {
+        suspendedRecord = {
+          user: onlineUser.user, role: onlineUser.role, year: selectedYear, workspace: s.event.ID,
+          page, kind, edited: edit?.ID, revision: edit?.Revision, baseline: recordBaseline,
+          values: recordValues(form), attempt: unconfirmedWrites.has(s.event.ID) || !body?.Ops?.length ? recordAttempt : null,
+          walletAction: entryTrigger?.dataset.walletAction,
+          file: !!form.querySelector('input[type="file"]')?.files.length, donorAccess,
+        };
+      }
+      unconfirmedWrites.clear();
       clearWalletBatches();
       closeEditor();
       s = null;
@@ -309,7 +326,7 @@ async function workspaceRequest(id, body) {
     unconfirmedWrites.delete(id);
     return result;
   } catch (err) {
-    if (err instanceof TypeError) {
+    if (err instanceof TypeError || (changes && err.status >= 500)) {
       if (changes) unconfirmedWrites.add(id);
       throw Error(
         "The server did not confirm this operation. Check the server records after reconnecting.",
@@ -351,18 +368,22 @@ async function commit(next) {
     return;
   }
   if (next.ops.length || next.prints?.length) {
-    const result = await workspaceRequest(next.event.ID, {
+    const body = {
       Ops: next.ops,
       Prints: next.prints || [],
       ReceiptOnly: next.ops.length > 0,
-    });
+    };
+    if (entryDialog.querySelector("#record") && body.Ops.length && !unconfirmedWrites.has(next.event.ID))
+      recordAttempt = body;
+    const result = await workspaceRequest(next.event.ID, body);
     let out = result;
     if (result.saved) {
       try {
         out = await workspaceRequest(next.event.ID, {});
-      } catch {
+      } catch (error) {
+        if (error.status === 401) throw error;
         unconfirmedWrites.add(next.event.ID);
-        throw Error("The server saved the entry. Refresh the workspace before recording another entry.");
+        throw Error("The server saved the entry. Refresh the workspace before recording another entry.", {cause: error});
       }
     }
     s = onlineSnapshot(out, next);
@@ -581,7 +602,9 @@ function table(list, editable = []) {
               : types[r.Kind],
           ) +
           "</td><td>" +
-          esc(r.Data.Label) +
+          (!offlineEnabled && isBookingList() && monetary.has(r.Kind)
+            ? '<button type="button" class="booking-description" data-booking-detail="' + esc(r.ID) + '" aria-haspopup="dialog">' + esc(r.Data.Label) + "</button>"
+            : esc(r.Data.Label)) +
           (r.Kind === "expense" && r.Data.Fields?.issuer
             ? " · " + esc(r.Data.Fields.issuer)
             : "") +
@@ -613,7 +636,7 @@ function table(list, editable = []) {
               esc(r.ID) +
               '">Download file</button>'
             : "") +
-          (editable.includes(r.Kind) && !r.Data.Retired
+          (editable.includes(r.Kind) && !r.Data.Retired && (!isImportedBooking(r) || s.role === "Admin")
             ? '<button class="secondary" data-edit="' +
               esc(r.ID) +
               '">Edit</button>'
@@ -940,6 +963,11 @@ function devicePage() {
   );
 }
 function formFields(k, countPhase = "") {
+  if (k === "source-question")
+    return field("Label", "Question", "text", true) + recordDateField(k, countPhase) +
+      field("Reference", "Source reference", "text", true) +
+      select("Status", "Status", [["Open", "Open"], ["Resolved", "Resolved"]]) +
+      field("Note", edit ? "Decision or reason for correction" : "Evidence note", "text", !!edit);
   const eventBooking = !offlineEnabled && page === "Zahlungen";
   const walletTopUp = page === "Geldtaschen" && k === "supply" && !edit;
   const simpleBooking = [
@@ -970,13 +998,7 @@ function formFields(k, countPhase = "") {
             }[countPhase]
           : "",
     ) +
-    field(
-      "Date",
-      k === "period" ? "Period start" : "Date",
-      "date",
-      true,
-      offlineEnabled ? today() : defaultDay(s.event),
-    );
+    recordDateField(k, countPhase);
   if (monetary.has(k) && k !== "supply")
     f += label(
       "Amount in EUR",
@@ -1301,7 +1323,7 @@ function formFields(k, countPhase = "") {
       ]);
   else if (simpleBooking)
     extra +=
-      field("Category", "Category") + field("Reference", "Receipt reference");
+      field("Category", "Category") + (isImportedBooking(edit) ? "" : field("Reference", "Receipt reference"));
   if (k === "count")
     f += select("Status", "Recording status", [
       ["Unbestätigt", "Recorded observation"],
@@ -1331,6 +1353,10 @@ function formFields(k, countPhase = "") {
   }
   if (edit) f += field("Note", "Reason for correction", "text", true);
   else extra += field("Note", "Note / text snippet");
+  if (isImportedBooking(edit))
+    f = sourceDetails(edit, rows()) +
+      '<p class="booking-current">Current booking · ' + esc(edit.Data.Label) + ' · ' +
+      esc(dat(edit.Data.Date)) + ' · ' + esc(eur(edit.Data.Amount)) + ' · ' + esc(edit.Data.Category || "No category") + "</p>" + f;
   if (extra)
     f +=
       '<details class="record-extra"><summary>' +
@@ -1343,6 +1369,18 @@ function formFields(k, countPhase = "") {
       extra +
       "</div></details>";
   return f;
+}
+function recordDateField(k, phase) {
+  const title = k === "period" ? "Period start" : "Date";
+  if (offlineEnabled) return field("Date", title, "date", true, today());
+  const ordinary = monetary.has(k) && k !== "price" || ["count", "paper"].includes(k);
+  if (!ordinary) return field("Date", title, "date", true, defaultDay(s.event));
+  const {Starts, Ends} = fiscalYear() || s.event;
+  const day = bookingDate(s.event, k, phase);
+  return '<div>' + label(title, '<input name="Date" type="date" required value="' + esc(day) +
+    '" min="' + esc(Starts) + '" max="' + esc(Ends) + '" aria-describedby="entry-date-range">') +
+    '<small id="entry-date-range">Fiscal year: ' + dat(Starts) + ' – ' + dat(Ends) +
+    (s.event.General ? '' : ' · Event: ' + dat(s.event.Starts) + ' – ' + dat(s.event.Ends)) + '</small></div>';
 }
 function journalFilterFields() {
   const all = rows(),
@@ -1394,41 +1432,40 @@ function journalFilterFields() {
 function isBookingList() {
   return page === "Journal" || (!offlineEnabled && page === "Zahlungen");
 }
+let bookingReturn = null, lastBookingRow = "";
+function bookingScope() {
+  return JSON.stringify([onlineUser?.user, selectedYear, s?.event.ID, page]);
+}
+function rememberBookingList() {
+  if (offlineEnabled || !s || !isBookingList()) return;
+  bookingReturn = {scope: bookingScope(), filter, journalFilters, row: lastBookingRow, scroll: window.scrollY};
+}
+async function inspectBooking(trigger) {
+  const list = rows(), row = list.find(r => r.ID === trigger.dataset.bookingDetail);
+  if (!isBookingList() || !row || !monetary.has(row.Kind)) return;
+  lastBookingRow = row.ID;
+  openEditor(trigger, "Booking details", bookingDetail(row, list, s.event, workspaceLabel()) + button("cancel", "Back to entries", true));
+  const host = entryDialog.querySelector("[data-receipt-links]");
+  if (!host) return;
+  const links = await api("events/wallet-links?" + new URLSearchParams({event: s.event.ID, receipt: row.ID}));
+  if (host.isConnected) {
+    host.textContent = links.length ? links.map(link =>
+      [link.EventName, link.WalletName, dat(link.Date), eur(link.Amount)].filter(Boolean).join(" · ")
+    ).join(" / ") : "Not assigned";
+  }
+}
 function walletSettlementSummary(entries) {
   const pooled = poolCount(entries, "Anfang") || poolCount(entries, "Ende");
   function actionRow(wallet) {
-    const target = wallet ? "settlement:" + wallet.ID : "settlement-total";
-    const previous = entries.find((r) => r.ID === target);
-    const amount = wallet
-      ? counted(
-          entries.filter((r) => r.ID !== target),
-          wallet.ID,
-        )
-      : pooledRevenue(entries);
-    if (amount == null)
-      return wallet
-        ? ""
-        : "<p>Enter a pooled closing count and an opening balance. The opening balance can also come from individual counts for all wallets.</p>";
-    const label = wallet
-      ? esc(wallet.Data.Label) + " · Additional pooled cash income"
-      : "All wallets · Pooled cash income";
-    let action = "";
-    if (amount < 0) action = "Review counts and money movements.";
-    else if (previous?.Data.Amount === amount) action = "Posted";
-    else if (writableWorkspace()) {
-      const title = previous
-        ? "Correct pooled amount"
-        : wallet
-          ? "Post pooled amount"
-          : "Post total";
-      action =
-        '<button type="button" data-settle="' +
-        esc(wallet?.ID || target) +
-        '">' +
-        title +
-        "</button>";
-    }
-    return "<p>" + label + " " + eur(amount) + " " + action + "</p>";
+    const id = wallet?.ID || "";
+    const a = cashSettlement(entries,id);
+    if (a.countedCash==null) return "<p>Opening and closing counts are needed to settle "+esc(wallet?.Data.Label || "all wallets")+".</p>";
+    const name=esc(wallet?.Data.Label || "All wallets");
+    const key=esc(id || "settlement-total");
+    const writable=writableWorkspace() && a.countedCash>=0;
+    const link=writable ? '<button type="button" class="secondary" data-link-wallet="'+key+'">Assign existing receipt</button>' : "";
+    const post=writable && (a.remaining!==0 || (!a.posted && !a.linked)) ? '<button type="button" data-settle="'+key+'">'+(a.posted?"Review posting correction":"Post remaining income")+'</button>' : "";
+    return '<section><h3>'+name+'</h3><p>Counted takings '+eur(a.countedCash)+' · Linked cashbook receipts '+eur(a.linked)+' · Posted here '+eur(a.posting)+' · Remaining '+eur(a.remaining)+'</p><div class="actions">'+link+post+'</div></section>';
   }
   const actions = pooled
     ? actionRow(null)
@@ -1665,11 +1702,14 @@ function records() {
     );
   }
   return (
+    (page === "Perioden" && !offlineEnabled
+      ? closingChecklist(s, rows(), fiscalYear()?.Name, chosenPeriod, writableWorkspace(), s.role === "Admin")
+      : "") +
     (page === "Perioden" && !s.event.General
       ? festivalPanel(rows()) + walletSettlementSummary(rows())
       : "") +
     (page === "Geldtaschen" ? walletSettlementSummary(rows()) : "") +
-    "<section>" +
+    (page === "Perioden" ? '<section id="closing-records" tabindex="-1">' : "<section>") +
     panelHeading(
       "Entries",
       !offlineEnabled ? button("sync", "Refresh entries", true) : "",
@@ -1813,6 +1853,7 @@ function bookingTypeSelector(kinds) {
 }
 function openRecord(trigger, item = null) {
   canWrite();
+  if (isImportedBooking(item) && s.role !== "Admin") throw Error("Administrator access required to correct an imported booking.");
   const kinds = editableKinds();
   if (!kinds.length || (item && !kinds.includes(item.Kind))) return;
   edit = item;
@@ -1887,7 +1928,6 @@ function openRecord(trigger, item = null) {
       fields.field_countMode.value = item.Data.Pieces ? "pieces" : "amount";
     updateCountOptions(record);
   }
-  loadSponsorChoices(record);
   if (!item && kind === "opening" && onOverview()) {
     const period = rows().find(
       (r) => r.Kind === "period" && r.ID === overviewPeriod,
@@ -1901,6 +1941,122 @@ function openRecord(trigger, item = null) {
       addYearCarryChoice(entryDialog.querySelector("#record"));
     fields.amount.focus();
   }
+  recordBaseline = recordValues(record);
+  return loadSponsorChoices(record);
+}
+
+async function finishRecordSignIn() {
+  await onlineStart(await api("workplace"));
+  page = destination;
+  const draft = suspendedRecord;
+  if (!draft) return;
+  if (draft.user !== onlineUser.user || draft.role !== onlineUser.role ||
+      !allSpaces.some(space => space.ID === draft.workspace && !space.Closed)) {
+    suspendedRecord = null;
+    return;
+  }
+  openEditor(null, "Resume your unsaved entry?",
+    "<p>Your previous session ended while this tab had an entry open. Resume to check the server and review your draft.</p>" +
+    '<div class="actions">' + button("resumeRecord", "Resume entry") + button("cancel", "Discard draft", true) + "</div>");
+}
+
+async function resumeRecord() {
+  const draft = suspendedRecord;
+  if (!draft || draft.user !== onlineUser?.user) return;
+  donorAccess = draft.donorAccess && onlineUser.role === "Admin";
+  try {
+    await selectFiscalWorkspace(draft.year, draft.workspace);
+  } catch (error) {
+    donorAccess = false;
+    throw error;
+  }
+  page = draft.page;
+  if (!writableWorkspace() || !editableKinds().includes(draft.kind)) {
+    closeEditor();
+    show();
+    throw Error("This entry can no longer be edited in this workspace.");
+  }
+  const latest = draft.edited && rows().find(row => row.ID === draft.edited);
+  if (draft.edited && !latest) {
+    closeEditor();
+    show();
+    throw Error("The original entry is no longer available.");
+  }
+  closeEditor();
+  show();
+  kind = draft.kind;
+  const trigger = draft.walletAction && article.querySelector('[data-wallet-action="' + CSS.escape(draft.walletAction) + '"]');
+  await openRecord(trigger || article.querySelector('[data-act="focusEntry"]'), latest);
+  const form = entryDialog.querySelector("#record");
+  if (!form) return;
+  const compare = latest && draft.revision !== latest.Revision;
+  if (compare) showCorrection(form, draft.baseline, draft.values);
+  else restoreValues(form, draft.values);
+  if (form.elements.field_countMode) updateCountOptions(form);
+  recordAttempt = draft.attempt;
+  if (recordAttempt) {
+    unconfirmedWrites.add(s.event.ID);
+    await checkRecordSave();
+  } else if (!compare) {
+    entryDialog.querySelector(".entry-status").textContent =
+      "Draft restored. Review it before saving." + (draft.file ? " Select the attachment again." : "");
+  }
+}
+
+function showCorrection(form, baseline, proposed) {
+  const status = entryDialog.querySelector(".entry-status");
+  const differences = correctionDifferences(form, baseline, proposed);
+  status.innerHTML = "<p>A newer version is open. Review your proposed changes and enter the corrections you still want to make.</p>" +
+    (differences.length ? "<dl>" + differences.map(change =>
+      "<dt>" + esc(change.caption) + "</dt><dd>Current: " + esc(change.saved) +
+      " · Your draft: " + esc(change.proposed) + "</dd>").join("") + "</dl>" : "");
+  status.scrollIntoView({block: "nearest"});
+}
+
+async function reviewLatestRecord() {
+  const form = entryDialog.querySelector("#record");
+  const target = edit?.ID, proposed = recordValues(form), baseline = recordBaseline;
+  await sync();
+  const latest = rows().find(row => row.ID === target);
+  if (!latest || !writableWorkspace()) throw Error("This entry can no longer be edited.");
+  recordAttempt = null;
+  openRecord(entryTrigger, latest);
+  showCorrection(entryDialog.querySelector("#record"), baseline, proposed);
+}
+
+async function checkRecordSave(retry = false) {
+  const body = recordAttempt, event = s.event.ID;
+  if (!body || entryDialog.dataset.recordWorkspace !== event) throw Error("Reopen the original entry.");
+  const path = "online?event=" + encodeURIComponent(event);
+  if (retry) {
+    // An explicit retry reuses the exact payload, operation ID and target.
+    // The server's existing operation digest makes a late first response safe.
+    try {
+      await api(path, body);
+    } catch (error) {
+      if (error.status === 409) {
+        unconfirmedWrites.delete(event);
+        entryDialog.querySelector("#record").inert = false;
+      }
+      throw error;
+    }
+  } else {
+    const receipt = await api(path, { CheckOperation: body.Ops[0].ID });
+    if (receipt.applied !== true) {
+      if (receipt.applied !== false) throw Error("The server could not verify this entry.");
+      const alert = entryDialog.querySelector(".entry-error");
+      entryDialog.querySelector("#record").inert = true;
+      const type = entryDialog.querySelector("[name=type]");
+      if (type) type.disabled = true;
+      alert.innerHTML = "The server has no confirmation for this submission. Retry the original entry once using the same reference." +
+        button("retryRecord", "Retry original entry", true);
+      return;
+    }
+  }
+  await sync();
+  closeEditor();
+  show();
+  notice.textContent = "Saved. The server confirmed this entry.";
 }
 function addYearCarryChoice(manual) {
   manual.insertAdjacentHTML(
@@ -3221,6 +3377,8 @@ async function selectFiscalWorkspace(yearID, eventID) {
   if (eventID && !chosen)
     throw Error("This workspace is unavailable in the selected fiscal year.");
   const out = chosen ? await workspaceRequest(chosen.ID, {}) : null;
+  bookingReturn = null;
+  lastBookingRow = "";
   selectedYear = yearID;
   events = spaces;
   preferredEvent = chosen?.ID || "";
@@ -3744,6 +3902,7 @@ async function openBalances(trigger) {
     balanceTable(balanceItems, s.yearClosed),
   );
 }
+let closingReturn = null;
 function show() {
   document.body.classList.toggle("auth-screen", !s && !logged);
   notice.textContent = "";
@@ -3979,6 +4138,26 @@ function show() {
   if (page === "Dokumente") installStudio();
   const periodSelect = article.querySelector("[name=reportPeriod]");
   if (periodSelect) periodSelect.value = chosenPeriod;
+  const checks = article.querySelector("#closing-checks");
+  if (closingReturn && s && closingReturn.user === s.user && closingReturn.year === selectedYear &&
+      s.event.ID === closingReturn.destination && (page !== "Perioden" || s.event.ID !== closingReturn.workspace)) {
+    article.querySelector(".page-head")?.insertAdjacentHTML("afterend",
+      '<div class="actions"><button type="button" class="secondary" data-act="backToClosing">Back to closing checklist</button></div>');
+  }
+  if (checks) {
+    const event = s.event;
+    api("online?event=" + encodeURIComponent(event.ID), {ClosingPreview: true}).then(issues => {
+      if (!checks.isConnected) return;
+      checks.innerHTML = closingIssues(issues, event, events, s.role);
+      if (closingReturn?.restore && closingReturn.workspace === event.ID) {
+        const target = [...checks.querySelectorAll("[data-closing-issue]")].find(el => el.dataset.closingIssue === closingReturn.issue);
+        (target || article.querySelector("#closing-title"))?.focus();
+        closingReturn = null;
+      }
+    }).catch(err => {
+      if (checks.isConnected) checks.textContent = "Checks unavailable. " + err.message;
+    });
+  }
 }
 
 function fillRecord(f) {
@@ -4039,6 +4218,10 @@ async function action(fn) {
           "beforeend",
           button("sync", "Refresh entries", true),
         );
+      else if (e.status === 409 && edit && entryDialog.querySelector("#record")) {
+        entryDialog.querySelector("#record button:not([type=button])").disabled = true;
+        alert.insertAdjacentHTML("beforeend", button("reviewLatestRecord", "Compare current entry", true));
+      }
       alert.scrollIntoView({ block: "nearest" });
     } else notice.textContent = message;
   } finally {
@@ -4108,31 +4291,33 @@ async function submit(f) {
     }
     await api("fire-accounts", body);
   }
+  if (id === "wallet-receipt") {
+    canWrite();
+    if(f.dataset.event!==s.event.ID)throw Error("Reopen the event.");
+    const receipt=f.receipts.find(i=>i.ID===vals.receipt);
+    if(!receipt)throw Error("Select the actual cashbook receipt.");
+    const amount=cents(vals.allocation);
+    if(amount==null || amount<0 || amount>receipt.Available)throw Error("Check the amount available on this receipt.");
+    const body={Event:s.event.ID,Wallet:f.dataset.wallet,Receipt:receipt.ID,Amount:amount,SourceRevision:receipt.SourceRevision,
+      Revision:receipt.Revision,PostRevision:f.settlement.posted?.Revision || 0,Counted:f.settlement.countedCash,Reason:vals.linkReason,
+      CorrectPosted:!!f.elements.CorrectPosted?.checked};
+    await api("events/wallet-links",{...body,Request:f.request});
+    await sync();
+  }
   if (id === "pooled-settlement") {
     canWrite();
-    if (f.dataset.event !== s.event.ID)
-      throw Error("Reopen event.");
-    const amount = pooledRevenue(rows()),
-      end = poolCount(rows(), "Ende");
-    if (amount == null || amount < 0 || amount !== Number(f.dataset.amount))
-      throw Error("The count changed. Reopen settlement.");
-    if (s.event.Accounts && !vals.Account)
-      throw Error("Select a posting account.");
-    const previous = rows().find((r) => r.ID === "settlement-total");
-    await queue(
-      "income",
-      {
-        Label: "Cash settlement for all wallets",
-        Amount: amount,
-        Date: previous?.Data.Date || end.Data.Date,
-        Account: vals.Account || "",
-        Method: "Bar",
-        Reference: "wallet-settlement-total",
-        Note: vals.reason || "",
-      },
-      "settlement-total",
-      previous?.Revision || 0,
-    );
+    if (f.dataset.event !== s.event.ID) throw Error("Reopen the event.");
+    const id=f.dataset.wallet, wallet=rows().find(r=>r.ID===id);
+    const state=cashSettlement(rows(),id);
+    const end=rows().find(r=>r.Kind==="count" && r.Data.Phase==="Ende" && (r.Data.Wallet||"")===id);
+    const amount=state.countedCash-state.linked;
+    if(!end || state.countedCash==null || amount<0 || amount!==Number(f.dataset.amount))throw Error("The count changed. Review settlement again.");
+    const account=id || vals.Account || "";
+    if(s.event.Accounts && !account)throw Error("Select a posting account.");
+    await queue("income",{Label:wallet?"Bar settlement "+wallet.Data.Label:"Cash settlement for all wallets",
+      Date:state.posted?.Data.Date || end.Data.Date,Account:account,Wallet:id,Bar:wallet?.Data.Bar || "",
+      Amount:amount,Method:"Bar",Reference:id?"wallet-settlement":"wallet-settlement-total",Note:vals.reason || ""},
+      state.target,state.posted?.Revision || 0);
   }
   if (id === "conflictFile") {
     const out = await api(
@@ -4253,8 +4438,7 @@ async function submit(f) {
       show();
       return;
     }
-    await onlineStart(await api("workplace"));
-    page = destination;
+    await finishRecordSignIn();
   }
 
   if (id === "fiscal-year" || id === "assign-year") {
@@ -4643,7 +4827,10 @@ async function submit(f) {
     if (vals.from && vals.until && vals.from > vals.until)
       throw Error("Check the date range.");
     filter = vals.filter;
-    if (isBookingList()) journalFilters = vals;
+    if (isBookingList()) {
+      journalFilters = vals;
+      lastBookingRow = "";
+    }
   }
   if (id === "record") {
     if (
@@ -4894,7 +5081,17 @@ async function submit(f) {
       !d.Allocations
     )
       throw Error("Select the associated transaction.");
-    await queue(kind, d, target, edit?.Revision || 0);
+    let corrected = d;
+    if (isImportedBooking(edit)) {
+      const fields = { ...edit.Data.Fields };
+      for (const [name, value] of Object.entries(d.Fields || {})) {
+        if (value || Object.hasOwn(fields, name)) fields[name] = value;
+      }
+      corrected = { ...edit.Data, ...d, Reference: edit.Data.Reference, Fields: fields };
+      delete corrected.PostingOrder;
+      delete corrected.BalanceOrder;
+    }
+    await queue(kind, corrected, target, edit?.Revision || 0);
     edit = null;
   }
   if (id === "lfk") {
@@ -5217,8 +5414,26 @@ document.addEventListener("submit", (e) => {
   action(async () => {
     const inEditor = entryDialog.contains(e.target);
     if (inEditor) entryDialog.querySelector(".entry-error").replaceChildren();
-    const close = await submit(e.target);
-    if (inEditor && close !== false) closeEditor();
+    const saveButton = inEditor && e.target.id === "record" && e.submitter;
+    const label = saveButton?.textContent;
+    if (saveButton) {
+      e.target.inert = true;
+      saveButton.disabled = true;
+      saveButton.textContent = "Saving…";
+      entryDialog.querySelector(".entry-status").textContent = "Saving…";
+    }
+    try {
+      const close = await submit(e.target);
+      if (inEditor && close !== false) closeEditor();
+    } finally {
+      if (saveButton?.isConnected) {
+        e.target.inert = false;
+        saveButton.textContent = label;
+        saveButton.disabled = false;
+        const status = entryDialog.querySelector(".entry-status");
+        if (status?.textContent === "Saving…") status.textContent = "";
+      }
+    }
   });
 });
 function overlapsCountScope(entries, pooled, phase) {
@@ -5328,6 +5543,7 @@ document.addEventListener("change", (e) => {
   }
   if (e.target.name === "reportPeriod") {
     chosenPeriod = e.target.value;
+    if (page === "Perioden") show();
   }
   if (e.target.name === "type") {
     if (!entryDialog.open || edit) return;
@@ -5346,6 +5562,7 @@ document.addEventListener("change", (e) => {
         continue;
       }
       const value = values.get(input.name);
+      if (input.name === "Date" && previous.elements.Date.value === previous.elements.Date.defaultValue) continue;
       if (typeof value !== "string") continue;
       if (input instanceof HTMLSelectElement &&
           ![...input.options].some((option) => !option.disabled && option.value === value)) continue;
@@ -5375,6 +5592,23 @@ document.addEventListener("click", (e) => {
   )
     return;
   if (busy) return;
+  if (b.dataset.act === "backToClosing" && closingReturn?.user === s?.user && closingReturn.year === selectedYear) {
+    const origin = closingReturn;
+    action(async () => {
+      await selectFiscalWorkspace(origin.year, origin.workspace);
+      if (s?.event.ID !== origin.workspace) throw Error("This workspace is no longer available.");
+      chosenPeriod = origin.period;
+      page = "Perioden";
+      origin.restore = true;
+      show();
+    });
+    return;
+  }
+  const issue = b.closest("[data-closing-issue]");
+  if (issue && (b.dataset.page || b.dataset.space)) {
+    closingReturn = {workspace: s.event.ID, destination: b.dataset.space || s.event.ID, year: selectedYear,
+      user: s.user, period: chosenPeriod, issue: issue.dataset.closingIssue};
+  }
   if (b.dataset.masterEdit || b.dataset.masterLink) {
     const id = b.dataset.masterEdit || b.dataset.masterLink;
     const master = accountCatalog.accounts.find((a) => a.ID === id);
@@ -5514,6 +5748,11 @@ document.addEventListener("click", (e) => {
     openEditor(b, b.textContent, b.nextElementSibling.innerHTML);
     return;
   }
+  if (b.dataset.act === "sourceQuestion") {
+    kind = "source-question";
+    openRecord(b);
+    return;
+  }
   if (b.hasAttribute("data-fiscal")) {
     action(async () => {
       donorAccess = false;
@@ -5642,12 +5881,18 @@ document.addEventListener("click", (e) => {
         donorAccess = false;
         await selectFiscalWorkspace(selectedYear);
       }
+      rememberBookingList();
       page = target;
-      filter = "";
-      journalFilters = {};
+      const prior = isBookingList() && bookingReturn?.scope === bookingScope() ? bookingReturn : null;
+      filter = prior?.filter || "";
+      journalFilters = prior?.journalFilters || {};
       edit = null;
       show();
-      if (pageLink) article.focus();
+      if (prior) {
+        window.scrollTo(0, prior.scroll);
+        const row = prior.row && article.querySelector('[data-booking-detail="' + CSS.escape(prior.row) + '"]');
+        (row || article).focus({preventScroll: true});
+      } else if (pageLink) article.focus();
     });
     return;
   }
@@ -5704,6 +5949,10 @@ document.addEventListener("click", (e) => {
       openRecord(b);
       return;
     }
+    if (b.dataset.bookingDetail) {
+      await inspectBooking(b);
+      return;
+    }
     if (b.dataset.edit) {
       const row = rows().find((r) => r.ID === b.dataset.edit);
       if (!row) throw Error("This entry is no longer available.");
@@ -5738,82 +5987,39 @@ document.addEventListener("click", (e) => {
       );
       return;
     }
-    if (b.dataset.settle) {
-      if (b.dataset.settle === "settlement-total") {
-        canWrite();
-        const amount = pooledRevenue(rows()),
-          previous = rows().find((r) => r.ID === "settlement-total");
-        if (amount == null || amount < 0) throw Error("Check count.");
-        openEditor(
-          b,
-          "Settle wallets together",
-          "<p>" +
-            esc(s.event.Name) +
-            " · Sammelbareinnahme <strong>" +
-            eur(amount) +
-            "</strong></p><p>Cash bookings without a wallet count toward pooled cash unless a separate account is specified.</p>" +
-            form(
-              "pooled-settlement",
-              (s.event.Accounts
-                ? refs("Account", "Posting account", ["account"])
-                : "") +
-                (previous
-                  ? field("reason", "Reason for correction", "text", true)
-                  : ""),
-              previous ? "Post correction" : "Post total",
-              button("cancel", "Cancel", true),
-            ),
-        );
-        const f = entryDialog.querySelector("form");
-        f.dataset.event = s.event.ID;
-        f.dataset.amount = String(amount);
-        if (previous && f.elements.Account)
-          f.elements.Account.value = previous.Data.Account;
-        return;
+    if (b.dataset.linkWallet || b.dataset.settle) {
+      canWrite();
+      const selected=b.dataset.linkWallet || b.dataset.settle;
+      const wallet=selected==="settlement-total" ? "" : selected;
+      const state=cashSettlement(rows(),wallet);
+      if(state.countedCash==null || state.countedCash<0) throw Error("Review the counts first.");
+      const walletName=rows().find(r=>r.ID===wallet)?.Data.Label || "All wallets";
+      const context='<p>'+esc(s.event.Name)+' · '+esc(walletName)+'</p><p>Counted takings '+eur(state.countedCash)+' · Linked '+eur(state.linked)+' · Posted '+eur(state.posting)+' · Remaining '+eur(state.remaining)+'</p>';
+      if (b.dataset.linkWallet) {
+        const eventID=s.event.ID;
+        const fetchReceipts=(search,page=0)=>api("events/wallet-links?"+new URLSearchParams({event:eventID,wallet,search,page}));
+        const receipts=await fetchReceipts("");
+        if(s.event.ID!==eventID)return;
+        openEditor(b,"Assign existing cashbook receipt",context+'<p>The receipt stays in the cashbook. Only the selected share is attributed to this event.</p>'+
+          '<label>Find by description, date or reference<input type="search" data-receipt-search></label>'+
+          form("wallet-receipt",allocationFields()+(state.posted?
+          '<label><input type="checkbox" name="CorrectPosted"> Correct previously posted settlement income if this receipt covers it</label>':""),
+          "Save allocation",button("cancel","Cancel",true)));
+        const f=entryDialog.querySelector("form");
+        f.dataset.event=eventID; f.dataset.wallet=wallet;
+        f.settlement=state; f.receipts=receipts; f.request=crypto.randomUUID();
+        const search=entryDialog.querySelector("[data-receipt-search]");
+        bindReceiptChoices(f,search,receipts,fetchReceipts);
+      } else {
+        const amount=state.countedCash-state.linked;
+        openEditor(b,"Review settlement posting",context+'<p>Use an existing cashbook receipt if these takings were already booked.</p>'+
+          form("pooled-settlement",(!wallet && s.event.Accounts ? refs("Account","Posting account",["account"]) : "")+
+             (state.posted ? field("reason","Reason for correction","text",true) : ""),
+             (state.posted ? "Correct posted income to " : "Book new income of ")+eur(amount),button("cancel","Cancel",true)));
+        const f=entryDialog.querySelector("form");
+        f.dataset.event=s.event.ID; f.dataset.wallet=wallet; f.dataset.amount=String(amount);
+        if(state.posted && f.elements.Account)f.elements.Account.value=state.posted.Data.Account;
       }
-      const wallet = rows().find((r) => r.ID === b.dataset.settle);
-      const target = "settlement:" + wallet.ID;
-      const previous = rows().find((r) => r.ID === target);
-      const amount = counted(
-        rows().filter((r) => r.ID !== target),
-        wallet.ID,
-      );
-      if (amount === null || amount < 0)
-        throw Error("Review counts and their associated transactions.");
-      const end = rows().find(
-        (r) =>
-          r.Kind === "count" &&
-          r.Data.Wallet === wallet.ID &&
-          r.Data.Phase === "Ende",
-      );
-      const saveSettlement = (reason) =>
-        queue(
-          "income",
-          {
-            Label: "Bar settlement " + wallet.Data.Label,
-            Date: previous?.Data.Date || end.Data.Date,
-            Note: reason,
-            Wallet: wallet.ID,
-            Bar: wallet.Data.Bar,
-            Account: wallet.ID,
-            Amount: amount,
-            Method: "Bar",
-            Reference: "wallet-settlement",
-          },
-          target,
-          previous?.Revision || 0,
-        );
-      if (previous) {
-        openReasonEditor(
-          b,
-          "Correct pooled amount",
-          wallet.Data.Label + " · " + eur(amount),
-          saveSettlement,
-        );
-        return;
-      }
-      await saveSettlement("");
-      show();
       return;
     }
     if (b.dataset.attachment) {
@@ -5902,10 +6108,7 @@ document.addEventListener("click", (e) => {
       case "passkeyLogin": {
         const result = await usePasskey(api);
         if (result.passwordChange) passwordTicket = result.passwordChange;
-        else {
-          await onlineStart(await api("workplace"));
-          page = destination;
-        }
+        else await finishRecordSignIn();
         show();
         return;
       }
@@ -5921,16 +6124,20 @@ document.addEventListener("click", (e) => {
         return;
       case "evidence":
         {
+          const workspace = s, entries = rows(), selected = chosenPeriod;
+          const scopedRows = reportRows();
+          const period = entries.find(r => r.Kind === "period" && r.ID === selected);
+          const allocations = await api("events/wallet-links?" + new URLSearchParams({event: workspace.event.ID, history:"1"}));
           const reports = {},
             templates = {};
           const organization =
-            rows().find((r) => r.Kind === "organization")?.Data.Label || "";
+            entries.find((r) => r.Kind === "organization")?.Data.Label || "";
           for (const [i, name] of [
             [9, "Review-report"],
             [10, "Document-register"],
           ]) {
-            const snap = snapshot(i, s, rows(), {
-              period: chosenPeriod,
+            const snap = snapshot(i, workspace, entries, {
+              period: selected,
               organization,
             });
             templates[name] = snap.templateVersionID;
@@ -5939,8 +6146,11 @@ document.addEventListener("click", (e) => {
             reports[name + ".docx"] = docs.docx;
           }
           download(
-            await evidence(s, reportRows(), reports, {
-              period: chosenPeriod,
+            await evidence(workspace, scopedRows, reports, {
+              allocations: allocations.filter(item => !period || (item.Date >= period.Data.Date && item.Date <= period.Data.To)),
+              period: selected,
+              starts: period?.Data.Date || workspace.event.Starts,
+              ends: period?.Data.To || workspace.event.Ends,
               templates,
             }),
             "Review-package.zip",
@@ -6045,8 +6255,21 @@ document.addEventListener("click", (e) => {
       case "cancel":
         closeEditor();
         return;
+      case "resumeRecord":
+        await resumeRecord();
+        return;
+      case "reviewLatestRecord":
+        await reviewLatestRecord();
+        return;
+      case "retryRecord":
+        await checkRecordSave(true);
+        return;
       case "sync": {
         const uncertain = !offlineEnabled && unconfirmedWrites.has(s.event.ID);
+        if (uncertain && recordAttempt && entryDialog.querySelector("#record")) {
+          await checkRecordSave();
+          return;
+        }
         await sync();
         if (uncertain) {
           show();

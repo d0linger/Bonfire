@@ -108,7 +108,7 @@ func closePeriod(ctx context.Context, tx pgx.Tx, d device, id string) (string, e
 		// wallet movements only for validation, outside the frozen period snapshot.
 		earlier, err := tx.Query(ctx, `SELECT id,kind,device::text,revision,data FROM settlement_entries
    WHERE event=$1 AND (data->>'Date')::date<$2 AND kind=ANY($3)`, event, start,
-			[]string{"count", "supply", "skim", "return", "cashback", "transfer", "expense", "refund", "deposit-return", "income", "donation", "payment", "presale", "deposit"})
+			[]string{"count", "wallet-link", "supply", "skim", "return", "cashback", "transfer", "expense", "refund", "deposit-return", "income", "donation", "payment", "presale", "deposit"})
 		if err != nil {
 			return "", err
 		}

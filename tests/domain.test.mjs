@@ -3,13 +3,35 @@ import assert from "node:assert/strict";
 import { fiscalRange } from "../web/fiscal-picker.js";
 import {
   cents,
+  bookingDate,
   totalPieces,
   counted,
+  cashAfterCount,
   pooledRevenue,
   summary,
   journalMatches,
 } from "../web/domain.js";
 import { walletTable } from "../web/workplace.js";
+test("cash custody preserves the closing observation and distinguishes later returns", () => {
+  const wallet=new Set(["blue"]), closing={Date:"2026-09-30",PostingOrder:"7",Amount:15000};
+  const movement=(order,amount,kind="return")=>({Kind:kind,Data:{Date:closing.Date,PostingOrder:order,Amount:amount,Wallet:"blue",Account:"blue",To:"main"}});
+  assert.deepEqual(cashAfterCount([movement("4",3000,"skim"),movement("8",4000)], closing,wallet),{returned:4000,held:11000});
+  assert.deepEqual(cashAfterCount([movement("8",15000)], closing,wallet),{returned:15000,held:0});
+  assert.equal(cashAfterCount([movement("",4000)],closing,wallet),null);
+  assert.equal(cashAfterCount([],null,wallet),null);
+  assert.equal(closing.Amount,15000);
+});
+test("posting dates respect a cross-calendar workspace and balance boundaries", () => {
+  const scope = {Starts: "2025-11-01", Ends: "2026-09-30"};
+  for (const day of [scope.Starts, "2026-01-01", scope.Ends]) {
+    assert.equal(bookingDate(scope, "expense", "", day), day);
+  }
+  for (const day of ["2025-10-31", "2026-10-01"]) {
+    assert.equal(bookingDate(scope, "income", "", day), "");
+    assert.equal(bookingDate(scope, "count", "Anfang", day), scope.Starts);
+    assert.equal(bookingDate(scope, "actual", "", day), scope.Ends);
+  }
+});
 const r = (Kind, Amount, Phase = "") => ({
   Kind,
   Data: { Amount, Phase, Wallet: "Nord" },

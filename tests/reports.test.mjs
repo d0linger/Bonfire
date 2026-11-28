@@ -5,7 +5,31 @@ import { denominationNeeds, summary } from "../web/domain.js";
 import { donationReport } from "../web/donors.js";
 import { sponsorshipStatus } from "../web/sponsorship.js";
 import { tablesFor } from "../web/layouts.js";
+import { evidence } from "../web/exchange.js";
+import { unzipSync, strFromU8 } from "fflate";
 const row = (Kind, Data, ID = Kind) => ({ ID, Kind, Data });
+test("a locked, balanced workspace can have an open evidence question and no independent approval", async () => {
+  const day = "2042-06-01";
+  const records = [
+    row("opening", {Date: day, Amount: 500, BalanceOrder: "1"}),
+    row("actual", {Date: day, Amount: 500, BalanceOrder: "2"}),
+    row("source-question", {Date: day, Label: "Confirm delivery", Reference: "Sample note 3", Status: "Open"}),
+  ];
+  const workspace = {event: {ID: "test-event", Name: "Practice event", Starts: day, Ends: day},
+    closed: true, ops: [], conflicts: [], pending: 0};
+  const reports = Object.fromEntries(["Review-report.pdf", "Review-report.docx", "Document-register.pdf", "Document-register.docx"]
+    .map(name => [name, new Blob(["synthetic test"])]));
+  const archive = await evidence(workspace, records, reports);
+  const manifest = JSON.parse(strFromU8(unzipSync(new Uint8Array(await archive.arrayBuffer()))["manifest.json"]));
+  assert.equal(manifest.technicallyComplete, true);
+  assert.equal(manifest.reconciliation.difference_cents, 0);
+  assert.equal(manifest.independentReview, "not_recorded");
+  assert.equal(manifest.freigegeben, false);
+  assert.equal(manifest.sourceQuestions[0].source, "Sample note 3");
+  const report = tablesFor(9, {event: "Practice event"}, records, "", {closed: true});
+  assert.ok(report.after.includes("Independent review: not recorded"));
+  assert.ok(report.after.includes("Confirm delivery · Sample note 3"));
+});
 test("journal exports identify the workspace and place early bookings first", () => {
   const records = [
     row("expense", { Date: "2042-07-08", Amount: 520, Label: "Supplies" }),
@@ -169,7 +193,8 @@ test("Abschlussvertrag unterscheidet fehlendes Ist, bestätigte Null und Periode
     true,
   );
   assert.equal(confirmed["report.closing"].difference_cents, 0);
-  assert.equal(confirmed["report.review"].status, "approved");
+  assert.equal(confirmed["report.review"].independent_review, "not_recorded");
+  assert.equal(confirmed["report.export_set"].completeness_status, "complete");
 });
 
 test("closing comparisons require a current, unambiguous observation per account", () => {
@@ -208,8 +233,8 @@ test("equal and opposite postings require a new same-day observation", () => {
   values[2].Data.Date = values[3].Data.Date = "2026-06-10";
   assert.equal(closure(values,false,true)["report.review"].status,"preparation");
   values[1].Data.BalanceOrder="5";
-  assert.equal(closure(values,false,true)["report.review"].status,"approved");
+  assert.equal(closure(values,false,true)["report.export_set"].completeness_status,"complete");
   values[2].Data.Date = "2026-06-10";
   delete values[2].Data.BalanceOrder;
-  assert.equal(closure(values,false,true)["report.review"].status,"preparation");
+  assert.equal(closure(values,false,true)["report.export_set"].completeness_status,"incomplete");
 });

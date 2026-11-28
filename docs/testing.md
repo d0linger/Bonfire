@@ -1,4 +1,14 @@
 # Test strategy
+# Cashbook and event settlement review
+
+To settle counted takings, first check whether the general cashbook already contains the receipt. In the event wallet settlement, select that receipt and assign the portion covered by the count. Post only the outstanding amount. The event result includes its assigned receipts. The treasury journal contains each actual receipt once. A return after the closing count changes the cash still held. The original closing observation remains available.
+
+Open a booking by its description to inspect its source and supporting documents. Correct an imported booking through **Edit** and enter the reason. For a new historical transaction, enter the date from the receipt. If a save is interrupted, keep the tab open and check the previous submission before trying again. The draft is held in memory for the same authorized cashier.
+
+**Closing** shows the workspace, dates, reconciliation mode, observed balances and server checks. Record outstanding evidence under **Open source questions** with a source reference. These questions are advisory. The review package covers the selected workspace and export dates. In manifest version 3, `technicallyComplete` describes the recorded package and `independentReview` describes review evidence. A technical close grants no independent approval.
+
+Migration 037 adds the history of explicit wallet allocations. It creates no historical assignments. Keep a backup before deploying. Restoring a backup to an older release requires the matching schema and application version.
+
 
 Run tests with synthetic fixtures, PostgreSQL, Docker Compose, PowerShell 7, Node.js 22 and the Go version from go.mod. On Linux, Make provides the entry points below. On Windows, run the corresponding commands from the Makefile directly.
 

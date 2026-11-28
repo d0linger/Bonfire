@@ -20,6 +20,7 @@ export const types = {
   opening: "Opening balance",
   actual: "Actual balance",
   period: "Accounting period",
+  "source-question": "Source question",
   bar: "Bar",
   wallet: "Wallet",
   shift: "Shift",
@@ -98,7 +99,7 @@ export const groups = {
     "donation",
     "price",
   ],
-  Perioden: ["period", "account", "opening", "actual"],
+  Perioden: ["period", "account", "opening", "actual", "source-question"],
 };
 export const denom = [
   20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50, 20, 10, 5, 2, 1,
@@ -173,6 +174,11 @@ export function summary(rows) {
     outstanding: sum(rows, ["outlay"]) - sum(rows, ["reimbursement"]),
   };
 }
+export function eventStatementSummary(rows) {
+  const s = summary(rows);
+  const attributed = sum(rows, ["wallet-link"]);
+  return {...s, receipts: s.receipts + attributed, result: s.result + attributed};
+}
 export function availableNumbers(s) {
   if (
     ![s.first, s.nextNumber, s.limit].every(Number.isSafeInteger) ||
@@ -225,6 +231,26 @@ function unknownOrder(movement, boundary) {
 function afterOpening(movement, opening) {
   if (!opening?.Date || movement.Date !== opening.Date) return !opening?.Date || movement.Date > opening.Date;
   return !movement.PostingOrder || !opening.PostingOrder || BigInt(movement.PostingOrder) > BigInt(opening.PostingOrder);
+}
+// The count is a historical observation. Only later physical movements change custody.
+export function cashAfterCount(rows, cutoff, wallets) {
+  if (cutoff?.Amount == null) return null;
+  const includes = id => !!id && wallets.has(id);
+  let returned = 0, held = cutoff.Amount;
+  for (const r of rows) {
+    const v = r.Data;
+    if (r.ID === "settlement-total" || r.ID?.startsWith("settlement:")) continue;
+    const from = r.Kind === "return" && includes(v.Wallet);
+    const to = r.Kind === "return" && includes(v.To);
+    const delta = r.Kind === "return" ? ((to ? 1 : 0) - (from ? 1 : 0)) * (v.Amount || 0)
+      : -cashAdjustment(r, includes);
+    if (!delta) continue;
+    if (unknownOrder(v, cutoff)) return null;
+    if (withinCount(v, cutoff)) continue;
+    held += delta;
+    if (from && !to) returned += v.Amount;
+  }
+  return {returned, held};
 }
 export function counted(rows, wallet) {
   const list = rows.filter(
@@ -346,4 +372,11 @@ export function today() {
   return new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Vienna" }).format(
     new Date(),
   );
+}
+
+export function bookingDate(scope, kind, phase, day = today()) {
+  if (!scope) return day;
+  if (kind === "opening" || (kind === "count" && phase === "Anfang")) return scope.Starts;
+  if (kind === "actual" || (kind === "count" && phase === "Ende")) return scope.Ends;
+  return day >= scope.Starts && day <= scope.Ends ? day : "";
 }

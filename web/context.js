@@ -10,7 +10,7 @@ export function invoiceReference(bill, number) {
   );
 }
 
-export function closure(rows, accounts, approved) {
+export function closure(rows, accounts, closed) {
   const expected = new Map(),
     observed = new Map();
   const ambiguous = new Set(), openings = new Set(), lastPosting = new Map(), observedOn = new Map();
@@ -97,7 +97,7 @@ export function closure(rows, accounts, approved) {
           account_id: k,
           label: rows.find((r) => r.ID === k)?.Data.Label || k,
           actual_status: ambiguous.has(k) ? "partial" : observed.has(k) ? "confirmed" : "missing",
-          theoretical_cents: complete ? (expected.get(k) ?? 0) : null,
+          theoretical_cents: complete && openings.has(k) ? (expected.get(k) ?? 0) : null,
           actual_cents: ambiguous.has(k) ? null : observed.get(k) ?? null,
           difference_cents:
             complete && openings.has(k) && !ambiguous.has(k) && observed.has(k)
@@ -107,6 +107,7 @@ export function closure(rows, accounts, approved) {
     : null;
   return {
     "report.closing": {
+      book_balance_cents: openings.size && (!accounts || complete && [...ids].every(id => openings.has(id))) ? add(expected) : null,
       actual_status: status,
       actual_closing_cents: known ? add(observed) : null,
       difference_cents: known ? add(observed) - add(expected) : null,
@@ -115,9 +116,9 @@ export function closure(rows, accounts, approved) {
       account_allocation_complete: complete,
       account_lines: lines,
     },
-    "report.review": { status: known && approved ? "approved" : "preparation" },
+    "report.review": { status: "preparation", independent_review: "not_recorded" },
     "report.export_set": {
-      completeness_status: known && approved ? "complete" : "incomplete",
+      completeness_status: known && closed && [...ids].every(id => observed.get(id) === expected.get(id)) ? "complete" : "incomplete",
     },
   };
 }

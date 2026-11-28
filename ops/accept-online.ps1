@@ -23,7 +23,7 @@ try {
   Write-Output "PASS independent login limits under counter pressure and removal of expired windows"
   $env:BONFIRE_YEAR_FIXTURE_ID = (docker compose exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U bonfire -d bonfire -c "INSERT INTO events(id,name,starts,ends) VALUES(gen_random_uuid(),'Fiktiver Altbestand','2026-03-01','2026-03-02') RETURNING id").Trim()
   if ($LASTEXITCODE -or !$env:BONFIRE_YEAR_FIXTURE_ID) { throw 'Failed to prepare the synthetic legacy records.' }
-  foreach ($suite in 'years','online-api','duplicate-reference','attachments','prices','wallet-settlement','wallet-catalog','wallet-catalog-ui','donation-reports','year-workplace','event-cleanup','login','admin-navigation','admin-users','account-security','admin-audit','action-spacing','documents','word-layout','profile-exports') {
+  foreach ($suite in 'years','online-api','duplicate-reference','attachments','prices','wallet-settlement','wallet-catalog','wallet-catalog-ui','wallet-receipts','booking-detail','donation-reports','year-workplace','record-recovery','event-cleanup','login','admin-navigation','admin-users','account-security','admin-audit','action-spacing','documents','word-layout','profile-exports') {
     node "tests/$suite.mjs"
     if ($LASTEXITCODE) { throw "Test failed in tests/$suite.mjs" }
   }

@@ -2,10 +2,71 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
+
+type closingIssue struct {
+	Area, Message string
+}
+
+// A preview uses the same rules as closing. The final write checks them again under lock.
+func closingPreview(ctx context.Context, tx pgx.Tx, d device, entries []row, pending, conflicts int) ([]closingIssue, error) {
+	issues := []closingIssue{}
+	add := func(area string, err error) {
+		if err != nil {
+			issues = append(issues, closingIssue{area, err.Error()})
+		}
+	}
+	if pending != 0 || conflicts != 0 {
+		add("discrepancies", fail("Finish recording on all devices and resolve outstanding discrepancies."))
+	}
+	add("balances", checkBalance(entries, d.Accounts))
+	if err := completeAttachments(entries); err != nil {
+		add("documents", err)
+	} else {
+		add("wallets", validateSettlement(entries))
+	}
+	add("payments", checkOpenPayments(entries))
+	var domain problem
+	if err := validateCarry(ctx, tx, entries); err != nil {
+		if !errors.As(err, &domain) {
+			return nil, err
+		}
+		add("balances", err)
+	}
+	if d.Role != roleAdmin {
+		return issues, nil
+	}
+	var year string
+	if err := tx.QueryRow(ctx, "SELECT coalesce(fiscal_year::text,'') FROM events WHERE id=$1 AND general_ledger", d.Event).Scan(&year); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return issues, nil
+		}
+		return nil, err
+	}
+	if year == "" {
+		return issues, nil
+	}
+	if err := checkYearEvents(ctx, tx, year, d.Event); err != nil {
+		if !errors.As(err, &domain) {
+			return nil, err
+		}
+		add("events", err)
+	}
+	balances, err := yearAccountBalances(ctx, tx, year)
+	if err != nil {
+		return nil, err
+	}
+	for _, b := range balances {
+		if b.Shared && (b.Opening == nil || b.Actual == nil || *b.Actual != b.Soll) {
+			add("annual-accounts", fail("Check the annual account reconciliation: "+b.Name))
+		}
+	}
+	return issues, nil
+}
 
 func requireOpenYear(ctx context.Context, tx pgx.Tx, event string) error {
 	var closed bool

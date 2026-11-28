@@ -80,6 +80,10 @@ try {
     await button(page, "Bulk wallet entry").click();
     const form = dialog.locator("#bulk-wallets");
     await form.getByLabel("Action", { exact: true }).selectOption(mode);
+    if (mode === "topup") {
+      assert.equal(await form.getByLabel("Date", { exact: true }).inputValue(), "");
+      await form.getByLabel("Date", { exact: true }).fill(day);
+    }
     for (const name of [first, second]) {
       await form.getByRole("checkbox", { name: new RegExp(name) }).check();
     }

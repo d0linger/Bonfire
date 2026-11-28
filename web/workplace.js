@@ -38,6 +38,7 @@ import {
   types,
   poolCount,
   counted,
+  cashAfterCount,
   pooledRevenue,
 } from "./domain.js";
 
@@ -439,6 +440,21 @@ export function walletTable(rows, actions = "") {
         (counts.length === 1 ? status(counts[0]) : "")
       );
     }
+    let custody = null;
+    if (allEnd && overall) {
+      custody = cashAfterCount(rows, allEnd.Data, new Set(group.map(w => w.ID)));
+    } else if (!allEnd && group.length) {
+      custody = {held:0, returned:0};
+      for (const w of group) {
+        const list = rowsByWallet.get(w.ID);
+        const closing = list.find(r=>r.Kind==="count" && r.Data.Phase==="Ende");
+        const item = cashAfterCount(list, closing?.Data, new Set([w.ID]));
+        if (!item) { custody=null; break; }
+        custody.held += item.held;
+        custody.returned += item.returned;
+      }
+    }
+    const unknown = allEnd && !overall ? "Combined count only" : "Pending";
     let revenue = "Pending";
     if (allEnd || allStart) {
       if (!overall) revenue = "Combined count only";
@@ -455,6 +471,8 @@ export function walletTable(rows, actions = "") {
       balance("Anfang") +
       '</td><td class="num">' +
       balance("Ende") +
+      '</td><td class="num">' + (custody ? eur(custody.returned) : unknown) +
+      '</td><td class="num">' + (custody ? eur(custody.held) : unknown) +
       '</td><td class="num">' +
       revenue +
       "</td></tr>"
@@ -464,7 +482,7 @@ export function walletTable(rows, actions = "") {
     "<section>" +
     head("Wallets") +
     (wallets.length || allStart || allEnd
-      ? '<div class="list"><table><thead><tr><th>Area</th><th class="num">Opening balance</th><th class="num">Closing balance</th><th class="num">Cash takings</th></tr></thead><tbody>' +
+      ? '<div class="list"><table><thead><tr><th>Area</th><th class="num">Opening balance</th><th class="num">Closing count</th><th class="num">Returned since count</th><th class="num">Still held</th><th class="num">Cash takings</th></tr></thead><tbody>' +
         subtotal("All wallets", wallets, true) +
         [...groupsByBar]
           .map(
@@ -665,10 +683,10 @@ export function overview(
     scope +
     '<div class="kpis">' +
     kpi("Book balance", balance, openingText, "featured") +
-    kpi("Income", eur(a.receipts), "Expenses " + eur(a.paid), "") +
+    kpi("Income", eur(a.receipts + (eventMode ? sum(rows.filter(r => r.Kind==="wallet-link")) : 0)), "Expenses " + eur(a.paid), "") +
     kpi(
       eventMode ? "Event result" : "Net receipts",
-      eur(eventMode ? a.result : a.ear),
+      eur(eventMode ? a.result+sum(rows.filter(r=>r.Kind==="wallet-link")) : a.ear),
       eventMode
         ? "Receipts less direct and other costs"
         : "Cash received less payments made",

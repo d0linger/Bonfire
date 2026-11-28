@@ -19,6 +19,7 @@ import (
 )
 
 type data struct {
+	ImportNote                                                                                                                               *string           `json:",omitempty"`
 	BalanceOrder                                                                                                                             int64             `json:",string,omitempty"`
 	PostingOrder                                                                                                                             int64             `json:",string,omitempty"`
 	Retired                                                                                                                                  bool              `json:",omitempty"`
@@ -51,14 +52,16 @@ type clash struct {
 type request struct {
 	Prints                                                []printLog
 	Ops                                                   []op
+	CheckOperation                                        string
 	Resolve, Choice, Reason, Action, Account, Destination string
 	Last                                                  int64
 	ReceiptOnly                                           bool
+	ClosingPreview                                        bool
 }
 
 var key = regexp.MustCompile("^[a-zA-Z0-9_.:-]{1,160}$")
 var idPattern = regexp.MustCompile("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
-var kinds = strings.Fields("income expense refund deposit deposit-return transfer outlay reimbursement card fee payout cashback donation sponsorship payment presale price contact bar wallet shift count plan supply skim return opening actual period template attachment attachment-file original dispatch organization handover import-source account paper reserve")
+var kinds = strings.Fields("income expense refund deposit deposit-return transfer outlay reimbursement card fee payout cashback donation sponsorship payment presale price contact bar wallet shift count plan supply skim return opening actual period template attachment attachment-file original dispatch organization handover import-source account paper reserve source-question")
 var money = strings.Fields("income expense refund deposit deposit-return transfer outlay reimbursement card fee payout cashback donation sponsorship payment presale price supply skim return opening actual")
 var denoms = map[string]int64{"20000": 20000, "10000": 10000, "5000": 5000, "2000": 2000, "1000": 1000, "500": 500, "200": 200, "100": 100, "50": 50, "20": 20, "10": 10, "5": 5, "2": 2, "1": 1}
 
@@ -85,6 +88,13 @@ func checkCashAmount(v data) error {
 
 func validate(o op, accounts bool) error {
 	v := o.Data
+	if v.ImportNote != nil && (!strings.HasPrefix(o.Target, "import:") || o.Base == 0 || len(*v.ImportNote) > 32768) {
+		return fail("The original import note is set by the server.")
+	}
+	if o.Kind == "source-question" && (v.Amount != nil || !slices.Contains([]string{"Open", "Resolved"}, v.Status) ||
+		strings.TrimSpace(v.Reference) == "" || (v.Status == "Resolved" && len(strings.TrimSpace(v.Note)) < 3)) {
+		return fail("Identify the source and record a decision when resolving a question.")
+	}
 	if (v.PDF != "" || v.DOCX != "") && o.Kind != "original" {
 		return fail("PDF and DOCX fields are reserved for original documents.")
 	}
@@ -312,7 +322,15 @@ func inspect(ctx context.Context, tx pgx.Tx, d device, o op) (string, error) {
 		}
 	}
 	if rev != o.Base || rev > 0 && kind != o.Kind {
+		if d.Online && rev != o.Base && o.Base > 0 && strings.HasPrefix(o.Target, "import:") {
+			return "", problem{409, "The booking revision has changed. Refresh and compare the current booking with your correction."}
+		}
 		return "Konflikt", nil
+	}
+	if rev > 0 && strings.HasPrefix(o.Target, "import:") {
+		if err := preserveImport(ctx, tx, d.Event, &o); err != nil {
+			return "", err
+		}
 	}
 	if o.Kind == "price" {
 		ok, err := lifecycle(ctx, tx, d, o)
@@ -566,6 +584,27 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	}
 	var d device
 	snapshotOnly := r.URL.Path == "/api/online" && len(q.Ops) == 0 && len(q.Prints) == 0 && q.Resolve == "" && q.Action == ""
+	if q.ClosingPreview && (!snapshotOnly || q.CheckOperation != "") {
+		return nil, fail("Run the closing checks separately from changes.")
+	}
+	if q.CheckOperation != "" {
+		if !snapshotOnly || !idPattern.MatchString(q.CheckOperation) {
+			return nil, fail("Check one submitted operation without making changes.")
+		}
+		// Serialize with a write already holding the workspace lock. A late retry
+		// of the original request is also safe through accept's operation ID.
+		d, err = lockOnlineEvent(ctx, tx, r, r.URL.Query().Get("event"))
+		if err != nil {
+			return nil, err
+		}
+		var applied bool
+		err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT FROM operations WHERE id=$1 AND event=$2 AND device=$3 AND outcome='Übernommen')",
+			q.CheckOperation, d.Event, d.ID).Scan(&applied)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]bool{"applied": applied}, tx.Commit(ctx)
+	}
 	if snapshotOnly {
 		d, err = onlineWorkspace(ctx, tx, r, r.URL.Query().Get("event"), true)
 	} else {
@@ -748,6 +787,13 @@ func (a *app) syncEvent(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	var pending int
 	if err = tx.QueryRow(ctx, "SELECT count(*) FROM devices WHERE event=$1 AND NOT online_actor AND NOT sealed", d.Event).Scan(&pending); err != nil {
 		return nil, err
+	}
+	if q.ClosingPreview {
+		checks, err := closingPreview(ctx, tx, d, entries, pending, len(conflicts))
+		if err != nil {
+			return nil, err
+		}
+		return checks, tx.Commit(ctx)
 	}
 	var year fiscalYear
 	if q.Action == closeYear {
