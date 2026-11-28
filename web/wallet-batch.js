@@ -1,4 +1,4 @@
-import { cents, denom, eur, totalPieces } from "./domain.js";
+import { bookingDate, cents, denom, eur, totalPieces } from "./domain.js";
 import { esc } from "./workplace.js";
 import { denominationFields } from "./wallet-catalog.js";
 
@@ -178,7 +178,15 @@ export function bindWalletBatch(form, event, entries, user) {
     for (const wallet of form.querySelectorAll('[name="wallet"]')) wallet.checked = pending.Wallets.includes(wallet.value);
   }
   form.addEventListener("input", () => refreshBatch(form));
-  form.addEventListener("change", () => refreshBatch(form));
+  let dateChosen = !!pending;
+  form.elements.Date.addEventListener("input", () => { dateChosen = true; });
+  form.addEventListener("change", change => {
+    if (change.target === form.elements.Mode && !dateChosen) {
+      form.elements.Date.value = form.elements.Mode.value === "opening"
+        ? event.Starts : bookingDate(event, "supply");
+    }
+    refreshBatch(form);
+  });
   refreshBatch(form);
 }
 

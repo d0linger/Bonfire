@@ -267,6 +267,7 @@ func (f *transactionFixture) checkFinanceAdministration(year, ledger string) {
 	t, a := f.t, f.app
 	account := func(body any) any { return f.atomic(a.fireAccounts, "/api/fire-accounts", body) }
 	manage := func(body any) any { return f.atomic(a.manage, "/api/manage", body) }
+	initialCount := len(account(nil).(map[string]any)["accounts"].([]fireAccount))
 	id := account(map[string]string{"Action": "create", "Name": "Festival reserve"}).(string)
 	account(map[string]any{"Action": "edit", "ID": id, "Name": "Events reserve", "Active": true, "Revision": 1})
 	manage(map[string]any{"Action": "accounts", "Accounts": true})
@@ -283,8 +284,8 @@ func (f *transactionFixture) checkFinanceAdministration(year, ledger string) {
 		t.Fatal("Treasury count missing after retry")
 	}
 	accounts := account(nil).(map[string]any)
-	if len(accounts["accounts"].([]fireAccount)) != 1 {
-		t.Fatal("duplicate treasury account after retry")
+	if got := len(accounts["accounts"].([]fireAccount)); got != initialCount+1 {
+		t.Fatalf("Treasury account retry changed the count from %d to %d, expected one new account", initialCount, got)
 	}
 	manage(map[string]any{"Action": "accounts", "Accounts": false})
 	summary := func(action string) any {

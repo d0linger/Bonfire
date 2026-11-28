@@ -192,6 +192,8 @@ try {
     .getByLabel("Description", { exact: true })
     .fill(eventBooking);
   await eventDialog.getByLabel("Amount in EUR").fill("12,34");
+  assert.equal(await eventDialog.getByLabel("Date", { exact: true }).inputValue(), "");
+  await eventDialog.getByLabel("Date", { exact: true }).fill("2046-08-21");
   await eventDialog
     .getByRole("button", { name: "Save", exact: true })
     .click();
@@ -224,6 +226,7 @@ try {
         .getByLabel("Invoice issuer")
         .fill("Fiktiver Übungsmarkt");
     await eventDialog.getByLabel("Amount in EUR").fill(amount);
+    await eventDialog.getByLabel("Date", { exact: true }).fill("2046-08-21");
     await submit("record");
     await page
       .getByRole("cell", {
@@ -288,6 +291,7 @@ try {
   await details.click();
   await page.locator("#record [name=Label]").fill(booking);
   await page.locator("#record [name=amount]").fill("50,00");
+  await editor.locator("[name=Date]").fill("2046-09-03");
   await context.setOffline(true);
   await submit("record");
   await page
@@ -316,6 +320,7 @@ try {
   const uncertain = "Wechselgeldbeleg " + randomUUID();
   await page.locator("#record [name=Label]").fill(uncertain);
   await page.locator("#record [name=amount]").fill("3,00");
+  await editor.locator("[name=Date]").fill("2046-09-04");
   await page.route(
     "**/api/online?*",
     async (route) => {
@@ -330,11 +335,8 @@ try {
     .getByRole("alert")
     .getByText(/did not confirm this operation/)
     .waitFor();
-  await submit("record");
-  await page
-    .getByRole("alert")
-    .getByText(/Refresh the server records/)
-    .waitFor();
+  assert.ok(await editor.evaluate(form => form.inert));
+  assert.ok(await modal.locator("[name=type]").isDisabled());
   await modal
     .getByRole("button", { name: "Refresh entries" })
     .click();
@@ -446,7 +448,16 @@ try {
     await dialog.getByRole("button", { name, exact: true }).click();
     await dialog.waitFor({ state: "hidden" });
   };
+  await page.locator('article button[data-page="Perioden"]').first().click();
+  await page.getByText("Current closing checks passed.", { exact: true }).waitFor();
+  await button("Record source question").click();
+  const question = page.locator("#record");
+  await question.getByLabel("Question", { exact: true }).fill("Confirm delivery reference");
+  await question.getByLabel("Source reference").fill("Synthetic note 27");
+  await submit("record");
+  await page.getByRole("listitem").filter({hasText: "Synthetic note 27"}).waitFor();
   await closeDialog("Close event");
+  await page.getByText("No independent approval recorded.").waitFor();
   await button("Reopen event").waitFor();
   await go("Overview");
   await closeDialog("Close fiscal year");

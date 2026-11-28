@@ -1,3 +1,4 @@
+import { eventStatementSummary } from "./domain.js";
 import { guestSheets } from "./guest-sheets.js";
 import { wordFiles } from "./word-profile.js";
 import { invoiceReference, exportContext } from "./context.js";
@@ -132,7 +133,7 @@ export function snapshot(index, s, rows, opts) {
   const priceCards = [];
   const add = (...parts) => lines.push(parts.map(fmt).join("   "));
   const data = opts.bar ? rows.filter((r) => r.Data.Bar === opts.bar) : rows;
-  const money = summary(data);
+  const money = index === 8 ? eventStatementSummary(data) : summary(data);
   const recipientID =
     index === 1
       ? rows.find((r) => r.ID === v.Reference)?.Data.Contact || v.Contact
@@ -263,7 +264,8 @@ export function snapshot(index, s, rows, opts) {
     add("Direct costs", eur(money.costs));
     add("Net result from recorded entries", eur(money.result));
   } else if (index === 9) {
-    add("Status", s.closed ? "Approved" : "Provisional");
+    add("Workspace", s.closed ? "Closed" : "Open");
+    add("Independent review", "Not recorded");
     add("Opening balance", eur(rows.find((r) => r.Kind === "opening")?.Data.Amount));
     add("Cash surplus", eur(money.ear));
     const actuals = rows.filter((r) => r.Kind === "actual");

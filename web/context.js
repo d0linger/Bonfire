@@ -10,11 +10,15 @@ export function invoiceReference(bill, number) {
   );
 }
 
-export function closure(rows, accounts, approved) {
+export function closure(rows, accounts, closed, definitions = rows, periodEnd) {
   const expected = new Map(),
     observed = new Map();
   const ambiguous = new Set(), openings = new Set(), lastPosting = new Map(), observedOn = new Map();
-  const configured = accounts ? rows.filter((r) => ["account", "wallet"].includes(r.Kind)).map((r) => r.ID) : [];
+  const configured = new Map(accounts ? definitions
+    .filter(r => (r.Kind === "account" || r.Kind === "wallet") &&
+      (!periodEnd || !r.Data.Date || r.Data.Date <= periodEnd))
+    .map(r => [r.ID, r.Data.Label]) : []);
+  for (const id of configured.keys()) expected.set(id, 0);
   let date = null;
   function recordDate(id, data) {
     const postings = lastPosting.get(id) || [];
@@ -68,7 +72,7 @@ export function closure(rows, accounts, approved) {
       recordDate(d.To, d);
     }
   }
-  const ids = new Set([...configured, ...expected.keys(), ...observed.keys()]);
+  const ids = new Set([...expected.keys(), ...observed.keys()]);
   for (const [id, actual] of observedOn) {
     const order = BigInt(actual.BalanceOrder || 0);
     if (order <= 0n || lastPosting.get(id)?.some(posting => {
@@ -79,34 +83,32 @@ export function closure(rows, accounts, approved) {
   const complete =
     accounts &&
     ids.size > 0 &&
-    [...ids].every((k) =>
-      /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(k),
-    );
+    [...ids].every(k => configured.has(k));
+  const bookKnown = openings.size > 0 && (!accounts || complete);
   const known =
-    openings.size > 0 &&
+    bookKnown &&
     ambiguous.size === 0 &&
     observed.size > 0 &&
-    [...ids].every((k) => observed.has(k) && expected.has(k) && openings.has(k)) &&
-    (!accounts || complete);
+    [...ids].every(k => observed.has(k) && expected.has(k));
   const status = known ? "confirmed" : observed.size ? "partial" : "missing";
   const add = (m) => [...m.values()].reduce((a, b) => a + b, 0);
   const lines = accounts
     ? [...ids]
-        .filter((k) => /^[a-f0-9-]{36}$/.test(k))
         .map((k) => ({
-          account_id: k,
-          label: rows.find((r) => r.ID === k)?.Data.Label || k,
-          actual_status: ambiguous.has(k) ? "partial" : observed.has(k) ? "confirmed" : "missing",
-          theoretical_cents: complete ? (expected.get(k) ?? 0) : null,
+          account_id: k || null,
+          label: configured.get(k) || k || "Unassigned",
+          actual_status: !observed.has(k) ? "missing" : ambiguous.has(k) ? "partial" : "confirmed",
+          theoretical_cents: bookKnown ? expected.get(k) : null,
           actual_cents: ambiguous.has(k) ? null : observed.get(k) ?? null,
           difference_cents:
-            complete && openings.has(k) && !ambiguous.has(k) && observed.has(k)
-              ? observed.get(k) - (expected.get(k) ?? 0)
+            bookKnown && !ambiguous.has(k) && observed.has(k)
+              ? observed.get(k) - expected.get(k)
               : null,
         }))
     : null;
   return {
     "report.closing": {
+      book_balance_cents: bookKnown ? add(expected) : null,
       actual_status: status,
       actual_closing_cents: known ? add(observed) : null,
       difference_cents: known ? add(observed) - add(expected) : null,
@@ -115,9 +117,9 @@ export function closure(rows, accounts, approved) {
       account_allocation_complete: complete,
       account_lines: lines,
     },
-    "report.review": { status: known && approved ? "approved" : "preparation" },
+    "report.review": { status: "preparation", independent_review: "not_recorded" },
     "report.export_set": {
-      completeness_status: known && approved ? "complete" : "incomplete",
+      completeness_status: known && closed && [...ids].every(id => observed.get(id) === expected.get(id)) ? "complete" : "incomplete",
     },
   };
 }
@@ -274,7 +276,7 @@ export function exportContext(i, s, rows, opts) {
     "report.evidence_items": selected
       .filter((x) => x.Kind === "attachment")
       .map((x) => ({ id: x.ID, name: x.Data.Filename })),
-    ...closure(selected, s.event.Accounts, !!s.closed && !period),
+    ...closure(selected, s.event.Accounts, !!s.closed && !period, rows, period?.To),
     render_mode: mode,
   });
   if (i === 2 && s.donorAccess)

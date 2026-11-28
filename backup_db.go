@@ -51,6 +51,9 @@ func stateManifest(ctx context.Context, tx pgx.Tx, schema int) (backupManifest, 
 	if schema >= 35 {
 		tables = append(tables, "wallet_batch_receipts")
 	}
+	if schema >= 37 {
+		tables = append(tables, "wallet_receipt_revisions")
+	}
 	if schema >= 36 {
 		tables = append(tables, "fire_accounts", "fire_account_links", "fire_year_counts", "event_closures", "period_closures", "audit_chain_heads")
 	}
