@@ -14,8 +14,9 @@ import {
   Header,
   PageNumber,
 } from "docx";
-import { priceCategoryLabel, financialLabel, eur, types, summary, denom } from "./domain.js";
+import { priceCategoryLabel, financialLabel, eur, types, eventStatementSummary, denom } from "./domain.js";
 import { lineCents } from "./positions.js";
+import { closure } from "./context.js";
 const mm = (v) => Math.round((v * 1440) / 25.4);
 export function tablesFor(i, s, rows, subject, opts) {
   const row = rows.find((r) => r.ID === subject),
@@ -193,12 +194,12 @@ export function tablesFor(i, s, rows, subject, opts) {
     const bar = rows.find((r) => r.ID === opts.bar);
     const groups = bar ? [bar] : rows.filter((r) => r.Kind === "bar");
     const detail = groups.map((b) => {
-      const x = summary(list.filter((r) => r.Data.Bar === b.ID));
+      const x = eventStatementSummary(list.filter((r) => r.Data.Bar === b.ID));
       return [b.Data.Label, eur(x.receipts), eur(x.costs), eur(x.result)];
     });
-    const all = summary(list);
+    const all = eventStatementSummary(list);
     if (!bar) {
-      const common = summary(list.filter((r) => !r.Data.Bar));
+      const common = eventStatementSummary(list.filter((r) => !r.Data.Bar));
       detail.push([
         "Shared costs",
         eur(common.receipts),
@@ -228,71 +229,26 @@ export function tablesFor(i, s, rows, subject, opts) {
     };
   }
   if (i === 9) {
-    const balance = new Map(),
-      actual = new Map();
-    for (const r of list) {
-      const d = r.Data,
-        k = opts.accounts ? d.Account || "Unassigned" : "Total balance";
-      if (d.Amount == null) continue;
-      if (r.Kind === "actual") {
-        actual.set(k, actual.has(k) ? null : d.Amount);
-        continue;
-      }
-      const sign = [
-        "income",
-        "donation",
-        "payment",
-        "presale",
-        "card",
-        "opening",
-        "deposit",
-      ].includes(r.Kind)
-        ? 1
-        : [
-              "expense",
-              "reimbursement",
-              "fee",
-              "refund",
-              "deposit-return",
-            ].includes(r.Kind)
-          ? -1
-          : 0;
-      if (sign) balance.set(k, (balance.get(k) || 0) + sign * d.Amount);
-      if (
-        opts.accounts &&
-        ["transfer", "supply", "skim", "return", "payout", "cashback"].includes(
-          r.Kind,
-        )
-      ) {
-        balance.set(k, (balance.get(k) || 0) - d.Amount);
-        balance.set(d.To, (balance.get(d.To) || 0) + d.Amount);
-      }
-    }
-    const keys = new Set([...balance.keys(), ...actual.keys()]);
-    if (!keys.size) keys.add("Total balance");
-    const incomplete = keys.has("Unassigned");
+    const result = closure(list, !!opts.accounts, opts.closed, rows, period?.Data.To)["report.closing"];
+    const balances = result.account_lines || [{
+      label: "Total balance", theoretical_cents: result.book_balance_cents,
+      actual_cents: result.actual_closing_cents, difference_cents: result.difference_cents,
+    }];
+    const questions = list.filter(r => r.Kind === "source-question" && r.Data.Status !== "Resolved");
+    const files = list.filter(r => ["attachment", "original"].includes(r.Kind));
+    const complete = files.filter(r => r.Kind === "attachment" ? r.Data.File && !r.Data.uploadPending : r.Data.PDF && r.Data.DOCX);
     return {
-      intro: period ? period.Data.Label : s.event,
-      blocks: [
-        {
-          headers: ["Balance", "Expected", "Actual", "Difference"],
-          widths: [60, 38, 38, 38],
-          rows: [...keys].map((k) => {
-            const a = actual.get(k),
-              b = incomplete ? null : balance.get(k);
-            return [
-              k,
-              eur(b),
-              eur(a),
-              eur(a == null || b == null ? null : a - b),
-            ];
-          }),
-        },
-      ],
+      intro: [opts.workspaceName || s.event, period?.Data.Label, period?.Data.Date || opts.starts, period?.Data.To || opts.ends].filter(Boolean).join(" · "),
+      blocks: [{
+        headers: ["Balance", "Expected", "Actual", "Difference"], widths: [60, 38, 38, 38],
+        rows: balances.map(b => [b.label, eur(b.theoretical_cents), eur(b.actual_cents), eur(b.difference_cents)]),
+      }],
       after: [
-        opts.closed
-          ? "Event closure confirmed"
-          : "Provisional statement",
+        opts.closed ? "Workspace closed" : "Provisional statement",
+        "Independent review: not recorded",
+        "Registered documents with complete files: " + complete.length + " / " + files.length,
+        "Open source questions in scope: " + questions.length,
+        ...questions.map(r => r.Data.Label + " · " + r.Data.Reference),
         "Unresolved conflicts: " + opts.conflicts,
         "Devices awaiting confirmation: " + (opts.pending ?? "Unknown"),
       ],

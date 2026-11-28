@@ -1,11 +1,74 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { closure, invoiceReference } from "../web/context.js";
-import { denominationNeeds, summary } from "../web/domain.js";
+import Ajv from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
+import schemas from "../web/variants.json" with { type: "json" };
+import { closure, exportContext, invoiceReference } from "../web/context.js";
+import { denominationNeeds, eur, summary } from "../web/domain.js";
+import { overview } from "../web/workplace.js";
 import { donationReport } from "../web/donors.js";
 import { sponsorshipStatus } from "../web/sponsorship.js";
 import { tablesFor } from "../web/layouts.js";
+import { evidence } from "../web/exchange.js";
+import { unzipSync, strFromU8 } from "fflate";
 const row = (Kind, Data, ID = Kind) => ({ ID, Kind, Data });
+test("January overview uses the closing balance and excludes accounts opened in February", () => {
+  const year = { Name: "Practice cashbook", General: true, Accounts: true, Starts: "2026-01-01", Ends: "2026-12-31" };
+  const january = row("period", { Label: "January", Date: year.Starts, To: "2026-01-31" }, "jan");
+  const records = [
+    january,
+    row("account", { Label: "Cash till", Date: "2025-12-15" }, "till"),
+    row("wallet", { Label: "Spare wallet", Date: year.Starts }, "spare"),
+    row("account", { Label: "February bank", Date: "2026-02-01" }, "bank"),
+    row("opening", { Label: "Opening till", Account: "till", Amount: 10000, Date: year.Starts, BalanceOrder: "1" }),
+    row("income", { Label: "January receipt", Account: "till", Amount: 500, Date: "2026-01-12", BalanceOrder: "2" }),
+    row("actual", { Label: "Counted till", Account: "till", Amount: 10500, Date: january.Data.To, BalanceOrder: "3" }),
+    row("income", { Label: "February receipt", Account: "bank", Amount: 900, Date: "2026-02-02", BalanceOrder: "4" }),
+  ];
+  const render = entries => overview(year, entries, 0, 0, true, false, "Admin", "jan", true, true);
+  const html = render(records);
+  assert.ok(html.includes("<span>Book balance</span><strong>" + eur(10500) + "</strong>"));
+  assert.ok(html.includes("Opening balance recorded"));
+  assert.ok(html.includes("Cash till"));
+  assert.ok(!html.includes("February bank"));
+  assert.ok(!html.includes("Opening balance missing"));
+  assert.ok(render(records.filter(r => r.Kind !== "opening")).includes("Opening balance missing"));
+});
+
+test("event result amount and colour use the same total after wallet receipt allocation", () => {
+  const event = { Name: "Practice event", Starts: "2026-06-01", Ends: "2026-06-01" };
+  for (const [expense, result, colour] of [[3000, 2000, "result"], [5000, 0, "result"], [6000, -1000, "negative"]]) {
+    const records = [
+      row("wallet-link", { Label: "Assigned receipt", Amount: 5000, Date: event.Starts }),
+      row("expense", { Label: "Supplies", Amount: expense, Date: event.Starts }),
+    ];
+    const html = overview(event, records, 0, 0, true, true);
+    assert.ok(html.includes('<div class="kpi ' + colour + '"><span>Event result</span><strong>' + eur(result) + "</strong>"));
+  }
+});
+
+test("a locked, balanced workspace can have an open evidence question and no independent approval", async () => {
+  const day = "2042-06-01";
+  const records = [
+    row("opening", {Date: day, Label: "Opening cash", Amount: 500, BalanceOrder: "1"}),
+    row("actual", {Date: day, Label: "Observed cash", Amount: 500, BalanceOrder: "2"}),
+    row("source-question", {Date: day, Label: "Confirm delivery", Reference: "Sample note 3", Status: "Open"}),
+  ];
+  const workspace = {event: {ID: "test-event", Name: "Practice event", Starts: day, Ends: day},
+    closed: true, ops: [], conflicts: [], pending: 0};
+  const reports = Object.fromEntries(["Review-report.pdf", "Review-report.docx", "Document-register.pdf", "Document-register.docx"]
+    .map(name => [name, new Blob(["synthetic test"])]));
+  const archive = await evidence(workspace, records, reports);
+  const manifest = JSON.parse(strFromU8(unzipSync(new Uint8Array(await archive.arrayBuffer()))["manifest.json"]));
+  assert.equal(manifest.technicallyComplete, true);
+  assert.equal(manifest.reconciliation.difference_cents, 0);
+  assert.equal(manifest.independentReview, "not_recorded");
+  assert.equal(manifest.freigegeben, false);
+  assert.equal(manifest.sourceQuestions[0].source, "Sample note 3");
+  const report = tablesFor(9, {event: "Practice event"}, records, "", {closed: true});
+  assert.ok(report.after.includes("Independent review: not recorded"));
+  assert.ok(report.after.includes("Confirm delivery · Sample note 3"));
+});
 test("journal exports identify the workspace and place early bookings first", () => {
   const records = [
     row("expense", { Date: "2042-07-08", Amount: 520, Label: "Supplies" }),
@@ -169,7 +232,17 @@ test("Abschlussvertrag unterscheidet fehlendes Ist, bestätigte Null und Periode
     true,
   );
   assert.equal(confirmed["report.closing"].difference_cents, 0);
-  assert.equal(confirmed["report.review"].status, "approved");
+  assert.equal(confirmed["report.review"].independent_review, "not_recorded");
+  assert.equal(confirmed["report.export_set"].completeness_status, "complete");
+});
+
+test("the event cash surplus includes assigned receipts exactly once", () => {
+  const rows = [row("wallet-link", { Amount: 500 })];
+  const statement = tablesFor(8, { event: "Practice event" }, rows, null, {});
+  assert.match(statement.blocks[0].rows.at(-1)[1], /5,00/);
+  assert.match(statement.blocks[0].rows.at(-1)[3], /5,00/);
+  assert.match(statement.after[0], /Cash surplus: .*5,00/);
+  assert.equal(summary(rows).ear, 0);
 });
 
 test("closing comparisons require a current, unambiguous observation per account", () => {
@@ -188,6 +261,11 @@ test("closing comparisons require a current, unambiguous observation per account
   assert.equal(bankLine().actual_status, "partial");
   idleActual.Data.BalanceOrder = String(++order);
   assert.equal(bankLine().actual_status, "confirmed");
+  assert.equal(bankLine().theoretical_cents, 0);
+  assert.equal(bankLine().difference_cents, 0);
+  const idleClosing = closure(idle, true, true);
+  assert.equal(idleClosing["report.closing"].book_balance_cents, 100);
+  assert.equal(idleClosing["report.export_set"].completeness_status, "complete");
   for (const extra of [posting("income", a, 50, "2026-06-06"), posting("actual", a, 200)]) {
     for (const sorted of [[...rows, extra], [extra, ...rows]]) {
       const result = closure(sorted, true, true);
@@ -201,6 +279,66 @@ test("closing comparisons require a current, unambiguous observation per account
   }
 });
 
+test("period statements and evidence exclude future accounts and later postings", async () => {
+  const bank = "10000000-0000-4000-8000-000000000004";
+  const date = "2026-02-01";
+  const records = [
+    row("account", { Label: "Operating account" }, bank),
+    row("wallet", { Label: "Earlier wallet", Date: "2026-01-01" }, "old-wallet"),
+    row("actual", { Label: "Wallet observation", Account: "old-wallet", Amount: 0, Date: date, BalanceOrder: "4" }),
+    row("account", { Label: "March account", Date: "2026-03-01" }, "march"),
+    row("period", { Label: "February", Date: date, To: "2026-02-28" }, "feb"),
+    row("opening", { Label: "Opening bank balance", Account: bank, Amount: 875, Date: date, BalanceOrder: "1" }),
+    row("actual", { Label: "Bank observation", Account: bank, Amount: 875, Date: date, BalanceOrder: "2" }),
+    row("income", { Account: bank, Amount: 5200, Date: "2026-03-01", BalanceOrder: "3" }),
+  ];
+  const table = tablesFor(9, { event: "Exercise" }, records, "", { period: "feb", accounts: true });
+  const [line] = table.blocks[0].rows;
+  assert.equal(line[0], "Operating account");
+  assert.match(line[1], /8,75/);
+  assert.equal(line[1], line[2]);
+  assert.match(line[3], /0,00/);
+  assert.deepEqual(table.blocks[0].rows.map(r => r[0]), ["Operating account", "Earlier wallet"]);
+  const workspace = {event: {Name: "Exercise", Accounts: true}, ops: [], conflicts: []};
+  const context = exportContext(9, workspace, records, {period: "feb"});
+  const balance = context["report.closing"];
+  assert.equal(balance.actual_closing_cents, 875);
+  const selected = records.filter(r => r.Data.Date >= date && r.Data.Date <= "2026-02-28");
+  const archive = await evidence(workspace, selected, {}, {period: "feb", ends: "2026-02-28", accountDefinitions: records});
+  const files = unzipSync(new Uint8Array(await archive.arrayBuffer()));
+  assert.deepEqual(JSON.parse(strFromU8(files["manifest.json"])).reconciliation, balance);
+});
+
+test("closing templates accept provisional and stale observations for legacy wallet IDs", () => {
+  const validator = new Ajv({ strict: false });
+  addFormats(validator);
+  const validate = validator.compile(schemas.T10);
+  const account = "practice:wallet";
+  const config = row("wallet", { Label: "Practice till" }, account);
+  const values = [
+    row("opening", { Account: account, Date: "2026-02-01", Amount: 500, BalanceOrder: "1" }),
+    row("actual", { Account: account, Date: "2026-02-01", Amount: 500, BalanceOrder: "2" }),
+    row("expense", { Account: account, Date: "2026-02-01", Amount: 25, BalanceOrder: "3" }),
+  ];
+  for (const [postings, status] of [[[], "missing"], [values.slice(0, 2), "confirmed"], [values, "partial"]]) {
+    const report = closure([config, ...postings], true, false);
+    const line = report["report.closing"].account_lines[0];
+    assert.equal(line.account_id, account);
+    assert.equal(line.actual_status, status);
+    assert.equal(validate(report), true, JSON.stringify(validate.errors));
+  }
+  const unassigned = values.slice(0, 2).map(r => ({...r, Data: {...r.Data, Account: ""}}));
+  const report = closure(unassigned, true, true);
+  const [line] = report["report.closing"].account_lines;
+  assert.deepEqual(line, {account_id: null, label: "Unassigned", actual_status: "confirmed",
+    theoretical_cents: null, actual_cents: 500, difference_cents: null});
+  assert.equal(report["report.export_set"].completeness_status, "incomplete");
+  assert.equal(validate(report), true, JSON.stringify(validate.errors));
+  const [printed] = tablesFor(9, {event: "Exercise"}, unassigned, "", {accounts: true}).blocks[0].rows;
+  assert.equal(printed[0], "Unassigned");
+  assert.match(printed[2], /5,00/);
+});
+
 test("equal and opposite postings require a new same-day observation", () => {
   const movement=(k,n,order)=>row(k,{Date:"2026-06-11",Amount:n,BalanceOrder:order});
   const values=[movement("opening",100,"1"),movement("actual",100,"2"),movement("income",25,"3"),movement("expense",25,"4")];
@@ -208,8 +346,8 @@ test("equal and opposite postings require a new same-day observation", () => {
   values[2].Data.Date = values[3].Data.Date = "2026-06-10";
   assert.equal(closure(values,false,true)["report.review"].status,"preparation");
   values[1].Data.BalanceOrder="5";
-  assert.equal(closure(values,false,true)["report.review"].status,"approved");
+  assert.equal(closure(values,false,true)["report.export_set"].completeness_status,"complete");
   values[2].Data.Date = "2026-06-10";
   delete values[2].Data.BalanceOrder;
-  assert.equal(closure(values,false,true)["report.review"].status,"preparation");
+  assert.equal(closure(values,false,true)["report.export_set"].completeness_status,"incomplete");
 });

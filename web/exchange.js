@@ -33,7 +33,7 @@ function table(rows, version = "1") {
   return [
     columns,
     ...rows
-      .filter((r) => r.Data.Amount != null)
+      .filter((r) => r.Data.Amount != null && r.Kind !== "wallet-link")
       .map(({ Kind, Data: d }) => [
         d.Date,
         Kind,
@@ -318,8 +318,9 @@ export async function evidence(s, rows, reports = {}, scope = {}) {
         .map((format) => ({ id: r.ID, format }));
     return [];
   });
-  const approved =
-    closure(rows, !!s.event?.Accounts, s.closed)["report.review"].status === "approved" &&
+  const closing = closure(rows, !!s.event?.Accounts, s.closed, scope.accountDefinitions, scope.period ? scope.ends : undefined);
+  const technicallyComplete =
+    closing["report.export_set"].completeness_status === "complete" &&
     s.closed === true &&
     !scope.period &&
     s.pending === 0 &&
@@ -358,13 +359,24 @@ export async function evidence(s, rows, reports = {}, scope = {}) {
           })),
         ausstehend: s.ops.length,
         konflikte: s.conflicts.length,
-        manifestVersion: 2,
+        manifestVersion: 3,
+        walletReceiptAllocations: scope.allocations || [],
+        workspace: { id: s.event?.ID, name: s.event?.Name, fiscalYear: s.event?.Year,
+          starts: scope.starts || s.event?.Starts, ends: scope.ends || s.event?.Ends },
+        reconciliation: closing["report.closing"],
+        independentReview: "not_recorded",
+        sourceQuestions: rows.filter(r => r.Kind === "source-question").map(r => ({
+          id: r.ID, revision: r.Revision, question: r.Data.Label, source: r.Data.Reference,
+          status: r.Data.Status, note: r.Data.Note || "",
+        })),
+        registeredFilesComplete: !missingFiles.length,
+        technicallyComplete,
         veranstaltung: s.event?.ID || null,
         periode: scope.period || null,
         veranstaltungAbgeschlossen: s.closed === true,
-        freigegeben: approved,
-        paketstatus: approved
-          ? "Verified and complete"
+        freigegeben: false,
+        paketstatus: technicallyComplete
+          ? "Technically complete · independent review not recorded"
           : "In preparation / incomplete",
         fehlendeDateien: missingFiles,
         fehlendeBerichte: missingReports,

@@ -235,7 +235,7 @@ func (a *app) events(ctx context.Context, w http.ResponseWriter, r *http.Request
 	}
 	overview := r.URL.Query().Get("overview") == "1"
 	rows, err := a.db.Query(ctx, `SELECT e.id::text,name,starts::text,ends::text,closed,accounts,general_ledger,coalesce(fiscal_year::text,''),
-		t.receipts,t.paid,t.outstanding
+		t.receipts+(SELECT coalesce(sum(amount),0)::bigint FROM wallet_receipt_links WHERE event=e.id AND $4),t.paid,t.outstanding
 	    FROM events e LEFT JOIN LATERAL (
 			SELECT coalesce(sum(CASE WHEN kind='refund' THEN -amount ELSE amount END)
 					FILTER (WHERE kind IN ('income','donation','payment','presale','card','refund')),0)::bigint AS receipts,
@@ -546,6 +546,8 @@ func main() {
 	mux.HandleFunc("GET /api/wallet-catalog", route(a.walletCatalog))
 	mux.HandleFunc("POST /api/wallet-catalog", route(a.walletCatalog))
 	mux.HandleFunc("POST /api/events/wallet-batch", route(a.walletBatch))
+	mux.HandleFunc("GET /api/events/wallet-links", route(a.walletLinks))
+	mux.HandleFunc("POST /api/events/wallet-links", route(a.saveWalletLink))
 	mux.HandleFunc("POST /api/fire-accounts", route(a.fireAccounts))
 	mux.HandleFunc("GET /api/year-balances", route(a.yearBalances))
 	mux.HandleFunc("POST /api/years/assign", route(a.assignYear))
@@ -553,6 +555,7 @@ func main() {
 	mux.HandleFunc("POST /api/events/edit", route(a.editEvent))
 	mux.HandleFunc("POST /api/events/delete", route(a.deleteEvent))
 	mux.HandleFunc("GET /api/events/entries", route(a.eventInventory))
+	mux.HandleFunc("GET /api/booking-evidence", a.bookingEvidence)
 	mux.HandleFunc("POST /api/events/entries", route(a.changeEventEntry))
 	a.registerCapture(mux)
 	mux.HandleFunc("POST /api/access", route(a.access))

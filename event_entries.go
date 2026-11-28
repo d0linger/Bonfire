@@ -69,6 +69,8 @@ func entryChangeAllowed(ctx context.Context, tx pgx.Tx, source device, current r
 	}
 	var blocker string
 	err = tx.QueryRow(ctx, `SELECT CASE
+		WHEN EXISTS(SELECT FROM wallet_receipt_links WHERE source_event=$1 AND receipt=$2 AND amount>0) THEN 'Release the wallet allocation before moving or removing this receipt.'
+		WHEN $4='count' AND EXISTS(SELECT FROM wallet_receipt_links WHERE event=$1 AND amount>0 AND (wallet=$3 OR wallet='')) THEN 'Release the receipt allocation before removing a settlement count.'
 		WHEN EXISTS(SELECT FROM operations WHERE event=$1 AND outcome='Konflikt') THEN 'Resolve open conflicts for this event first.'
 		WHEN EXISTS(SELECT FROM devices WHERE event=$1 AND NOT online_actor AND NOT sealed) THEN 'Complete entry on all prepared devices first.'
 		WHEN EXISTS(SELECT FROM originals WHERE event=$1 AND (subject=$2 OR snapshot->>'subject'=$2))

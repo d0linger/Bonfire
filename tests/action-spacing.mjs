@@ -184,8 +184,10 @@ try {
       await dialog.getByLabel("Postal code").fill("1111");
       await dialog.getByLabel("Town or city", { exact: true }).fill("Probeort");
     }
-    if (section === "Spenden")
+    if (section === "Spenden") {
+      await dialog.getByLabel("Date", { exact: true }).fill(day);
       await dialog.getByLabel("Amount in EUR").fill("5,50");
+    }
     await dialog
       .getByRole("button", { name: "Save", exact: true })
       .click();
@@ -307,6 +309,7 @@ try {
           .click();
         await dialog.locator("[name=type]").selectOption(type);
         await dialog.locator("[name=Label]").fill(title);
+        await dialog.getByLabel("Date", { exact: true }).fill(day);
         await dialog.locator("[name=amount]").fill("25,00");
         if (type === "sponsorship") {
           await dialog
@@ -508,6 +511,7 @@ try {
         .click();
       await dialog.locator("[name=Wallet]").selectOption({ label: wallet });
       await dialog.locator("[name=Account]").fill("Handkassa");
+      await dialog.getByLabel("Date", { exact: true }).fill(day);
       const mode = dialog.getByLabel("Enter amount");
       const quick = (cent, step) =>
         dialog.locator(
@@ -559,6 +563,7 @@ try {
         await dialog.getByLabel("Description").fill(name);
         await dialog.locator("[name=Wallet]").selectOption({ label: wallet });
         if (phase === "Zwischenstand") {
+          await dialog.getByLabel("Date", { exact: true }).fill(day);
           await dialog.getByLabel("Counted amount in EUR").fill("30,00");
         } else {
           await dialog.getByLabel("Enter amount").selectOption("pieces");
@@ -593,7 +598,7 @@ try {
       );
       // The 25 EUR delivery preceded the opening count: 34 EUR closing less 4 EUR opening.
       await page
-        .getByText(/Tasche Süd · Additional pooled cash income\s+(?:€\s*)?30,00/)
+        .getByText(/Counted takings\s+(?:€\s*)?30,00/)
         .waitFor();
     }
   }
@@ -618,8 +623,8 @@ try {
         .click();
       await dialog.waitFor({ state: "hidden" });
     }
-    await page.getByRole("button", { name: "Post total" }).click();
-    await dialog.getByRole("button", { name: "Post total" }).click();
+    await page.getByRole("button", { name: "Post remaining income" }).click();
+    await dialog.getByRole("button", { name: /Book new income of/ }).click();
     await dialog.waitFor({ state: "hidden" });
     const state = await api("online?event=" + pooledEvent.ID, {});
     assert.equal(
