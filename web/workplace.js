@@ -33,6 +33,7 @@ import { closure } from "./context.js";
 import {
   financialLabel,
   eur,
+  eventStatementSummary,
   summary,
   groups,
   types,
@@ -565,7 +566,7 @@ export function overview(
   if (period)
     rows = rows.filter(
       (r) =>
-        ["account", "wallet", "bar"].includes(r.Kind) ||
+        (["account", "wallet", "bar"].includes(r.Kind) && (!r.Data.Date || r.Data.Date <= period.Data.To)) ||
         (r.Data.Date >= period.Data.Date && r.Data.Date <= period.Data.To),
     );
   const scope = periods.length
@@ -588,36 +589,22 @@ export function overview(
         .join("") +
       "</select></label>"
     : "";
-  const a = summary(rows),
-    opening = rows.filter((r) => r.Kind === "opening"),
-    sum = (r) => r.reduce((n, x) => n + (x.Data.Amount || 0), 0),
-    start = sum(opening);
-  const openingIDs = new Set(opening.map((r) => r.Data.Account));
-  const covered = !e.Accounts || rows.filter((r) => ["account", "wallet"].includes(r.Kind)).every((r) => openingIDs.has(r.ID));
-  const uniqueOpening =
-    covered &&
-    opening.length > 0 &&
-    new Set(opening.map((r) => (e.Accounts ? r.Data.Account || "" : "gesamt")))
-      .size === opening.length;
-  const openingText = uniqueOpening
-    ? "Opening balance recorded"
-    : opening.length && covered
-      ? "Multiple opening balances · Check the period"
-      : canAddOpening
-        ? '<button type="button" class="opening-action" data-act="focusEntry" aria-haspopup="dialog">Opening balance missing</button>'
-        : "Opening balance missing";
+  const money = eventMode ? eventStatementSummary(rows) : summary(rows);
+  const result = eventMode ? money.result : money.ear;
+  const reconciliation = closure(rows, e.Accounts, false)["report.closing"];
+  const opening = rows.filter(r => r.Kind === "opening");
+  const duplicateOpening = new Set(opening.map(r => e.Accounts ? r.Data.Account || "" : "total")).size < opening.length;
+  const start = opening.length && !duplicateOpening ? opening.reduce((n, r) => n + r.Data.Amount, 0) : null;
+  let openingText = "Opening balance recorded";
+  if (duplicateOpening) openingText = "Multiple opening balances · Check the period";
+  else if (!opening.length) openingText = canAddOpening
+    ? '<button type="button" class="opening-action" data-act="focusEntry" aria-haspopup="dialog">Opening balance missing</button>'
+    : "Opening balance missing";
+  else if (reconciliation.book_balance_cents == null) openingText = "Check account assignments";
   const setupAction =
     role === "Read" ? "Prepare read-only profile" : "Prepare recording";
-  const balance = uniqueOpening
-    ? eur(
-        start +
-          a.ear +
-          sum(rows.filter((r) => r.Kind === "deposit")) -
-          sum(rows.filter((r) => r.Kind === "deposit-return")),
-      )
-    : "Pending";
-  const reconciliation = closure(rows, e.Accounts, false)["report.closing"];
-  const accounts = (uniqueOpening ? reconciliation.account_lines || [] : [])
+  const balance = eur(duplicateOpening ? null : reconciliation.book_balance_cents);
+  const accounts = (start == null ? [] : reconciliation.account_lines || [])
     .map((account) =>
       line(
         "Wallet",
@@ -684,21 +671,21 @@ export function overview(
     scope +
     '<div class="kpis">' +
     kpi("Book balance", balance, openingText, "featured") +
-    kpi("Income", eur(a.receipts + (eventMode ? sum(rows.filter(r => r.Kind==="wallet-link")) : 0)), "Expenses " + eur(a.paid), "") +
+    kpi("Income", eur(money.receipts), "Expenses " + eur(money.paid), "") +
     kpi(
       eventMode ? "Event result" : "Net receipts",
-      eur(eventMode ? a.result+sum(rows.filter(r=>r.Kind==="wallet-link")) : a.ear),
+      eur(result),
       eventMode
         ? "Receipts less direct and other costs"
         : "Cash received less payments made",
-      (eventMode ? a.result : a.ear) < 0 ? "negative" : "result",
+      result < 0 ? "negative" : "result",
     ) +
     "</div>" +
     '<div class="columns"><section>' +
     head("Account balances") +
     accounts +
-    line("Landmark", "Opening balance", uniqueOpening ? eur(start) : "Pending") +
-    line("Wallet", "Unreimbursed expenses", eur(a.outstanding)) +
+    line("Landmark", "Opening balance", eur(start)) +
+    line("Wallet", "Unreimbursed expenses", eur(money.outstanding)) +
     '<p class="panel-foot">' +
     esc(
       e.Accounts

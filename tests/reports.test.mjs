@@ -4,13 +4,49 @@ import Ajv from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import schemas from "../web/variants.json" with { type: "json" };
 import { closure, exportContext, invoiceReference } from "../web/context.js";
-import { denominationNeeds, summary } from "../web/domain.js";
+import { denominationNeeds, eur, summary } from "../web/domain.js";
+import { overview } from "../web/workplace.js";
 import { donationReport } from "../web/donors.js";
 import { sponsorshipStatus } from "../web/sponsorship.js";
 import { tablesFor } from "../web/layouts.js";
 import { evidence } from "../web/exchange.js";
 import { unzipSync, strFromU8 } from "fflate";
 const row = (Kind, Data, ID = Kind) => ({ ID, Kind, Data });
+test("January overview uses the closing balance and excludes accounts opened in February", () => {
+  const year = { Name: "Practice cashbook", General: true, Accounts: true, Starts: "2026-01-01", Ends: "2026-12-31" };
+  const january = row("period", { Label: "January", Date: year.Starts, To: "2026-01-31" }, "jan");
+  const records = [
+    january,
+    row("account", { Label: "Cash till", Date: "2025-12-15" }, "till"),
+    row("wallet", { Label: "Spare wallet", Date: year.Starts }, "spare"),
+    row("account", { Label: "February bank", Date: "2026-02-01" }, "bank"),
+    row("opening", { Label: "Opening till", Account: "till", Amount: 10000, Date: year.Starts, BalanceOrder: "1" }),
+    row("income", { Label: "January receipt", Account: "till", Amount: 500, Date: "2026-01-12", BalanceOrder: "2" }),
+    row("actual", { Label: "Counted till", Account: "till", Amount: 10500, Date: january.Data.To, BalanceOrder: "3" }),
+    row("income", { Label: "February receipt", Account: "bank", Amount: 900, Date: "2026-02-02", BalanceOrder: "4" }),
+  ];
+  const render = entries => overview(year, entries, 0, 0, true, false, "Admin", "jan", true, true);
+  const html = render(records);
+  assert.ok(html.includes("<span>Book balance</span><strong>" + eur(10500) + "</strong>"));
+  assert.ok(html.includes("Opening balance recorded"));
+  assert.ok(html.includes("Cash till"));
+  assert.ok(!html.includes("February bank"));
+  assert.ok(!html.includes("Opening balance missing"));
+  assert.ok(render(records.filter(r => r.Kind !== "opening")).includes("Opening balance missing"));
+});
+
+test("event result amount and colour use the same total after wallet receipt allocation", () => {
+  const event = { Name: "Practice event", Starts: "2026-06-01", Ends: "2026-06-01" };
+  for (const [expense, result, colour] of [[3000, 2000, "result"], [5000, 0, "result"], [6000, -1000, "negative"]]) {
+    const records = [
+      row("wallet-link", { Label: "Assigned receipt", Amount: 5000, Date: event.Starts }),
+      row("expense", { Label: "Supplies", Amount: expense, Date: event.Starts }),
+    ];
+    const html = overview(event, records, 0, 0, true, true);
+    assert.ok(html.includes('<div class="kpi ' + colour + '"><span>Event result</span><strong>' + eur(result) + "</strong>"));
+  }
+});
+
 test("a locked, balanced workspace can have an open evidence question and no independent approval", async () => {
   const day = "2042-06-01";
   const records = [
