@@ -713,7 +713,8 @@ try {
   const manifest = JSON.parse(
     new TextDecoder().decode(contents["manifest.json"]),
   );
-  assert.equal(manifest.freigegeben, true);
+  assert.equal(manifest.technicallyComplete, true);
+  assert.equal(manifest.freigegeben, false);
   assert.equal(manifest.veranstaltung, eventID);
   assert.equal(
     manifest.vorlagenstaende["Review-report"],

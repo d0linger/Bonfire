@@ -3,13 +3,57 @@ import assert from "node:assert/strict";
 import { fiscalRange } from "../web/fiscal-picker.js";
 import {
   cents,
+  bookingDate,
   totalPieces,
   counted,
+  cashAfterCount,
   pooledRevenue,
   summary,
   journalMatches,
 } from "../web/domain.js";
 import { walletTable } from "../web/workplace.js";
+test("cash custody preserves the closing observation and distinguishes later returns", () => {
+  const wallet=new Set(["blue"]), closing={Date:"2026-09-30",PostingOrder:"7",Amount:15000};
+  const movement=(order,amount,kind="return")=>({Kind:kind,Data:{Date:closing.Date,PostingOrder:order,Amount:amount,Wallet:"blue",Account:"blue",To:"main"}});
+  assert.deepEqual(cashAfterCount([movement("4",3000,"skim"),movement("8",4000)], closing,wallet),{returned:4000,held:11000});
+  assert.deepEqual(cashAfterCount([movement("8",15000)], closing,wallet),{returned:15000,held:0});
+  assert.equal(cashAfterCount([movement("",4000)],closing,wallet),null);
+  assert.equal(cashAfterCount([],null,wallet),null);
+  assert.equal(closing.Amount,15000);
+});
+test("unassigned cash after a pooled count changes only pooled custody", () => {
+  const cutoff = {Date:"2026-09-30",PostingOrder:"7",Amount:15000,Wallet:"",Fields:{countScope:"all"}};
+  const expense = {Kind:"expense",Data:{Date:cutoff.Date,PostingOrder:"8",Amount:3000,Method:"Bar"}};
+  const wallets = new Set(["blue","red"]);
+  assert.deepEqual(cashAfterCount([expense],cutoff,wallets), {returned:0,held:12000});
+  assert.deepEqual(cashAfterCount([expense],{...cutoff,Wallet:"blue"},new Set(["blue"])), {returned:0,held:15000});
+});
+test("subtotal returns count cash leaving the group across distinct wallet cutoffs", () => {
+  const day = "2026-09-30";
+  const wallet = id => ({ID:id,Kind:"wallet",Data:{Label:id,Bar:"bar"}});
+  const count = (id,order,amount) => ({Kind:"count",Data:{Date:day,PostingOrder:order,Wallet:id,Phase:"Ende",Amount:amount}});
+  const handback = (from,to,order,amount) => ({Kind:"return",Data:{Date:day,Wallet:from,Account:from,To:to,PostingOrder:order,Amount:amount}});
+  const html=walletTable([
+    {ID:"bar",Kind:"bar",Data:{Label:"Main"}},wallet("a"),wallet("b"),count("a","3",5000),count("b","5",4000),
+    handback("a","b","4",1000),handback("a","main","6",500),
+  ]);
+  const figures = label => html.split('scope="row">'+label+'</th>')[1].split('</tr>')[0]
+    .match(/€\s*[\d,.]+/g).map(v=>v.replace(/\s/g,""));
+  assert.deepEqual(figures("a"),["€50,00","€15,00","€35,00"]);
+  assert.deepEqual(figures("b"),["€40,00","€0,00","€40,00"]);
+  for(const group of ["Bar · Main","All wallets"]) assert.deepEqual(figures(group),["€90,00","€5,00","€75,00"]);
+});
+test("posting dates respect a cross-calendar workspace and balance boundaries", () => {
+  const scope = {Starts: "2025-11-01", Ends: "2026-09-30"};
+  for (const day of [scope.Starts, "2026-01-01", scope.Ends]) {
+    assert.equal(bookingDate(scope, "expense", "", day), day);
+  }
+  for (const day of ["2025-10-31", "2026-10-01"]) {
+    assert.equal(bookingDate(scope, "income", "", day), "");
+    assert.equal(bookingDate(scope, "count", "Anfang", day), scope.Starts);
+    assert.equal(bookingDate(scope, "actual", "", day), scope.Ends);
+  }
+});
 const r = (Kind, Amount, Phase = "") => ({
   Kind,
   Data: { Amount, Phase, Wallet: "Nord" },

@@ -48,7 +48,7 @@ const runtimeGrants = `REVOKE CREATE ON SCHEMA public FROM PUBLIC;
  GRANT INSERT ON fire_account_links TO bonfire_runtime;
  GRANT INSERT,UPDATE ON wallet_catalog TO bonfire_runtime;
  GRANT INSERT ON event_catalog_wallets TO bonfire_runtime;
- GRANT INSERT ON wallet_batch_receipts TO bonfire_runtime;
+ GRANT INSERT ON wallet_batch_receipts,wallet_receipt_revisions TO bonfire_runtime;
  REVOKE INSERT, UPDATE ON event_records FROM bonfire_runtime;
  GRANT UPDATE(deleted_at) ON event_records TO bonfire_runtime;
  GRANT INSERT, DELETE, UPDATE(remaining) ON login_challenges TO bonfire_runtime;
