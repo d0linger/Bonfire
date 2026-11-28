@@ -35,11 +35,13 @@ try{
  const res=await context.request.post(base+"/api/login",{headers:{Authorization:admin}});
  assert.equal(res.status(),200);
  const page=await context.newPage();
+ page.setDefaultTimeout(10000);
  await page.goto(base);
  await page.locator("#menu-toggle").click();
  await page.locator("#fiscal-switch summary").click();await page.locator('[data-fiscal="'+year.ID+'"]').click();
  const nav=page.locator('nav [data-page="Veranstaltungen"]');
- if(!(await nav.isVisible()))await page.locator("#menu-toggle").click();
+ await nav.waitFor({state:"hidden"});
+ await page.locator("#menu-toggle").click();
  await nav.click();await page.locator('[data-space="'+event.ID+'"]').click();
  await page.locator('.tabs [data-page="Geldtaschen"]').click();
  const walletRow=page.getByRole("row").filter({has:page.getByRole("rowheader",{name:"Blue wallet",exact:true})});
@@ -47,6 +49,7 @@ try{
  assert.deepEqual(cells.map(s=>s.replace(/\s/g,"").split("·")[0]),["€100,00","€150,00","€150,00","€0,00","€60,00"]);
  await page.getByRole("button",{name:"Assign existing receipt",exact:true}).click();
  const dialog=page.getByRole("dialog");
+ await dialog.waitFor().catch(async err => { throw new Error("Allocation dialog: "+await page.locator("#notice").innerText(),{cause:err}); });
  await dialog.getByLabel("Cashbook receipt",{exact:true}).selectOption(receipt);
  await dialog.getByLabel("Amount allocated to this count in EUR").fill("60");
  await dialog.getByRole("button",{name:"Save allocation"}).click();

@@ -14,7 +14,7 @@ export function cashSettlement(rows, wallet) {
     remaining: countedCash==null ? null : countedCash-linked-posting};
 }
 export function allocationFields() {
-  return '<label>Cashbook receipt<select name="receipt" required></select></label>'+
+  return '<label>Cashbook receipt<select name="receipt" aria-label="Cashbook receipt" required></select></label>'+
    '<div class="actions"><button type="button" data-receipt-prev>Previous receipts</button><button type="button" data-receipt-next>More receipts</button></div>'+
    '<p data-receipt-balance aria-live="polite"></p><label>Amount allocated to this count in EUR<input name="allocation" inputmode="decimal" required></label>'+
    '<label>Reason for correction<input name="linkReason" maxlength="500"></label>';
